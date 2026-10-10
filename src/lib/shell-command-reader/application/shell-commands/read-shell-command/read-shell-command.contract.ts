@@ -41,7 +41,11 @@ export interface ReadShellCommandCommandFactory {
  * that needs the reading refuses (fail closed).
  */
 export interface ReadShellCommand {
-  /** Starts loading what reading needs, once; resolves when that settles, whatever it does. A host need not wait for it. */
+  /**
+   * Starts loading what reading needs, once, and again after a read has
+   * waited prepareWithinMs for it in vain; resolves when that settles,
+   * whatever it does. A host need not wait for it.
+   */
   prepare(): Promise<void>;
   /** The reading's wire form for one command given as a ReadShellCommandInput: read, or unread with why. */
   read(input: unknown): Promise<ShellCommandReadingJSON>;

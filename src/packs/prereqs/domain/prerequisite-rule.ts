@@ -54,8 +54,14 @@ const sameAgent = (a: AgentName, b: AgentName): boolean => a.value === b.value;
  * A before rule's agent matches ignoring case and surrounding spaces: a host
  * may resolve another spelling to the same agent (Claude Code 2.1.294 runs
  * plan-reviewer for "Plan-Reviewer"), so the rule catches every one (fail closed).
+ * Case is folded by lower-casing, upper-casing, then lower-casing again, so
+ * "straße", "STRASSE" and "ẞ" are one spelling. The fold is a function of the
+ * lower-cased name, so every pair lower-casing alone matches still matches
+ * ("ẞ" and "ß" included, which upper-casing first would split): it only
+ * gates more delegations and refuses more rules.
  */
-const anySpelling = (a: AgentName, b: AgentName): boolean => a.value.trim().toLowerCase() === b.value.trim().toLowerCase();
+const foldedSpelling = (name: AgentName): string => name.value.trim().toLowerCase().toUpperCase().toLowerCase();
+const anySpelling = (a: AgentName, b: AgentName): boolean => foldedSpelling(a) === foldedSpelling(b);
 
 /** A rule's fields once checked and tidied. */
 interface Fields {

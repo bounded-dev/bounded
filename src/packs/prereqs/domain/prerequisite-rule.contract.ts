@@ -65,8 +65,9 @@ export interface PrerequisiteRule {
   comesBefore(effect: Effect): boolean;
   /**
    * Whether the rule comes before `effect` (ADR 2026-019, amended): a
-   * delegation to its agent (in any case, ignoring surrounding spaces: every
-   * spelling a host may resolve to it); a write to a path its pattern matches
+   * delegation to its agent (ignoring case (lower-cased, upper-cased, then
+   * lower-cased again) and surrounding spaces: every spelling a host may
+   * resolve to it); a write to a path its pattern matches
    * (ignoring case, as the protected-paths pack), by a file tool or in a
    * shell command's reading; a shell command whose reading runs its program
    * prefix. Where a shell command's reading cannot show whether it does, the
@@ -83,8 +84,9 @@ export interface PrerequisiteRule {
   requiresDelegationTo(agent: AgentName): boolean;
   /**
    * Whether a delegation requested as `requested` may resolve to the rule's
-   * required agent: the same name ignoring case and surrounding spaces, as
-   * Claude Code resolves a requested name (ADR 2026-025). Such a delegation
+   * required agent: the same name ignoring case (lower-cased, upper-cased,
+   * then lower-cased again) and surrounding spaces, as Claude Code resolves
+   * a requested name (ADR 2026-025). Such a delegation
    * is a candidate: its start is kept, and it counts only when the host says
    * it resolved to the required agent exactly.
    */

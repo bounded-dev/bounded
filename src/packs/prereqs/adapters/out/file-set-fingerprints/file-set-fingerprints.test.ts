@@ -65,6 +65,19 @@ describe("FileSystemFileSetFingerprints — the project's files on disk", () => 
     expect(!matching.ok && matching.error).toContain("docs/readme-alias.md is a symbolic link");
   });
 
+  test("a link whose target cannot be examined refuses where the patterns could reach into it, naming it; a dangling one there is ignored", async () => {
+    const looping = projectWith({ "src/a.ts": "a\n" });
+    // A link to itself: stat fails with ELOOP, so whether it is a directory cannot be told.
+    symlinkSync("loop", join(looping, "src", "loop"));
+    const refused = await new FileSystemFileSetFingerprints(looping).fingerprint(["src/**/*.ts"]);
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.error).toContain("src/loop is a symbolic link");
+    const dangling = projectWith({ "src/a.ts": "a\n" });
+    symlinkSync("missing", join(dangling, "src", "gone"));
+    symlinkSync("a.ts/inner", join(dangling, "src", "through-file"));
+    expect(await new FileSystemFileSetFingerprints(dangling).fingerprint(["src/**/*.ts"])).toMatchObject({ ok: true, value: { fileCount: 1 } });
+  });
+
   test("an entry the patterns match that is neither a file, a directory nor a link refuses; one they do not match is ignored", async () => {
     const root = projectWith({ "docs/a.md": "a\n" });
     expect(spawnSync("mkfifo", [join(root, "docs", "pipe")]).status).toBe(0);

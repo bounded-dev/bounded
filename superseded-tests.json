@@ -3927,7 +3927,7 @@
       "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
       "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's requirement is met by a delegation to its required agent, by its exact name"
     },
-    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+    "reason": "a requirement's agent matches exactly, so a run recorded under another spelling does not count (fail closed) (final review of prereqs, ADR 2026-019)"
   },
   {
     "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
@@ -3936,7 +3936,7 @@
       "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
       "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule holds, is stale or is missing against records of its exact agent and the current fingerprint"
     },
-    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+    "reason": "a requirement's agent matches exactly, so a run recorded under another spelling does not count (fail closed) (final review of prereqs, ADR 2026-019)"
   },
   {
     "file": "contexts/core/src/packs/prereqs/domain/prerequisite-start.test.ts",
@@ -3945,7 +3945,7 @@
       "file": "contexts/core/src/packs/prereqs/domain/prerequisite-start.test.ts",
       "case": "PrerequisiteStart — a delegation's files, fingerprinted as the run starts > the same agent, by its exact name, and patterns, in any order, share a requirement key"
     },
-    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+    "reason": "a requirement's agent matches exactly, so a run recorded under another spelling does not count (fail closed) (final review of prereqs, ADR 2026-019)"
   },
   {
     "file": "apps/pi/src/extension.test.ts",

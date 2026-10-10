@@ -115,7 +115,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     for (never adding one), and any third-party installer. It is
     idempotent and never writes the configuration. Any failed install
     restores `package.json` and the lockfiles.
-  - Both end with a restart notice per host (3.1.1), none for a host
+  - Both end with a restart notice per host (since 3.2.0), none for a host
     skipped. Claude Code's sessions restart only when init set it up or its
     settings changed; otherwise a line says the new `bounded` is live on
     their next tool call. pi's sessions, and a third-party host's, are told
@@ -284,10 +284,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     without `async: false` is refused, and no pi result is counted as
     finished, until item 1c (`prereqs-pi-async`).
   - A link is never followed: a link to a directory a rule's
-    `unchangedSince` patterns could reach into, or a link whose own path
+    `unchangedSince` patterns could reach into, or a link whose target
+    cannot be examined (a loop, or one behind a directory bounded may not
+    read) where they could reach into it, or a link whose own path
     they match, makes the rule refuse, naming the link; so does a FIFO,
     socket or device they match. Other links are ignored.
-  - `before.delegate` folds case and spaces (Claude Code resolves agent
+  - `before.delegate` folds case (lower-cased, upper-cased, then lower-cased
+    again) and surrounding spaces (Claude Code resolves agent
     names case-insensitively, seen on 2.1.294); `require` matches the agent
     the host resolved, exactly, so a run whose host does not say which agent
     ran never counts.
@@ -345,8 +348,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   the shell command reader at session start; a call made before that
   finishes waits for it (up to 5 s), and is blocked, never let through, only
   if loading outruns pi's 3 s decision deadline. A preparation that never
-  settles is cached and never retried, so every later shell call in that pi
-  process waits up to 5 s for it and is blocked. Claude Code's
+  settles is waited on once: later calls do not wait for it, and the next
+  session start prepares again; while bounded's reader's grammar load still
+  hangs, each shell call is read unread (timed out) within 2 s and refused.
+  Claude Code's
   first read in each hook process waits for the grammar within its 20 s
   deadline ([ADR 2026-020](adr/2026-020-shell-command-reading.md), "Reading
   in the host adapter").

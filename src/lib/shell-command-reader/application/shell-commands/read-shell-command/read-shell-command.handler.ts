@@ -48,7 +48,9 @@ async function within<T>(work: Promise<T>, ms: number, late: T): Promise<T> {
  * reader's answer parsed into a reading's wire form. A command that cannot
  * be read is unread, saying why; nothing here ever rejects. A read started
  * while the reader's preparation is in flight waits for it, up to
- * prepareWithinMs, before its own bound starts.
+ * prepareWithinMs, before its own bound starts. A preparation a read has
+ * waited prepareWithinMs for in vain is let go: later reads do not wait for
+ * it, and the next prepare() starts the reader's preparation again.
  */
 export class ReadShellCommandHandler implements ReadShellCommand {
   /** How long the reader may take over one command. */
@@ -57,8 +59,8 @@ export class ReadShellCommandHandler implements ReadShellCommand {
   static readonly DEFAULT_PREPARE_WITHIN_MS = 5000;
   private readonly readWithinMs: number;
   private readonly prepareWithinMs: number;
-  /** The reader's preparation, once started; it never rejects. */
-  private preparing: Promise<void> | undefined;
+  /** The reader's preparation, once started and until a read has waited it out; it never rejects. */
+  private preparing: Promise<undefined> | undefined;
 
   constructor(
     private readonly reader: ShellCommandReader,
@@ -68,7 +70,11 @@ export class ReadShellCommandHandler implements ReadShellCommand {
     this.prepareWithinMs = boundOf("prepareWithinMs", options.prepareWithinMs, ReadShellCommandHandler.DEFAULT_PREPARE_WITHIN_MS);
   }
 
-  /** Starts the reader's preparation once; a preparation that fails, throws or never settles is let go: reading works unprepared, or says why it cannot. */
+  /**
+   * Starts the reader's preparation once, and again after a read has waited
+   * prepareWithinMs for it in vain; a preparation that fails, throws or never
+   * settles is let go: reading works unprepared, or says why it cannot.
+   */
   prepare(): Promise<void> {
     if (this.preparing === undefined) {
       this.preparing = attempt(() => this.reader.prepare()).then(
@@ -83,7 +89,13 @@ export class ReadShellCommandHandler implements ReadShellCommand {
     try {
       const command = ReadShellCommandCommand.parse(input);
       if (!command.ok) return unread(command.error);
-      if (this.preparing !== undefined) await within(this.preparing, this.prepareWithinMs, undefined);
+      const preparing = this.preparing;
+      if (preparing !== undefined) {
+        const waitedOut = Symbol("waited out");
+        const waited = await within<undefined | typeof waitedOut>(preparing, this.prepareWithinMs, waitedOut);
+        // Let go only of the very preparation this read waited out, never of a newer one a later prepare() started.
+        if (waited === waitedOut && this.preparing === preparing) this.preparing = undefined;
+      }
       const { projectRoot, command: shellCommand, cwd } = command.value;
       const timedOut = Symbol("timed out");
       const answer = await within(

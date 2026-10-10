@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentRunFinished, readPayload, translate } from "./translate.ts";
+import { agentRunFinished, delegatedAgentRunOf, readPayload, translate } from "./translate.ts";
 
 const payload = (tool_name: string, tool_input: Record<string, unknown>) => ({ tool_name, tool_input, cwd: "/p" });
 const call = (tool_name: string, tool_input: Record<string, unknown>) => {
@@ -167,5 +167,21 @@ describe("translate: what an Agent call says about the run it starts", () => {
     expect(agentRunFinished({ status: "async_launched", isAsync: true, agentId: "a" })).toBe(false);
     expect(agentRunFinished({ status: "async_launched", agentId: "a" })).toBe(false);
     for (const response of [{ status: "other" }, {}, null, "completed", undefined]) expect(agentRunFinished(response)).toBe(false);
+  });
+
+  test("delegatedAgentRunOf gives a run's id only for a completed or launched response, and says its finish is reported later only for a launch with isAsync true and an id", () => {
+    expect(delegatedAgentRunOf({ status: "async_launched", isAsync: true, agentId: "a" })).toEqual({ finished: false, agentRunId: "a", finishReportedLater: true });
+    for (const isAsync of [{ isAsync: false }, {}, { isAsync: "true" }]) {
+      expect(delegatedAgentRunOf({ status: "async_launched", ...isAsync, agentId: "a" })).toEqual({ finished: false, agentRunId: "a" });
+    }
+    expect(delegatedAgentRunOf({ status: "async_launched", isAsync: true })).toEqual({ finished: false });
+    expect(delegatedAgentRunOf({ status: "async_launched", isAsync: true, agentId: " " })).toEqual({ finished: false });
+    expect(delegatedAgentRunOf({ status: "completed", harnessNoteCount: 0, agentId: "a", agentType: "plan-reviewer" })).toEqual({ finished: true, agentRunId: "a", resolvedAgent: "plan-reviewer" });
+    // A turn-limited run: an id, no resolved agent, no later finish.
+    expect(delegatedAgentRunOf({ status: "completed", harnessNoteCount: 1, agentId: "a", agentType: "x" })).toEqual({ finished: false, agentRunId: "a" });
+    for (const status of [{ status: "failed" }, { status: "running" }, { status: "other" }, {}]) {
+      expect(delegatedAgentRunOf({ ...status, agentId: "a", isAsync: true })).toEqual({ finished: false });
+    }
+    for (const response of [null, "completed"]) expect(delegatedAgentRunOf(response)).toEqual({ finished: false });
   });
 });

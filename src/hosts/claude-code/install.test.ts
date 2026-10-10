@@ -120,4 +120,25 @@ describe("isBoundedHook: bounded's own hook without a role, whatever form an ins
     expect(isBoundedHook(hook(hookCommand({ bun: "bun", main: "/path/to/src/hosts/claude-code/main.ts", role: "builder" })))).toBe(false);
     expect(isBoundedHook(hook("bun /p/src/hosts/other/main.ts"))).toBe(false);
   });
+
+  test("a command that only contains the path of bounded's hook is not bounded's: a backup, a longer name, or a path that merely ends like it", () => {
+    expect(isBoundedHook(hook("bun /p/src/hosts/claude-code/main.ts.bak"))).toBe(false);
+    expect(isBoundedHook(hook("bun '/p/src/hosts/claude-code/main.ts-old'"))).toBe(false);
+    expect(isBoundedHook(hook('node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js.orig"'))).toBe(false);
+    expect(isBoundedHook(hook("bun /p/my-src/hosts/claude-code/main.ts"))).toBe(false);
+    expect(isBoundedHook(hook("bun /p/node_modules/not-bounded-claude-code/src/main.ts"))).toBe(false);
+    // Every form an install wrote, and a hand-written one followed by a shell operator, still counts.
+    expect(isBoundedHook(hook(hookCommand({ bun: "bun", main: "/path/to/src/hosts/claude-code/main.ts" })))).toBe(true);
+    expect(isBoundedHook(hook("bun /old/checkout/apps/claude-code/src/main.ts"))).toBe(true);
+    expect(isBoundedHook(hook("bun /p/node_modules/bounded-claude-code/src/main.ts"))).toBe(true);
+    expect(isBoundedHook(hook('node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"'))).toBe(true);
+    expect(isBoundedHook(hook("bun /p/src/hosts/claude-code/main.ts"))).toBe(true);
+    expect(isBoundedHook(hook("bun /p/src/hosts/claude-code/main.ts; echo done"))).toBe(true);
+    expect(isBoundedHook(hook("bun /p/src/hosts/claude-code/main.ts||true"))).toBe(true);
+    const installed = withHooks({}, "bun /p/src/hosts/claude-code/main.ts");
+    if (!installed.ok) throw new Error(installed.error);
+    const preToolUse = (installed.value.settings as { hooks: { PreToolUse: { hooks: { command: string }[] }[] } }).hooks.PreToolUse[0]?.hooks[0];
+    expect(preToolUse?.command).toContain("main.ts\n");
+    expect(isBoundedHook(preToolUse)).toBe(true);
+  });
 });

@@ -195,7 +195,9 @@ the `...FromConfig` ones, which open the project the same way):
   `stop_hook_active`, `background_tasks` and `last_assistant_message` are not
   read. The answer is always empty, within the deadline, whatever happens,
   even without `CLAUDE_PROJECT_DIR`: a deny means nothing there, and a block
-  would keep the subagent running. Without `recordAgentRunFinish`,
+  would keep the subagent running; except when the hook cannot start at
+  all: `main.ts`'s bootstrap then writes its deny for every event,
+  SubagentStop included. Without `recordAgentRunFinish`,
   `SubagentStop` answers nothing.
 
   The orders Claude Code 2.1.294 was captured sending (payloads pinned,
@@ -235,7 +237,11 @@ running bounded's bundled hook, a hook installed by hand from a checkout's
 `src/hosts/claude-code/main.ts`, or, from earlier installs, the
 bounded-claude-code package's or an older checkout's
 `apps/claude-code/src/main.ts`, under node or bun, at any path, so an older
-install's hook is replaced, not duplicated. Settings that exist but cannot be read, or are not JSON, are
+install's hook is replaced, not duplicated, where the path is a whole word
+of the command (it starts after a `/`, a quote or whitespace, and ends at
+the command's end, whitespace, a quote or a shell operator), so a backup
+such as `main.ts.bak` or a look-alike path is someone else's hook: neither
+removed nor counted as an install. Settings that exist but cannot be read, or are not JSON, are
 refused and left alone.
 
 To install by hand, read `.claude/settings.json` (or `{}`), pass it to

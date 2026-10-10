@@ -151,4 +151,52 @@ describe("ReadShellCommandHandler", () => {
     expect(readBeforeSettled).toBe(false);
     expect(ReadShellCommandHandler.DEFAULT_PREPARE_WITHIN_MS).toBe(5000);
   });
+
+  test("a preparation a read has waited prepareWithinMs for is let go: later reads do not wait for it, the next prepare starts the reader's preparation again, and a read that times out on the old one leaves the new one waited on", async () => {
+    const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    let preparations = 0;
+    let settleSecond: (() => void) | undefined;
+    const reader: ShellCommandReader = {
+      prepare: () => {
+        preparations++;
+        if (preparations === 1) return new Promise<void>(() => {});
+        return new Promise<void>((resolve) => {
+          settleSecond = resolve;
+        });
+      },
+      read: async () => READ,
+    };
+    const handler = new ReadShellCommandHandler(reader, { prepareWithinMs: 200 });
+    void handler.prepare();
+    void handler.prepare();
+    // In flight and not yet waited out: prepared once.
+    expect(preparations).toBe(1);
+    const startedA = performance.now();
+    const readA = handler.read(input);
+    await pause(100);
+    const readB = handler.read(input);
+    expect(await readA).toEqual(READ);
+    expect(performance.now() - startedA).toBeGreaterThanOrEqual(180);
+    // A waited the first preparation out: it is let go, and the next prepare starts another.
+    void handler.prepare();
+    expect(preparations).toBe(2);
+    // B times out on the first preparation, about 100 ms after A.
+    expect(await readB).toEqual(READ);
+    // B's timeout did not let go of the second preparation: a later read waits on it.
+    let answeredC = false;
+    const readC = handler.read(input).then((reading) => {
+      answeredC = true;
+      return reading;
+    });
+    await pause(100);
+    expect(answeredC).toBe(false);
+    void handler.prepare();
+    expect(preparations).toBe(2);
+    settleSecond?.();
+    expect(await readC).toEqual(READ);
+    // The second preparation has settled and is kept: a read does not wait.
+    const startedD = performance.now();
+    expect(await handler.read(input)).toEqual(READ);
+    expect(performance.now() - startedD).toBeLessThan(50);
+  });
 });

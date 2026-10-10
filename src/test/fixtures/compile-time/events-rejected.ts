@@ -81,3 +81,4 @@ export const unreadExecute: ExecuteEffectJSON = { kind: "execute", command: "ls"
 // 9. An agent run's finish says whether it ran to its end with true, false or null, never text; a finish reported later is only ever true.
 export const ranToEndText: AgentRunFinishedJSON = { role: null, agent: "plan-reviewer", agentRunId: "a1", ranToEnd: "yes" }; // rejected: Type 'string' is not assignable to type 'boolean | null'
 export const notLater: DelegatedAgentRunJSON = { finished: false, agentRunId: "a1", finishReportedLater: false }; // rejected: Type 'false' is not assignable to type 'true'
+export const neverReportedFalse: DelegatedAgentRunJSON = { finished: false, finishNeverReported: false }; // rejected: Type 'false' is not assignable to type 'true'

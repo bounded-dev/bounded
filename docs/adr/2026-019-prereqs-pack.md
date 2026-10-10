@@ -141,7 +141,9 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
   first rule that does not hold refuses, beginning `bounded/prereqs.rules:`,
   naming the contributing pack and the rule, with the rule's redirect.
 - **Agent names: `before` folds, `require` is exact, deliberately.** A
-  rule's `before.delegate` matches a delegation ignoring case and
+  rule's `before.delegate` matches a delegation ignoring case (lower-cased,
+  upper-cased, then lower-cased again, so 'ß', 'ẞ' and 'SS' are one
+  spelling; it matches every pair lower-casing alone matches) and
   surrounding spaces: Claude Code resolves agent names case-insensitively
   (observed by the orchestrator on 2.1.294: an Agent call with
   `subagent_type` "Plan-Reviewer" ran plan-reviewer, and SubagentStart and
@@ -153,7 +155,8 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
   exactly against the agent the host resolved the requested name to, not the
   requested name, so a requested "Plan-Reviewer" that ran plan-reviewer
   counts; a delegation is a candidate when its requested name folds to the
-  required agent.
+  required agent, by the same fold (ignoring case (lower-cased, upper-cased,
+  then lower-cased again) and surrounding spaces).
 - **A delegation some rule requires** is refused at the call when it is
   isolated ("Run <agent> without isolation, on the project's own files": a
   worktree branches from the default branch, so the agent would review other
@@ -284,7 +287,9 @@ pi-subagents' project agent directory), which give role identity.
   mappings").
 - **Links and special files make the fingerprint fail, naming them.** A
   link is never followed. One to a directory the patterns could reach into
-  (classified by `stat`), or one whose own path the patterns match (to a
+  (classified by `stat`; a link `stat` cannot examine, other than a missing
+  target, counts as one: a loop, or one behind a directory bounded may not
+  read), or one whose own path the patterns match (to a
   file, or dangling), refuses until it is replaced by files or left out of
   the patterns, including one created during a run; any other link is
   ignored. A FIFO, socket or device the patterns match refuses too (fail
