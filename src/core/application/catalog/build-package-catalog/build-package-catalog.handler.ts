@@ -88,7 +88,11 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
       examples.push(example.value);
     }
     const pointsByKey = new Map(api.value.points.map((point) => [point.key, point]));
-    const portsByKey = new Map(api.value.ports.map((port) => [port.key, port]));
+    const portsByKey = new Map([...api.value.ports, ...api.value.optionalPorts].map((port) => [port.key, port]));
+    const cataloguedPort = (port: { readonly id: string; readonly key: string }) => {
+      const typed = portsByKey.get(port.key);
+      return { id: port.id, key: port.key, adapterType: typed?.adapterType ?? "", documentation: typed?.documentation ?? "", declaration: typed?.declaration ?? "" };
+    };
     return {
       ok: true,
       value: {
@@ -103,10 +107,9 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
           const typed = pointsByKey.get(point.key);
           return { id: point.id, key: point.key, description: point.description, documentation: typed?.documentation ?? "", valueType: typed?.valueType ?? "", wire: typed?.wire ?? null };
         }),
-        ports: description.ports.map((port) => {
-          const typed = portsByKey.get(port.key);
-          return { id: port.id, key: port.key, adapterType: typed?.adapterType ?? "", documentation: typed?.documentation ?? "", declaration: typed?.declaration ?? "" };
-        }),
+        ports: description.ports.map(cataloguedPort),
+        // Present only when the pack has optional ports (ADR 2026-029).
+        ...(description.optionalPorts.length === 0 ? {} : { optionalPorts: description.optionalPorts.map(cataloguedPort) }),
         readme: readme.value.toJSON(),
         examples,
       },
@@ -119,6 +122,7 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
     for (const [what, objectKeys, contractKeys] of [
       ["point", description.points.map(({ key }) => key), api.points.map(({ key }) => key)],
       ["port", description.ports.map(({ key }) => key), api.ports.map(({ key }) => key)],
+      ["optional port", description.optionalPorts.map(({ key }) => key), api.optionalPorts.map(({ key }) => key)],
     ] as const) {
       const onlyContract = onlyIn(contractKeys, objectKeys);
       const onlyObject = onlyIn(objectKeys, contractKeys);
@@ -146,7 +150,8 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
       introduction: document.value.introduction,
       sections: document.value.sections,
       pointKeys: description.points.map(({ key }) => key),
-      portKeys: description.ports.map(({ key }) => key),
+      // Ports names every port key, required and optional.
+      portKeys: [...description.ports, ...description.optionalPorts].map(({ key }) => key),
     });
   }
 

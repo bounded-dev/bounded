@@ -250,10 +250,10 @@ class PackProgram {
     return written !== undefined && ts.isTypeReferenceNode(written) ? written.typeArguments?.[0] : undefined;
   }
 
-  /** The ports the pack's type declares, each with its adapter interface, that interface's TSDoc and its declaration. */
-  ports(packType: TypeScript.Type): Result<PackSourcePort[]> {
+  /** The ports the pack's type declares in `section` (ports, or optionalPorts), each with its adapter interface, that interface's TSDoc and its declaration. */
+  ports(packType: TypeScript.Type, section: "ports" | "optionalPorts"): Result<PackSourcePort[]> {
     const { checker, ts } = this;
-    const portsSymbol = packType.getProperty("ports");
+    const portsSymbol = packType.getProperty(section);
     if (portsSymbol === undefined) return { ok: true, value: [] };
     const ports: PackSourcePort[] = [];
     for (const property of checker.getPropertiesOfType(checker.getTypeOfSymbol(portsSymbol))) {
@@ -306,14 +306,17 @@ export class TypeScriptPackSourceApi implements PackSourceApi {
     if (!overview.ok) return overview;
     const points = program.points(overview.value.type);
     if (!points.ok) return points;
-    const ports = program.ports(overview.value.type);
+    const ports = program.ports(overview.value.type, "ports");
     if (!ports.ok) return ports;
+    const optionalPorts = program.ports(overview.value.type, "optionalPorts");
+    if (!optionalPorts.ok) return optionalPorts;
     return {
       ok: true,
       value: {
         overview: { name: overview.value.name, documentation: overview.value.documentation },
         points: points.value,
         ports: ports.value,
+        optionalPorts: optionalPorts.value,
         examples: examplePaths.map((path) => program.example(path, join(packageDir, path))),
       },
     };

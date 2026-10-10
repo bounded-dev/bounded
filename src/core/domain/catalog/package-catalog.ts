@@ -41,6 +41,7 @@ const packSchema = z.object({
   contributesTo: z.array(text),
   points: z.array(pointSchema),
   ports: z.array(portSchema),
+  optionalPorts: z.array(portSchema).optional(),
   readme: readmeSchema,
   examples: z.array(exampleSchema).min(1, { message: "a pack has at least one example" }),
 });
@@ -90,6 +91,8 @@ class PackageCatalogImpl implements Contract.PackageCatalog {
       for (const pack of parsed.data.packs) {
         if (seen.has(pack.id)) return { ok: false, error: `A package catalogue lists the pack ${pack.id} twice: each pack appears once` };
         seen.add(pack.id);
+        const twice = (pack.optionalPorts ?? []).find((optional) => pack.ports.some((port) => port.key === optional.key));
+        if (twice !== undefined) return { ok: false, error: `A package catalogue lists the port ${twice.key} of ${pack.id} both in ports and in optionalPorts: a port is required or optional` };
         if (!pack.id.startsWith(`${name}/`)) return { ok: false, error: `A package catalogue of ${name} lists the pack ${pack.id}, whose id is not rooted at the package's name: build its id with packIdsFor("${name}")` };
       }
       // zod's output is a new object, never the input: freezing it freezes nothing the caller holds.

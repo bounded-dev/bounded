@@ -49,6 +49,13 @@ describe("bounded's own catalogue", () => {
     expect(prereqs?.summary).toBe("an action needs a prerequisite");
   });
 
+  test("prereqs: its optional port, the status snapshots, apart from its two ports; protected-paths has none", () => {
+    const prereqs = entry("bounded/prereqs") as (Entry & { readonly optionalPorts?: readonly { readonly id: string; readonly key: string; readonly adapterType: string }[] }) | undefined;
+    expect(prereqs?.ports.map(({ key }) => key)).toEqual(["fileSetFingerprints", "prerequisiteRecords"]);
+    expect(prereqs?.optionalPorts?.map(({ id, key, adapterType }) => ({ id, key, adapterType }))).toEqual([{ id: "bounded/prereqs#prerequisiteStatusSnapshots", key: "prerequisiteStatusSnapshots", adapterType: "PrerequisiteStatusSnapshots" }]);
+    expect((entry("bounded/protected-paths") as { readonly optionalPorts?: unknown } | undefined)?.optionalPorts).toBeUndefined();
+  });
+
   test("protected-paths: its guards, then its lifecycle contributions, its protectedPaths point and its two ports", () => {
     const protectedPaths = entry("bounded/protected-paths");
     expect(protectedPaths?.contributesTo).toEqual([

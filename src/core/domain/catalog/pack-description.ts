@@ -14,6 +14,7 @@ class PackDescriptionImpl implements Contract.PackDescription {
     readonly contributesTo: readonly string[],
     readonly points: readonly Contract.DescribedPoint[],
     readonly ports: readonly Contract.DescribedPort[],
+    readonly optionalPorts: readonly Contract.DescribedPort[],
   ) {
     Object.freeze(this);
   }
@@ -22,8 +23,9 @@ class PackDescriptionImpl implements Contract.PackDescription {
     const id = packIdText(pack.id);
     const contributesTo = [...new Set(pack.contributes.map((contribution) => contribution.point.id))];
     const points = keyedPointsOf(pack).map(({ key, point }) => Object.freeze({ key, id: point.id, description: point.description }));
-    const ports = Object.entries(pack.ports).map(([key, port]) => Object.freeze({ key, id: String(port.toJSON()) }));
-    return new PackDescriptionImpl(id, Object.freeze(pack.dependsOn.map((dependency) => packIdText(dependency.id))), Object.freeze(contributesTo), Object.freeze(points), Object.freeze(ports));
+    const described = (section: BasePack["ports"]): readonly Contract.DescribedPort[] => Object.freeze(Object.entries(section).map(([key, port]) => Object.freeze({ key, id: String(port.toJSON()) })));
+    const ports = described(pack.ports);
+    return new PackDescriptionImpl(id, Object.freeze(pack.dependsOn.map((dependency) => packIdText(dependency.id))), Object.freeze(contributesTo), Object.freeze(points), ports, described(pack.optionalPorts));
   }
 }
 

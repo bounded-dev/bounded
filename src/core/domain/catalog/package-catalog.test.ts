@@ -106,4 +106,14 @@ describe("PackageCatalog — a package's catalogue of its packs (ADR 2026-029)",
     expect(parsed.ok && Object.isFrozen(parsed.value.packs)).toBe(true);
     expect(parsed.ok && Object.isFrozen(parsed.value.packs[0] as Pack)).toBe(true);
   });
+
+  test("a pack's optional ports round-trip beside its ports; a key in both is refused", () => {
+    const optionalPort = { id: "demo-package/demo#statusSnapshots", key: "statusSnapshots", adapterType: "StatusSnapshots", documentation: "Where the status is saved.", declaration: "interface StatusSnapshots {\n  save(): Promise<void>;\n}" };
+    const withOptional = withPack((pack) => ({ ...pack, optionalPorts: [optionalPort] }));
+    const parsed = PackageCatalog.parse(withOptional);
+    expect(parsed.ok ? "ok" : parsed.error).toBe("ok");
+    expect<unknown>(parsed.ok && parsed.value.toJSON()).toEqual(withOptional);
+    const twice = withPack((pack) => ({ ...pack, optionalPorts: [{ ...optionalPort, id: "demo-package/demo#noteStore", key: "noteStore" }] }));
+    expect(refusal(twice)).toContain("noteStore");
+  });
 });

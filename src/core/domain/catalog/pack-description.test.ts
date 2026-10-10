@@ -41,4 +41,13 @@ describe("PackDescription — what a pack object says about itself", () => {
     expect(description.dependsOn).toEqual([]);
     expect(description.contributesTo).toEqual([]);
   });
+
+  test("a pack's optional ports are described apart from its required ones, in its optionalPorts section's order", () => {
+    const status = portKeysFor(watcherId)<{ save(text: string): Promise<void> }>("statusSnapshots");
+    const withOptional = definePack({ id: watcherId, dependsOn: [corePack], ports: { noteStore }, optionalPorts: { statusSnapshots: status } });
+    const description = PackDescription.of(withOptional);
+    expect(description.ports).toEqual([{ key: "noteStore", id: "test-packs/watcher#noteStore" }]);
+    expect(description.optionalPorts).toEqual([{ key: "statusSnapshots", id: "test-packs/watcher#statusSnapshots" }]);
+    expect(PackDescription.of(watcher).optionalPorts).toEqual([]);
+  });
 });

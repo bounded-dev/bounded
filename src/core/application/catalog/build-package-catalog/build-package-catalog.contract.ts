@@ -119,6 +119,8 @@ export interface PackSourceApiReading {
   readonly overview: { readonly name: string; readonly documentation: string };
   readonly points: readonly PackSourcePoint[];
   readonly ports: readonly PackSourcePort[];
+  /** The ports the pack's type declares in optionalPorts, which a host may provide (ADR 2026-026). */
+  readonly optionalPorts: readonly PackSourcePort[];
   readonly examples: readonly PackSourceExample[];
 }
 

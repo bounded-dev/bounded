@@ -96,6 +96,8 @@ export interface CataloguedPackJSON {
   readonly contributesTo: readonly string[];
   readonly points: readonly CataloguedPointJSON[];
   readonly ports: readonly CataloguedPortJSON[];
+  /** The ports a host may provide (ADR 2026-026), for output that decides no verdict and no record; present only when the pack has any. */
+  readonly optionalPorts?: readonly CataloguedPortJSON[] | undefined;
   readonly readme: CataloguedReadmeJSON;
   readonly examples: readonly CataloguedExampleJSON[];
 }

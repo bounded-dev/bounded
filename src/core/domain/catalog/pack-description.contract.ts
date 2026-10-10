@@ -20,7 +20,7 @@ export interface DescribedPort {
 /**
  * What a pack object says about itself, as text, for a package catalogue
  * (ADR 2026-029): its id, the ids of the packs it depends on, the points it
- * contributes to, the points it declares and the ports it needs.
+ * contributes to, the points it declares, the ports it needs and those it may be given.
  */
 export interface PackDescription {
   readonly __brand: "PackDescription";
@@ -34,6 +34,8 @@ export interface PackDescription {
   readonly points: readonly DescribedPoint[];
   /** Its ports, in its ports section's order. */
   readonly ports: readonly DescribedPort[];
+  /** Its optional ports, which a host may provide (ADR 2026-026), in its optionalPorts section's order. */
+  readonly optionalPorts: readonly DescribedPort[];
 }
 
 export interface PackDescriptionFactory {

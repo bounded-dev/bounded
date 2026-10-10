@@ -185,6 +185,37 @@ describe("bounded catalog build", () => {
     expect(demoEntryIn(renamed).documentation).toStartWith("The demonstration pack, `demo-package/demo`");
   });
 
+  test("catalogues a pack's optional port, and refuses a README whose Ports does not name it, or a contract that does not declare it", async () => {
+    const pack = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "demo.pack.ts"), "utf8")
+      .replace('import { noteStorePort } from "./application/keep-notes.contract.ts";', 'import { noteArchivePort, noteStorePort } from "./application/keep-notes.contract.ts";')
+      .replace("  ports: { noteStore: noteStorePort },", "  ports: { noteStore: noteStorePort },\n  optionalPorts: { noteArchive: noteArchivePort },");
+    const port = `${readFileSync(join(DEMO_PACKAGE, "packs", "demo", "application", "keep-notes.contract.ts"), "utf8")}
+/** Where old notes are archived, when a host offers it. */
+export interface NoteArchive {
+  /** Archives one note. */
+  archive(text: string): Promise<void>;
+}
+
+/** The pack's archive of notes, which a host may provide. */
+export const noteArchivePort = portKeysFor(demoId)<NoteArchive>("noteArchive");
+`;
+    const contract = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "demo.contract.ts"), "utf8")
+      .replace('import type { NoteStore } from "./application/keep-notes.contract.ts";', 'import type { NoteArchive, NoteStore } from "./application/keep-notes.contract.ts";')
+      .replace("  readonly ports: DemoPorts;\n}", "  readonly ports: DemoPorts;\n  readonly optionalPorts: { readonly noteArchive: PortKey<NoteArchive, DemoId> };\n}");
+    const readme = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "README.md"), "utf8").replace("- `noteStore` (`NoteStore`): where notes are kept.", "- `noteStore` (`NoteStore`): where notes are kept.\n- `noteArchive` (`NoteArchive`), optional: where old notes are archived.");
+    const files = { "packs/demo/demo.pack.ts": pack, "packs/demo/application/keep-notes.contract.ts": port, "packs/demo/demo.contract.ts": contract };
+    const built = await demoPackage({ files: { ...files, "packs/demo/README.md": readme } });
+    const ran = bounded(["catalog", "build"], built);
+    expect(ran.stderr).toBe("");
+    const entry = demoEntryIn(built) as DemoEntry & { readonly optionalPorts?: readonly { id: string; key: string; adapterType: string }[] };
+    expect(entry.ports.map(({ key }) => key)).toEqual(["noteStore"]);
+    expect(entry.optionalPorts?.map(({ id, key, adapterType }) => ({ id, key, adapterType }))).toEqual([{ id: "demo-package/demo#noteArchive", key: "noteArchive", adapterType: "NoteArchive" }]);
+    const unnamed = await demoPackage({ files });
+    expectRefused(unnamed, bounded(["catalog", "build"], unnamed), "demo-package/demo", "'noteArchive'", "## Ports");
+    const undeclared = await demoPackage({ files: { ...files, "packs/demo/demo.contract.ts": readFileSync(join(DEMO_PACKAGE, "packs", "demo", "demo.contract.ts"), "utf8"), "packs/demo/README.md": readme } });
+    expectRefused(undeclared, bounded(["catalog", "build"], undeclared), "demo-package/demo", "noteArchive");
+  });
+
   test("refuses a README missing `## Workflows it fits`, naming the pack, the README and the heading, and writes nothing", async () => {
     const readme = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "README.md"), "utf8").replace(/## Workflows it fits\n\n[^\n]*\n\n/, "");
     expect(readme).not.toContain("Workflows it fits");

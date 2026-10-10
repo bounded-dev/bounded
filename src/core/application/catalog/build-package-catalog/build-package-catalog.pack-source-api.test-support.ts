@@ -250,5 +250,36 @@ export type Wrapped<V> = ExtensionPoint<V[], DemoId>;
       else expect(read.error).toContain("'lists'");
       expect(read.ok ? JSON.stringify(read.value.points.find(({ key }) => key === "lists")?.wire?.schema) : "refused").not.toBe(JSON.stringify({ type: "string" }));
     });
+
+    test("gives each optional port the contract's optionalPorts declare, apart from the required ones", async () => {
+      const contract = demoContract(NOTES_POINT).replace(
+        `  readonly ports: DemoPorts;
+}`,
+        `  readonly ports: DemoPorts;
+  readonly optionalPorts: DemoOptionalPorts;
+}
+
+/** The adapters a host may provide. */
+export type DemoOptionalPorts = {
+  readonly noteArchive: PortKey<NoteArchive, DemoId>;
+};
+
+/**
+ * Where old notes are archived, when a host offers it.
+ * @implementedBy FileSystemNoteArchive
+ */
+export interface NoteArchive {
+  /** Archives one note. */
+  archive(text: string): Promise<void>;
+}`,
+      );
+      const given = await fixture({ files: { "packs/demo/demo.contract.ts": contract } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      expect(read.value.ports.map(({ key }) => key)).toEqual(["noteStore"]);
+      expect(read.value.optionalPorts.map(({ key, adapterType, documentation }) => ({ key, adapterType, documentation }))).toEqual([{ key: "noteArchive", adapterType: "NoteArchive", documentation: "Where old notes are archived, when a host offers it." }]);
+      expect(read.value.optionalPorts[0]?.declaration).toStartWith("interface NoteArchive {");
+    });
   });
 }
