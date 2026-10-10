@@ -37,7 +37,7 @@ if (claude === null) {
 
 /** Runs `argv`, printing its output whole; resolves its exit code and output. */
 function run(title: string, argv: string[]): { exitCode: number; output: string } {
-  console.log(`\n== ${title}: ${argv.map((part) => relative(ROOT, part) || part).join(" ")}`);
+  console.log(`\n== ${title}: ${argv.map((part) => (part.startsWith(`${ROOT}${sep}`) ? relative(ROOT, part) : part)).join(" ")}`);
   const ran = Bun.spawnSync(argv, { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
   const output = `${ran.stdout.toString()}${ran.stderr.toString()}`;
   process.stdout.write(output);
