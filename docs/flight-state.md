@@ -189,7 +189,20 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `.env`); a copy or move whose source only the shell can name reports its
   write, unresolved (`cp "$X" dir/`: `dir/"$X"`; `xargs cp -t dir`:
   `dir/(input)`; a moved source is a write); and ranges give every word a
-  recorded shell prints. A command past the
+  recorded shell prints. From 3.3.0 the reader also reads (ADR 2026-020,
+  amended by `shell-reader-coverage`): package runners (`npx`, `pnpx`,
+  `bunx`, `bun x`, `pnpm exec`, `yarn dlx`, `uvx`, `uv tool run`); a
+  program named by its path or in another case (`/bin/rm x`, `RM x`),
+  never moving the shell; the common text programs (`cat`, `grep`, `sort`,
+  `jq` …) with their file-valued options and writes (`sort -o`, `uniq in
+  out`, `yq -i`); `time` and `coproc` as recorded from the grammar; `sudo -s`
+  and `doas -s` reading standard input; sourced files as code; `-execdir`
+  from nowhere known; `trap`'s and `alias` values' code; git's writing
+  subcommands (`checkout`, `switch`, `restore`, `apply`, `stash`, `reset`,
+  `clone`, with `(the working tree)` where they write more than the paths
+  named); sudo's long options by unique prefix; and what reaches a program
+  it does not interpret (a word only the shell can resolve, a here-string,
+  piped input, xargs's input) as code. A command past the
   reader's bounds (1,000 ms per read on the clock, 65,536 characters,
   brace expansion past 1,000,000 characters of work, a syntax tree past
   1,000 levels, 200,000 steps of work, nesting past 64) is unread as too
@@ -201,15 +214,26 @@ when written; keep it current (AGENTS.md, "Working with the user").
     "Limits"): an unquoted word that splits into more than two option
     words, or into an option and the command at once, is covered only as
     far as the readings reach; wrappers and runners the table does not know
-    are read as unknown commands (until `shell-reader-coverage`); a deep
-    chain of wrappers each holding such a word is unread (`sudo "$A"` × 8).
+    are read as unknown commands (what reaches them that bounded cannot
+    see is code); a deep chain of wrappers each holding such a word is
+    unread (`sudo "$A"` × 8). Not read: other runners (`npm exec`,
+    `pnpm dlx`), other git subcommands (`clean`, `merge`, `rebase` …),
+    which packages a recursive runner runs in, and aliases defined
+    elsewhere. A literal argument holding shell syntax given to a program
+    the reader does not interpret is code (`ssh host 'terra``form apply'`).
   - **A `cd` the reading cannot place does not relocate later commands: a
     named fail-open for the protected-paths pack** (ADR 2026-020, "Limits"):
     `"$W" cd sub && rm x` (the shell may delete `sub/x` if `"$W"` is
     `builtin`), `time cd sub; rm x` and a coproc `{ … }` body's statements.
-    `bounded/prereqs` refuses `"$W" cd sub && rm x` while a rule does not
-    hold; `time` and `coproc` are `shell-reader-coverage`'s. Closing them
-    would need readings multiplied at every such `cd`: decided against.
+    `bounded/prereqs` refuses each while a rule does not hold (the program
+    name, `(where time's command moves the shell)`, `(coproc's { … } body)`).
+    Closing them would need readings multiplied at every such `cd`: decided
+    against.
+  - **A git pathspec or option that may reach more than its literal path**
+    (`git checkout -- .`, `git restore '*'`, `git checkout -f main`) writes
+    `(the working tree)`, which the protected-paths pack allows: such a
+    command overwriting a protected file is not refused by it.
+    `bounded/prereqs` refuses it while a write rule does not hold.
   - A write only the shell can name (`cp -t "$D" x`, `cp "$X" dir/`,
     `mv "$F" notes.txt`) is unresolved, so the protected-paths pack allows
     it; `bounded/prereqs` refuses it while a write rule does not hold.
@@ -221,32 +245,32 @@ when written; keep it current (AGENTS.md, "Working with the user").
     its name is the rule's program written out, `bash deploy.sh`;
     `bash "$S"` is refused as code it cannot read, since `"$S"` may hold
     `s`; `bash -- "$S"` and `bash <(…)` are allowed),
-    and PowerShell (read as bash) are not seen. Until
-    `shell-reader-coverage`, write rules do not see in-place edits, package
-    runners, a program named by its path, `time`, `coproc`, the other
-    standard-input forms, `-execdir`/`-okdir`'s directory, `trap` and
-    `alias` values, nor git's writing subcommands (ADR 2026-019, "Limits").
+    and PowerShell (read as bash) are not seen; a sourced script is code
+    bounded cannot read. Write rules do not see in-place edits, nor what the
+    reader does not read (ADR 2026-019, "Limits").
   - While a requirement is missing, what bounded cannot see through is
     refused (over-refusal, by decision): an unread command, a program,
     argument or write only the shell can resolve, a write outside the
     project, unresolved code, and, under an execute rule, any run passing
     the rule's program as an argument (`echo terraform`, a commit message
-    naming it). A program named by a variable is refused only as a run's
-    own name (`$TF apply`).
-  - Until `shell-reader-coverage`, an execute rule does not see its program
-    reached through an expansion inside an argument or input to a program
-    the reader does not interpret (one named by its path such as
-    `/bin/bash` or `/usr/bin/env`, `ssh`, `watch`, `su -c`, `script -c`,
-    `time`, `coproc`): `/bin/bash -c 'terra$()form apply'`,
-    `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
-    `script -c "$(… | base64 -d)"`, `time $TF apply`, `coproc $TF apply`,
-    `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'`,
-    `cat commands.txt | xargs /usr/bin/env` are allowed while the
-    requirement is unmet, as is code read from standard input by anything
-    but a shell named `sh`, `bash`, `zsh`, `dash` or `ksh`: `sudo -s`,
-    `sudo -i` and `doas -s` with no command, `source /dev/stdin`,
-    `. /dev/stdin`, and `trap 'terra$()form apply' EXIT` (ADR 2026-019,
-    "Limits"). A shell's options are read every way the recorded shells
+    naming it). From `shell-reader-coverage`, also: git commands that write
+    `(the working tree)` (`git checkout main`, `git stash pop`,
+    `git reset --hard`), `sudo -s`, `doas -s`, a sourced file, `alias`, a
+    recursive runner, a `{ … }` coproc, `time cd`, and a program the reader
+    does not interpret given a word only the shell can resolve, a
+    here-string or piped input (`mytool "$X"`, `cat a | mytool`,
+    `ssh host "terra$()form apply"`, `/bin/sh <<< 'terraform apply'`); the
+    common text programs are not refused for this (`cat a | grep x`).
+  - A literal argument holding shell syntax (`$`, a backquote, `;`, `&&`,
+    `|`, a newline) given to a program the reader does not interpret is
+    code, refused while a requirement is missing
+    (`` ssh host 'terra``form apply' ``, and, the over-refusals,
+    `mytool '$HOME'` and `cat a | sed s/a/b/`; `grep '$x' f` is allowed); so
+    is standard input given to a group or loop, or a `<` from a process
+    substitution (`while read l; do ssh host; done <<< …`). Named limits: a
+    glob or brace such a program expands itself
+    (`ssh host '/*/bin/terrafor? apply'`) and a `<` from a file
+    (`ssh host < cmds.txt`) are allowed. A shell's options are read every way the recorded shells
     read them (bash, dash, zsh, ksh; every way for `sh`), and it reports
     its standard input as code when any reading has no script, `s` in a
     cluster, or a script that may be standard input (`-`, under `/dev/`
@@ -432,7 +456,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     (ADR 2026-020, amended by `shell-every-reading`): readings gain runs and
     parts, so a pack may refuse what it allowed, and the published
     conformance suite's case for a program only the shell can name now
-    expects its words listed as a run too.
+    expects its words listed as a run too. 3.3.0 also gives the reader new
+    readings (ADR 2026-020, amended by `shell-reader-coverage`): readings
+    gain runs, writes and code parts, so a pack may refuse what it allowed.
     `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm

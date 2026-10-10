@@ -163,22 +163,13 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
-- **Expansions inside an argument or input to a program the reader does
-  not interpret, until `shell-reader-coverage`.** Such a program (named by
-  its path, as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`,
-  `watch`, `su -c`, `script -c`, `time`, `coproc`) is given text; the
-  rule's program is found there only where its name is written out. These
-  are allowed while the requirement is unmet: `/bin/bash -c 'terra$()form
-  apply'`, `` ssh host 'terra``form apply' ``, `watch 'terra${x}form
-  apply'`, `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64
-  -d)"`, `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
-  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`.
-  So is code read from standard input by anything but a shell named `sh`,
-  `bash`, `zsh`, `dash` or `ksh` (those report it, `bash - <<< …`
-  included): `sudo -s`/`sudo -i` and `doas -s` with no command,
-  `source /dev/stdin` and `. /dev/stdin`, and `trap 'terra$()form apply'
-  EXIT`. A program named by a variable is refused only where it is the run's own
-  name (`$TF apply`, `sudo $TF apply`).
+- **A glob or brace a program the reader does not interpret expands
+  itself.** A literal argument holding no `$`, backquote, `;`, `&&`, `||`,
+  `|` or newline is read as text, so the rule's program is found there
+  only where its name is written out: `ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'` are allowed while the requirement is unmet (so that
+  `prettier --write 'src/**'` is not refused). One holding those is code,
+  and refused (below, "Over-refusal"). A `<` from a file into such a
+  program is a read (`ssh host < cmds.txt` is allowed).
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
   `make clean deploy` (which builds the deploy target too) does not count.
@@ -189,19 +180,22 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   given only where the rule's program's name stands in one of its
   arguments); aliases and functions from the host's
   shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
-  script run through a shell or sourced, never seen to run (refused as
-  cannot see only when its name is the rule's program, written out as an
-  argument: `bash deploy.sh`; a script the shell names where the shell's
+  script run through a shell, never seen to run (refused as cannot see
+  only when its name is the rule's program, written out as an argument:
+  `bash deploy.sh`; a sourced script, `. deploy.sh`, is code bounded cannot
+  read, refused under any rule; a script the shell names where the shell's
   options are, `bash "$S"`, is refused as code bounded cannot read, since
   `"$S"` may hold `-s`; one named after the options, `bash -- "$S"`, or
   substituted, `bash <(curl -s https://example.com/deploy)`, is allowed);
   PowerShell, read as bash.
-  Until `shell-reader-coverage`, write rules miss in-place edits
-  (`sed -i`), package runners (`npx`, `bunx`), a program named by its path
-  (`/bin/rm`), `time`, `coproc`, other standard-input forms (`sudo -s`),
-  `-execdir`'s directory, `trap` and `alias` values, and git's writing
-  subcommands (`git checkout`, `git restore`). A delegation run from the
-  shell (`claude -p --agent …`) is not seen as one.
+  Write rules miss in-place edits (`sed -i`) and what ADR 2026-020 names
+  as not read (other runners and git subcommands, aliases defined
+  elsewhere). Package runners (`npx`, `pnpm exec`, `uvx` …), a program
+  named by its path (`/bin/rm`, `/usr/bin/env rm`), `time`, `coproc`,
+  `trap`, `alias`, `-execdir` and git's writing subcommands (`git checkout`,
+  `git restore`, `git clone` …) are read (ADR 2026-020, amended by
+  `shell-reader-coverage`). A delegation run from the shell
+  (`claude -p --agent …`) is not seen as one.
 - **Over-refusal, by decision:** while a requirement is missing, commands
   bounded cannot read through are refused under any execute or write rule,
   and under an execute rule so is any run naming its program as an
@@ -214,7 +208,27 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   input), `bash "$S" "$1"` (`"$1"` may be code), `"$W" cd sub && rm x`
   (where `"$W"` may be `builtin`, a `cd` bounded cannot place), and a write
   only the shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
-  `ls | xargs cp -t src`).
+  `ls | xargs cp -t src`). And, since `shell-reader-coverage`: git
+  commands that write `(the working tree)` (`git checkout main`,
+  `git stash pop`, `git reset --hard`, `git apply p.patch`,
+  `git checkout -- .`, `git checkout -f main`) under any write rule;
+  `sudo -s`, `sudo -i`, `doas -s`; a sourced file (`. ./env.sh`);
+  `alias c='…'`; a recursive runner (`pnpm -r exec …`); a `{ … }` coproc;
+  `time cd …`; and a program bounded's reader does not know given a word
+  only the shell can resolve, a here-string or piped input (`mytool "$X"`,
+  `cat a | mytool`, `ssh host "terra$()form apply"`, `su -c "$CMD"`,
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`),
+  or a literal argument holding shell syntax (`$`, `$(`, a backquote, `;`,
+  `&&`, `||`, `|`, a newline), which ssh, watch and their kind run as shell
+  code: `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`,
+  and `mytool '$HOME'`; standard input given to a group or loop, or a `<`
+  from a process substitution (`while read l; do ssh host; done <<< …`,
+  `ssh host < <(echo …)`); and piped input into `sed` (`| sed …`), which
+  bounded's reader does not interpret. `grep '$x' f` and `echo '$HOME'`
+  stay allowed.
+  The common text programs (`cat`, `grep`, `head`, `sort`, `jq` …) are not
+  refused for this: `cat a | grep x`, `jq . f.json`, `git log | head` and
+  `cat "$F"` are allowed.
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
 - **Symbolic links:** a link is never followed. A link to a directory the

@@ -1,5 +1,5 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, FOUND_PATH, isKnownCommand, MAX_NESTING, mergeMeanings, newWorkBudget, STANDARD_INPUT, shellArgumentsMeaning, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, FOUND_PATH, isKnownCommand, MAX_NESTING, mergeMeanings, newWorkBudget, PIPED_INPUT, STANDARD_INPUT, shellArgumentsMeaning, spend, textCost, WORK_BUDGET_STEPS, WORKING_TREE, XARGS_INPUT } from "./command-meanings.ts";
 import type { CommandMeaning, MeaningChange } from "./command-meanings.contract.ts";
 import type { PathKind, ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
@@ -45,6 +45,13 @@ const cellAt = (scope: Scope): ScopeCell => ({ current: scope });
  */
 const LISTED_SUFFIX_ARGUMENTS = 16;
 
+/**
+ * What in a literal word makes it shell code to a program that runs its
+ * arguments through a shell (ssh, watch): '$' (`$(` too), a backquote, ';',
+ * '|' (`||` too), '&&' or a newline (ADR 2026-020).
+ */
+const SHELL_SYNTAX = /[$`;|\n]|&&/;
+
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
 /** Why a command whose reading ran out of time is unread. */
@@ -86,6 +93,8 @@ function inputRoles(
   if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === input || (transfer.moves && has(transfer.sources)))) roles.push("write");
   if (meaning.location?.to === input) roles.push("directory");
   if (has(meaning.scripts) || has(meaning.unresolved)) roles.push("code");
+  // xargs's input to a program the table does not know may be anything it makes of it: code too (ADR 2026-020).
+  if (meaning.uninterpreted === true && input === XARGS_INPUT) roles.push("code");
   for (const ran of meaning.runs) {
     // A command the input would name is code; a trailing run (a wrapper's command) is given the input itself, and reports it there.
     if (ran.name === input) roles.push("code");
@@ -210,13 +219,16 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * string is written: each word holding it is listed as the input among the
    * program's words, and reported as an unresolved part with each role the
    * command gives it, and every word is still judged as written (a
-   * substitution adds a report, never replaces the check).
+   * substitution adds a report, never replaces the check). `fed` is what
+   * reaches its standard input that bounded cannot see (piped input, a
+   * here-string): to a program the table does not know it is code, as is a
+   * word only the shell can resolve (ADR 2026-020).
    */
   const command = (
     name: ShellWord | null,
     args: readonly ShellWord[],
     cell: ScopeCell,
-    how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord; readonly replacedBy?: ShellWord; readonly written?: boolean } = {},
+    how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord; readonly replacedBy?: ShellWord; readonly written?: boolean; readonly fed?: readonly ShellWord[] } = {},
   ): void => {
     const scope = cell.current;
     if (name === null || !spend(budget, 1 + args.length + joinedPathCost(scope))) return;
@@ -249,13 +261,28 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
     }
+    // A bare exec (no command) gives what feeds it (a here-string, a < from a process substitution) to the rest of the shell as its
+    // standard input, which any later program may run: code, at the exec, failing closed. A < from a file stays a read.
+    if (name.kind === "literal" && (name.text.split("/").at(-1) ?? "").toLowerCase() === "exec" && meaning.runs.length === 0) {
+      for (const word of how.fed ?? []) if (spend(budget, 1 + textCost([word]))) unresolved.push({ text: word.text, role: "code" });
+    }
+    // A program the table does not know may run what reaches it: a word only the shell can resolve, a literal word holding shell
+    // syntax (ssh and watch run it as shell code), piped input and a here-string are code, each charged its text (the scan included).
+    if (name.kind === "literal" && how.standIn !== true && own.uninterpreted === true) {
+      for (const word of [...args, ...(how.fed ?? [])]) {
+        if (!spend(budget, 1 + textCost([word]))) break;
+        if (word.kind === "unresolved" || SHELL_SYNTAX.test(word.text)) unresolved.push({ text: word.text, role: "code" });
+      }
+    }
     for (const word of meaning.lists) {
       const path = resolve(word, scope, "list");
       if (path !== undefined) lists.push(path);
     }
-    for (const { word, change } of meaning.writes) {
+    for (const { word, change, pathspec } of meaning.writes) {
       const path = resolve(word, scope, "write");
       if (path !== undefined) write(path, change);
+      // A pathspec naming a directory reaches every file beneath it: the working tree is written.
+      if (path !== undefined && pathspec === true && spend(budget) && place.kindOfPath(path) === "directory") unresolved.push({ text: WORKING_TREE.text, role: "write" });
     }
     for (const { sources, destination, moves } of meaning.transfers) {
       const to = resolve(destination, scope, "write");
@@ -297,18 +324,42 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         });
       }
     }
+    // Code that runs later, wherever the shell is then (trap's, an alias's): walked from nowhere known, unless the scripts above were walked from there already.
+    for (const word of meaning.scriptsFromNowhereKnown ?? []) {
+      if (word.kind !== "literal" || (scope.at === null && meaning.scripts.some((each) => each.kind === "literal" && each.text === word.text))) continue;
+      if (!spend(budget, 1 + (word.text.length >> 4))) break;
+      const script = place.parseScript(word.text);
+      if (!script.ok) unresolved.push({ text: word.text, role: "code" });
+      else {
+        const nowhere = cellAt(scopeAt(null));
+        nested(() => {
+          for (const node of script.value) walk(node, nowhere);
+        });
+      }
+    }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     // A shell's script naming no project path from here may be its standard input (a link to /dev/stdin): fail closed.
     const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope.at) === undefined);
     if (outside) unresolved.push({ text: STANDARD_INPUT.text, role: "code" });
-    // xargs's runs are its own readings, never written ones: its every-reading rule already reads them.
-    const runsWritten = how.written === true && !(name.kind === "literal" && name.text === "xargs");
+    // xargs's runs (/usr/bin/xargs's too, by its last path segment) are its own readings, never written ones: its every-reading rule already reads them.
+    const runsWritten = how.written === true && !(name.kind === "literal" && (name.text.split("/").at(-1) ?? "").toLowerCase() === "xargs");
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
       const inherited = ran.replace === undefined && ran.trailing === true;
       const replace = inherited ? how.replace : ran.replace;
       const replacedBy = inherited ? how.replacedBy : ran.replacedBy;
-      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }), ...(replacedBy === undefined ? {} : { replacedBy }), written: runsWritten };
+      // What reaches the command's standard input reaches a trailing run (sudo mytool) too.
+      const fed = ran.trailing === true ? how.fed : undefined;
+      const passed = {
+        input: ran.input === true || (how.input === true && ran.trailing === true),
+        ...(replace === undefined ? {} : { replace }),
+        ...(replacedBy === undefined ? {} : { replacedBy }),
+        ...(fed === undefined ? {} : { fed }),
+        written: runsWritten,
+      };
+      // A run added from nowhere known (find -execdir's) where the shell is nowhere known already is the run beside it: read once.
+      const alsoHere = (other: CommandMeaning["runs"][number]): boolean => other !== ran && other.directory === undefined && other.name === ran.name && other.args === ran.args;
+      if (ran.directory === null && ran.added === true && cell.current.at === null && meaning.runs.some(alsoHere)) continue;
       // Only a run in the same shell (builtin, command, exec) moves where later commands run; any other runs in a copy.
       if (ran.directory === undefined) nested(() => command(ran.name, ran.args, ran.sharesShell === true ? cell : cellAt(cell.current), passed));
       else {
@@ -371,38 +422,53 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
   };
 
-  const walk = (node: ShellNode, cell: ScopeCell): void => {
+  /**
+   * What feeds a node's standard input that bounded cannot see, from its own
+   * redirections: a here-string, or a `<` from a process substitution
+   * (`< <(…)`). A `<` from a file is a read, judged as one.
+   */
+  const fedBy = (redirects: readonly ShellRedirect[]): ShellWord[] =>
+    redirects.filter(({ operator, target }) => operator === "<<<" || (operator === "<" && target.kind === "unresolved" && target.text.startsWith("<("))).map(({ target }) => target);
+
+  /**
+   * Walks `node` from `cell`; `fed` is what feeds its standard input that
+   * bounded cannot see: a pipe (a pipeline's stage after the first), or a
+   * group's, subshell's or loop's here-string or process substitution, given
+   * to every command inside it (never into a substitution).
+   */
+  const walk = (node: ShellNode, cell: ScopeCell, inherited: readonly ShellWord[] = []): void => {
     if (!spend(budget, 1 + joinedPathCost(cell.current))) return;
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, cell.current);
-        command(node.name, node.args, cell, { standIn: node.standIn === true, written: true });
+        const fed = [...inherited, ...fedBy(node.redirects)];
+        command(node.name, node.args, cell, { standIn: node.standIn === true, written: true, ...(fed.length === 0 ? {} : { fed }) });
         for (const each of node.redirects) redirect(each, cell.current);
         return;
       }
       case "list": {
         if (node.operator === "&") {
-          walk(node.left, cellAt(cell.current));
-          walk(node.right, cell);
+          walk(node.left, cellAt(cell.current), inherited);
+          walk(node.right, cell, inherited);
         } else if (node.operator === "||") {
           // The right side runs only when the left failed, so from where the left started.
           const before = cell.current;
-          walk(node.left, cell);
+          walk(node.left, cell, inherited);
           const right = cellAt(before);
-          walk(node.right, right);
+          walk(node.right, right, inherited);
           cell.current = sameAt(cell.current.at, before.at) && sameAt(right.current.at, before.at) ? before : scopeAt(null);
         } else {
-          walk(node.left, cell);
-          walk(node.right, cell);
+          walk(node.left, cell, inherited);
+          walk(node.right, cell, inherited);
         }
         return;
       }
       case "pipeline":
-        for (const stage of node.stages) walk(stage, cellAt(cell.current));
+        for (const [index, stage] of node.stages.entries()) walk(stage, cellAt(cell.current), index > 0 && !inherited.includes(PIPED_INPUT) ? [...inherited, PIPED_INPUT] : inherited);
         return;
       case "subshell": {
         const inside = cellAt(cell.current);
-        for (const inner of node.body) walk(inner, inside);
+        for (const inner of node.body) walk(inner, inside, inherited);
         return;
       }
       case "group":
@@ -410,11 +476,11 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
           substitutions(each.target, cell.current);
           redirect(each, cell.current);
         }
-        for (const inner of node.body) walk(inner, cell);
+        for (const inner of node.body) walk(inner, cell, [...inherited, ...fedBy(node.redirects)]);
         return;
       case "conditional": {
         const maybe = cellAt(cell.current);
-        for (const inner of node.body) walk(inner, maybe);
+        for (const inner of node.body) walk(inner, maybe, inherited);
         if (!sameAt(maybe.current.at, cell.current.at)) cell.current = scopeAt(null);
         return;
       }
