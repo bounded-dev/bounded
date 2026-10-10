@@ -233,7 +233,10 @@ third-party implementation of `ProjectJudge` would need to add it.
 ## Consequences
 
 - A host that sees a delegated run end calls `recordAgentRunFinish`; a pack
-  observes it through `onAgentRunFinish`.
+  observes it through `onAgentRunFinish`. (Amended by
+  [ADR 2026-026](2026-026-prereqs-status-snapshot.md): `bounded/prereqs`
+  contributes a second check there, `writeStatusAtFinish`, after
+  `recordRunAtFinish`, which saves its status snapshot and records nothing.)
 - Background Claude Code subagents meet `bounded/prereqs` requirements;
   disabling background tasks is no longer needed.
 - The Bounded log holds `agent-run-finished` lines only when a pack reports

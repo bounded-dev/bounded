@@ -7,7 +7,7 @@
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
-import { prereqsPortProvisions } from "bounded/prereqs/adapters";
+import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
 import { openShellCommandReading, type ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type AfterTool, type Decide, hookEventOf, type RecordAgentRunFinish, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
@@ -19,8 +19,8 @@ import { projectPaths } from "./paths.ts";
  */
 const shellCommandReading = openShellCommandReading();
 
-/** Opens a project with the adapters this host provides: the protected-paths pack's and the prerequisites pack's, on disk. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
+/** Opens a project with the adapters this host provides, on disk: the protected-paths pack's, the prerequisites pack's, and its optional status snapshot (ADR 2026-026), which only this host provides. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()] });
 
 /**
  * How long bounded may take to decide, then how long work still pending after

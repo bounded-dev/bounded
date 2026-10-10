@@ -72,6 +72,21 @@ describe("Ports — the adapters a host provides for one project", () => {
     });
   });
 
+  test("ifProvided gives undefined for a port not provided, and what get gives for one that is", () => {
+    const ports = Ports.forProject("/work/project", [Ports.provide(files, () => fixed)]);
+    if (!ports.ok) throw new Error(ports.error);
+    expect(ports.value.ifProvided(snapshots)).toBeUndefined();
+    const provided = ports.value.ifProvided(files);
+    expect(provided).toEqual(ports.value.get(files));
+    expect(provided?.ok && provided.value.read("a.ts")).toBe("content of a.ts");
+    const failing = Ports.forProject("/work/project", [
+      Ports.provide(snapshots, () => {
+        throw new Error("no disk");
+      }),
+    ]);
+    expect(failing.ok && failing.value.ifProvided(snapshots)).toEqual({ ok: false, error: "test-packs/gate could not open the port 'snapshots': no disk" });
+  });
+
   test("refuses provisions that Ports.provide did not make", () => {
     expect(Ports.forProject("/work/project", [{ key: files } as never])).toEqual({ ok: false, error: "A port provision is made by Ports.provide(key, open)" });
   });

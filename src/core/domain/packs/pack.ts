@@ -161,6 +161,7 @@ class ContributionImpl<Owner extends Contract.BasePack["id"]> implements Contrac
 interface UntypedSpec {
   readonly id: unknown;
   readonly ports?: unknown;
+  readonly optionalPorts?: unknown;
   readonly dependsOn?: unknown;
   readonly points?: unknown;
   readonly contributes?: unknown;
@@ -174,6 +175,7 @@ class PackImpl implements Contract.BasePack {
   readonly points: Readonly<Record<string, Contract.BasePoint | Contract.PointGroup>>;
   readonly contributes: readonly Contract.Contribution<PackId>[];
   readonly ports: Contract.PortSection;
+  readonly optionalPorts: Contract.PortSection;
   readonly problem: string | undefined;
 
   // Built from untyped data as well as typed: whatever does not fit is kept
@@ -187,6 +189,7 @@ class PackImpl implements Contract.BasePack {
     this.contributes = list(spec.contributes as readonly Contract.Contribution<PackId>[] | undefined);
     // Kept as given, in a frozen record without a prototype; `problem` names what is not a port of this pack.
     this.ports = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(entriesOf(spec.ports))));
+    this.optionalPorts = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(entriesOf(spec.optionalPorts))));
     // No prototype, so a key such as "__proto__" is an ordinary key.
     const points: Record<string, unknown> = Object.create(null);
     for (const [key, raw] of entriesOf(spec.points)) {
@@ -222,10 +225,18 @@ class PackImpl implements Contract.BasePack {
       if (problem !== undefined) return problem;
     }
     if (!Array.isArray(contributes) || !contributes.every(ContributionImpl.genuine)) return `its contributes must be a list of contributions made with contribution(...) ${COPY}`;
-    for (const [key, port] of Object.entries(this.ports)) {
-      if (!CAMEL_CASE.test(key)) return `its port key '${key}' must be a camelCase word, such as 'sourceFiles'`;
-      if (!isPortKey(port)) return `its port '${key}' must be declared with portKeysFor(...) ${COPY}`;
-      if (port.owner.value !== packIdText(this.id)) return `its port '${key}' belongs to ${port.owner.value}: a pack declares only its own ports`;
+    // Each port once, in one section: required, or optional (ADR 2026-026), compared by owner and name.
+    const sections = new Map<string, "ports" | "optionalPorts">();
+    for (const section of ["ports", "optionalPorts"] as const) {
+      for (const [key, port] of Object.entries(this[section])) {
+        if (!CAMEL_CASE.test(key)) return `its port key '${key}' must be a camelCase word, such as 'sourceFiles'`;
+        if (!isPortKey(port)) return `its port '${key}' must be declared with portKeysFor(...) ${COPY}`;
+        if (port.owner.value !== packIdText(this.id)) return `its port '${key}' belongs to ${port.owner.value}: a pack declares only its own ports`;
+        const earlier = sections.get(port.toJSON());
+        if (earlier === section) return `the port '${port.name}' is declared twice: declare each port once`;
+        if (earlier !== undefined) return `its port '${port.name}' is declared both required and optional`;
+        sections.set(port.toJSON(), section);
+      }
     }
     return undefined;
   }
@@ -256,4 +267,4 @@ export function pointsOf(pack: Contract.BasePack): Contract.BasePoint[] {
   return points;
 }
 
-export type { BasePack, BasePoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, PointGroup, PointGroupDeclaration, WireOf } from "./pack.contract.ts";
+export type { BasePack, BasePoint, Contributed, Contribution, DefinedPack, ExtensionPoint, Pack, PointDeclaration, PointGroup, PointGroupDeclaration, WireOf } from "./pack.contract.ts";

@@ -1,13 +1,23 @@
-import { type AfterToolReport, type AgentRunFinished, type AgentRunFinishReport, type AgentRunId, type CallId, portKeysFor, type Result, type ToolResult, type ToolUse, type Verdict } from "bounded/domain";
+import { type AfterToolReport, type AgentRunFinished, type AgentRunFinishReport, type AgentRunId, type CallId, type DecisionTime, portKeysFor, type Result, type ToolResult, type ToolUse, type Verdict } from "bounded/domain";
 import { prereqsId } from "../../domain/prereqs-id.ts";
 import type { PrerequisiteRecord } from "../../domain/prerequisite-record.contract.ts";
 import type { PrerequisiteStart } from "../../domain/prerequisite-start.contract.ts";
+import type { PrerequisiteStatusSnapshot, PrerequisiteStatusSnapshotJSON } from "../../domain/prerequisite-status-snapshot.contract.ts";
 
 // Domain types this feature's ports carry, listed here so this contract names them.
 export type { FileSetFingerprint, FileSetFingerprintJSON } from "../../domain/file-set-fingerprint.contract.ts";
 export type { PendingAgentRun, PendingAgentRunJSON } from "../../domain/pending-agent-run.contract.ts";
 export type { PrerequisiteRecord, PrerequisiteRecordJSON } from "../../domain/prerequisite-record.contract.ts";
 export type { PrerequisiteStart, PrerequisiteStartJSON } from "../../domain/prerequisite-start.contract.ts";
+export type {
+  PrerequisiteRequirementStatusJSON,
+  PrerequisiteRuleStatusJSON,
+  PrerequisiteStatusSnapshot,
+  PrerequisiteStatusSnapshotFormat,
+  PrerequisiteStatusSnapshotJSON,
+  ReadPrerequisiteStatusSnapshotJSON,
+  UnreadPrerequisiteStatusSnapshotJSON,
+} from "../../domain/prerequisite-status-snapshot.contract.ts";
 
 // In port: what this feature offers.
 /**
@@ -29,6 +39,21 @@ export interface CheckPrerequisites {
   after(result: ToolResult): Promise<AfterToolReport>;
   /** When a run whose finish the host reports later has finished: what to record, if anything. Never rejects. */
   recordAgentRunFinish(finish: AgentRunFinished): Promise<AgentRunFinishReport>;
+  /**
+   * The status of every rule's requirement now, as a snapshot whose reading
+   * began at `readingStartedAt` (ADR 2026-026): read, or unread as a whole,
+   * saying why. It reads only: records once, the runs still to finish at most
+   * once (only when a requirement does not hold by its records), and each
+   * requirement's files once. Never rejects.
+   */
+  readRuleStatuses(readingStartedAt: DecisionTime): Promise<PrerequisiteStatusSnapshot>;
+  /**
+   * Saves the status snapshot: its time from the store, taken before the
+   * reading (none saved when that time does not parse); unread when the
+   * reading overruns `withinMs`; the save abandoned after 500 ms, and a
+   * failed one swallowed. For display only: it decides nothing. Never rejects.
+   */
+  writeStatusSnapshot(snapshots: PrerequisiteStatusSnapshots, options: { readonly withinMs: number }): Promise<void>;
 }
 
 // Out ports: exactly what this feature needs.
@@ -69,8 +94,27 @@ export interface PrerequisiteRecords {
   readStartedForRuns(): Promise<readonly unknown[]>;
 }
 
+/**
+ * Where the pack keeps the status snapshot a display reads (ADR 2026-026):
+ * an optional port, which a host may provide; for output only, so no verdict
+ * and no record depends on it. A host may run each hook in a process of its
+ * own, so a store must outlive it.
+ * @implementedBy FileSystemPrerequisiteStatusSnapshots
+ */
+export interface PrerequisiteStatusSnapshots {
+  /** The time now, as the store keeps it; parsed by the handler as a DecisionTime. */
+  now(): unknown;
+  /** Saves the snapshot for this project, unless the one kept began its reading later; on failure removes the kept one, then rejects. */
+  save(snapshot: PrerequisiteStatusSnapshot): Promise<void>;
+}
+
+/** The file form a store keeps: the snapshot and the root of the project it was read for. */
+export type PrerequisiteStatusSnapshotFileJSON = PrerequisiteStatusSnapshotJSON & { readonly projectRoot: string };
+
 // The pack's ports for this feature: a host provides them through openProject({ ports }).
 /** The fingerprints of the project's files. */
 export const fileSetFingerprintsPort = portKeysFor(prereqsId)<FileSetFingerprints>("fileSetFingerprints");
 /** The pack's records and starts. */
 export const prerequisiteRecordsPort = portKeysFor(prereqsId)<PrerequisiteRecords>("prerequisiteRecords");
+/** The status snapshot: an optional port (ADR 2026-026), which only a host that shows the status provides. */
+export const prerequisiteStatusSnapshotsPort = portKeysFor(prereqsId)<PrerequisiteStatusSnapshots>("prerequisiteStatusSnapshots");

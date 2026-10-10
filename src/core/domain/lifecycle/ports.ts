@@ -75,6 +75,10 @@ class PortsImpl implements Contract.Ports {
   provides(key: BasePortKey): boolean {
     return this.#slots.has(key.toJSON());
   }
+
+  ifProvided<T>(key: PortKey<T>): Result<T> | undefined {
+    return this.provides(key) ? this.get(key) : undefined;
+  }
 }
 
 export type Ports = Contract.Ports;

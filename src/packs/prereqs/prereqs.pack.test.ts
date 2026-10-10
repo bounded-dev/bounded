@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, defineConfig } from "bounded/domain";
-import { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
+import { fileSetFingerprintsPort, prerequisiteRecordsPort, prerequisiteStatusSnapshotsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
 import { prereqs } from "./prereqs.pack.ts";
 
 const canonical = [
@@ -17,7 +17,10 @@ describe("prereqs — the prerequisites pack's overview", () => {
     expect(Object.keys(prereqs.points)).toEqual(["rules"]);
     expect(prereqs.points.rules.ownValues).toEqual([]);
     expect(prereqs.contributes.map((given) => given.point.id)).toEqual(["bounded/core.beforeTool", "bounded/core.afterTool", "bounded/core.onAgentRunFinish"]);
+    // After a call and at a finish: the records first, then the status snapshot (ADR 2026-026).
+    expect(prereqs.contributes.map((given) => given.values.length)).toEqual([1, 2, 2]);
     expect(prereqs.ports).toEqual({ fileSetFingerprints: fileSetFingerprintsPort, prerequisiteRecords: prerequisiteRecordsPort });
+    expect(prereqs.optionalPorts).toEqual({ prerequisiteStatusSnapshots: prerequisiteStatusSnapshotsPort });
     expect(prereqs.problem).toBeUndefined();
   });
 

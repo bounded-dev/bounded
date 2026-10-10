@@ -422,7 +422,12 @@ pi-subagents' project agent directory), which give role identity.
   command's success, a new kind of start and record, and a result-side fact
   the core does not carry.
 - **A status widget** for Claude Code, listing each rule's requirement as
-  holds, stale or missing, derived from the same records.
+  holds, stale or missing, derived from the same records. Its source is done
+  in [ADR 2026-026](2026-026-prereqs-status-snapshot.md): through an optional
+  port only Claude Code provides, the pack saves a status snapshot after
+  every call and every finish, read through the same evaluation the gate
+  uses (`readRuleStatuses`), to `.bounded/prereqs/status.json`. The band
+  that shows it is item B (ADR 2026-027).
 
 ## Consequences
 
