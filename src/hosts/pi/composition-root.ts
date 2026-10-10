@@ -41,9 +41,10 @@ export async function composeProject(root: string, open: typeof openProject = op
       return Verdict.refuse(`bounded could not judge this call: ${message(error)}`, "The call stays blocked until the failure is fixed; report it to the maintainers");
     }
   };
-  // After a tool ran, and the extension's own blocks: the project's judge, which never throws.
+  // After a tool ran, the extension's own blocks, and a delegated run's finish: the project's judge, which never throws.
   return Object.assign(decide, {
     afterTool: async (result: ToolResult) => ({ message: (await project.afterTool(result)).message }),
     refuse: (refusal: AdapterRefusal) => project.refuse(refusal),
+    recordAgentRunFinish: (finish: unknown) => project.recordAgentRunFinish(finish),
   });
 }
