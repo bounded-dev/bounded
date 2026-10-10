@@ -60,7 +60,7 @@ export class ReadShellCommandHandler implements ReadShellCommand {
   private readonly readWithinMs: number;
   private readonly prepareWithinMs: number;
   /** The reader's preparation, once started and until a read has waited it out; it never rejects. */
-  private preparing: Promise<void> | undefined;
+  private preparing: Promise<undefined> | undefined;
 
   constructor(
     private readonly reader: ShellCommandReader,
@@ -92,7 +92,7 @@ export class ReadShellCommandHandler implements ReadShellCommand {
       const preparing = this.preparing;
       if (preparing !== undefined) {
         const waitedOut = Symbol("waited out");
-        const waited = await within<void | typeof waitedOut>(preparing, this.prepareWithinMs, waitedOut);
+        const waited = await within<undefined | typeof waitedOut>(preparing, this.prepareWithinMs, waitedOut);
         // Let go only of the very preparation this read waited out, never of a newer one a later prepare() started.
         if (waited === waitedOut && this.preparing === preparing) this.preparing = undefined;
       }
