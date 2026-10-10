@@ -4,10 +4,14 @@
 import type { Result } from "bounded/domain";
 import type { PiEffectJSON } from "./event.ts";
 import type { Locate } from "./pi-path.ts";
+import type { AgentOfRun, TranslationResult } from "./translate.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/** Fields of a management call; only these actions are translated, each invoked by name. */
+/** What an untied resume is told to do instead (ADR 2026-028). */
+export const UNTIED_RESUME_REDIRECT = "Start a new run of the agent instead: subagent({ agent, task }) with the agent and the task you meant to resume";
+
+/** Fields of a management call; only these actions are translated: a status invoked by name, a resume as below. */
 const ACTION_FIELDS = new Set(["action", "id", "runId", "dir", "view", "lines", "index", "message"]);
 const ACTIONS = new Set(["status", "resume"]);
 /** Fields of a call that runs agents, of one task, and of one chain step. */
@@ -18,8 +22,29 @@ const STEP_FIELDS = new Set([...TASK_FIELDS, "parallel", "concurrency", "failFas
 const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 const own = (fields: Fields, name: string): unknown => (Object.hasOwn(fields, name) ? fields[name] : undefined);
 
-/** The effects of one subagent call, or why it cannot be translated. */
-export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate): Result<PiEffectJSON[]> {
+/** Whether `text` can be shown in a refusal as it is: at most 256 characters, none of them a control character. */
+const plain = (text: string): boolean => text.length <= 256 && [...text].every((character) => (character.codePointAt(0) ?? 0) >= 0x20 && character !== "\u007f");
+
+/**
+ * The agent a resume revives, when bounded can tie it (ADR 2026-028): the
+ * call names its run by exactly one of `id` and `runId`, as non-empty text,
+ * with no `dir` and an `index` that is absent or 0, and `agentOfRun` gives the
+ * agent bounded saw that run launched and finish as. Otherwise, how the call
+ * names the run, for the refusal.
+ */
+function resumedAgent(input: Fields, agentOfRun: AgentOfRun | undefined): { readonly agent: string } | { readonly untied: string } {
+  const index = own(input, "index");
+  if (own(input, "dir") !== undefined || (index !== undefined && index !== 0)) return { untied: "a run it names by directory or index" };
+  const named = [own(input, "id"), own(input, "runId")].filter((value) => value !== undefined);
+  const [runId] = named;
+  if (named.length !== 1 || typeof runId !== "string" || runId === "") return { untied: "a run it does not name by exactly one run id" };
+  const agent = agentOfRun?.(runId);
+  if (agent !== undefined) return { agent };
+  return { untied: plain(runId) ? `run '${runId}'` : "a run it names by an id that is not plain text" };
+}
+
+/** The effects of one subagent call, or why it cannot be translated; a resume's agent is looked up in `agentOfRun`. */
+export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate, agentOfRun?: AgentOfRun): TranslationResult<PiEffectJSON[]> {
   const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error: `pi's ${toolName} call ${error}` });
   const unknownFields = (fields: Fields, allowed: ReadonlySet<string>): string | undefined => {
     const unknown = Object.keys(fields).filter((name) => !allowed.has(name));
@@ -38,7 +63,17 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
       const located = locate(dir, sessionCwd);
       if (!located.ok) return located;
     }
-    return { ok: true, value: [{ kind: "invoke", name: `${toolName}.${action}` }] };
+    const invoked: PiEffectJSON = { kind: "invoke", name: `${toolName}.${action}` };
+    if (action !== "resume") return { ok: true, value: [invoked] };
+    // A resume revives an agent's run with no delegation of its own: it is judged as a delegation to the
+    // agent bounded tied to that run, its finish unreported (a resumed run never counts), and refused,
+    // whatever the project's rules, when bounded tied none (ADR 2026-028).
+    const resumed = resumedAgent(input, agentOfRun);
+    if ("untied" in resumed) {
+      const why = `resumes ${resumed.untied}, which bounded did not see launched and finish as one agent in this pi session, so it cannot tell which agent would run`;
+      return { ...refuse(why), redirect: UNTIED_RESUME_REDIRECT };
+    }
+    return { ok: true, value: [{ kind: "delegate", agent: resumed.agent, finishUnreported: true }, invoked] };
   }
 
   const effects: PiEffectJSON[] = [];
@@ -107,10 +142,10 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
     }
   }
   if (!effects.some((effect) => effect.kind === "delegate")) return refuse("names no agent");
-  // pi-subagents 0.52.1 runs in the background unless the call says async: false (asyncByDefault
-  // defaults to true, src/extension/config.ts:150-151), and pi does not report when a background
-  // run's agents finish: every delegation is finishUnreported unless it says async: false (ADR 2026-019).
+  // Whether the run goes on in the background is read from its result, never from `async`: a
+  // background run's finish is reported on pi's event bus, and a foreground result says how its run
+  // stopped (ADR 2026-028).
   const runsAsync = own(input, "async");
   if (runsAsync !== undefined && typeof runsAsync !== "boolean") return refuse("has an 'async' that is not true or false");
-  return { ok: true, value: runsAsync === false ? effects : effects.map((effect) => (effect.kind === "delegate" ? { ...effect, finishUnreported: true } : effect)) };
+  return { ok: true, value: effects };
 }
