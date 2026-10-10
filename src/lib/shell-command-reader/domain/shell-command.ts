@@ -45,6 +45,13 @@ const cellAt = (scope: Scope): ScopeCell => ({ current: scope });
  */
 const LISTED_SUFFIX_ARGUMENTS = 16;
 
+/**
+ * What in a literal word makes it shell code to a program that runs its
+ * arguments through a shell (ssh, watch): '$' (`$(` too), a backquote, ';',
+ * '|' (`||` too), '&&' or a newline (ADR 2026-020).
+ */
+const SHELL_SYNTAX = /[$`;|\n]|&&/;
+
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
 /** Why a command whose reading ran out of time is unread. */
@@ -254,9 +261,13 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
     }
-    // A program the table does not know may run what reaches it: a word only the shell can resolve, piped input and a here-string are code.
+    // A program the table does not know may run what reaches it: a word only the shell can resolve, a literal word holding shell
+    // syntax (ssh and watch run it as shell code), piped input and a here-string are code, each charged its text (the scan included).
     if (name.kind === "literal" && how.standIn !== true && own.uninterpreted === true) {
-      for (const word of [...args.filter((arg) => arg.kind === "unresolved"), ...(how.fed ?? [])]) if (spend(budget, 1 + textCost([word]))) unresolved.push({ text: word.text, role: "code" });
+      for (const word of [...args, ...(how.fed ?? [])]) {
+        if (!spend(budget, 1 + textCost([word]))) break;
+        if (word.kind === "unresolved" || SHELL_SYNTAX.test(word.text)) unresolved.push({ text: word.text, role: "code" });
+      }
     }
     for (const word of meaning.lists) {
       const path = resolve(word, scope, "list");

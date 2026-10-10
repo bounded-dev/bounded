@@ -163,12 +163,10 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
-- **A literal argument a program the reader does not interpret runs as
-  code itself.** A literal word is read as text, so the rule's program is
-  found there only where its name is written out:
-  `` ssh host 'terra``form apply' `` and `watch 'terra${x}form apply'` are
-  allowed while the requirement is unmet. What only the shell resolves is
-  code, and refused (below, "Over-refusal").
+- **A literal argument with no shell syntax that a program the reader
+  does not interpret runs as code.** It is read as text, so the rule's
+  program is found there only where its name is written out. One holding
+  shell syntax is code, and refused (below, "Over-refusal").
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
   `make clean deploy` (which builds the deploy target too) does not count.
@@ -216,7 +214,11 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   `time cd …`; and a program bounded's reader does not know given a word
   only the shell can resolve, a here-string or piped input (`mytool "$X"`,
   `cat a | mytool`, `ssh host "terra$()form apply"`, `su -c "$CMD"`,
-  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`).
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`),
+  or a literal argument holding shell syntax (`$`, `$(`, a backquote, `;`,
+  `&&`, `||`, `|`, a newline), which ssh, watch and their kind run as shell
+  code: `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`,
+  and `mytool '$HOME'`. `grep '$x' f` and `echo '$HOME'` stay allowed.
   The common text programs (`cat`, `grep`, `head`, `sort`, `jq` …) are not
   refused for this: `cat a | grep x`, `jq . f.json`, `git log | head` and
   `cat "$F"` are allowed.

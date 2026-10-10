@@ -315,10 +315,10 @@ pi-subagents' project agent directory), which give role identity.
   argument (`bash deploy.sh` under `"deploy.sh"`); a sourced script
   (`. deploy.sh`, `source x.sh`) is code bounded cannot read, refused under
   any rule while it does not hold (*amended by `shell-reader-coverage`*); a
-  literal argument a program the reader does not interpret runs as code
-  itself (`` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`)
-  is read as text, so the rule's program is found only where its name is
-  written out; a script the shell names where its options are
+  literal argument with no shell syntax that a program the reader does not
+  interpret runs as code is read as text, so the rule's program is found
+  only where its name is written out (one holding `$`, a backquote, `;`,
+  `&&`, `|` or a newline is code, below); a script the shell names where its options are
   (`bash "$S"`) is refused as code bounded cannot read, `"$S"` possibly
   holding `-s` (*amended by `shell-every-reading`*), while one named after
   them (`bash -- "$S"`) or substituted
@@ -377,7 +377,10 @@ pi-subagents' project agent directory), which give role identity.
   (`pnpm -r exec …`, its directory not told); a `{ … }` coproc;
   `time cd …`; and a program the table does not know given a word only the
   shell can resolve, a here-string or piped input (`mytool "$X"`,
-  `cat a | mytool`). The common text programs
+  `cat a | mytool`), or a literal argument holding shell syntax (`$`, `$(`,
+  a backquote, `;`, `&&`, `||`, `|`, a newline: `mytool '$HOME'`,
+  `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`), which
+  ssh, watch and their kind run as shell code. The common text programs
   (`cat`, `grep`, `head`, `sort`, `jq` …; ADR 2026-020) are not refused for
   this: `cat a | grep x`, `jq . f.json`, `git log | head`, `cat "$F"` and
   `sort -o out.txt in.txt` stay allowed.

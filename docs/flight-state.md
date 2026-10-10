@@ -218,9 +218,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     see is code); a deep chain of wrappers each holding such a word is
     unread (`sudo "$A"` × 8). Not read: other runners (`npm exec`,
     `pnpm dlx`), other git subcommands (`clean`, `merge`, `rebase` …),
-    which packages a recursive runner runs in, aliases defined elsewhere,
-    and a literal argument a program the reader does not interpret runs as
-    code itself (`ssh host 'terra``form apply'`).
+    which packages a recursive runner runs in, and aliases defined
+    elsewhere. A literal argument holding shell syntax given to a program
+    the reader does not interpret is code (`ssh host 'terra``form apply'`).
   - **A `cd` the reading cannot place does not relocate later commands: a
     named fail-open for the protected-paths pack** (ADR 2026-020, "Limits"):
     `"$W" cd sub && rm x` (the shell may delete `sub/x` if `"$W"` is
@@ -261,11 +261,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     here-string or piped input (`mytool "$X"`, `cat a | mytool`,
     `ssh host "terra$()form apply"`, `/bin/sh <<< 'terraform apply'`); the
     common text programs are not refused for this (`cat a | grep x`).
-  - An execute rule does not see its program reached through a literal
-    argument a program the reader does not interpret runs as code itself
-    (`` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`):
-    allowed while the requirement is unmet (ADR 2026-019, "Limits"). A
-    shell's options are read every way the recorded shells
+  - A literal argument holding shell syntax (`$`, a backquote, `;`, `&&`,
+    `|`, a newline) given to a program the reader does not interpret is
+    code, refused while a requirement is missing
+    (`` ssh host 'terra``form apply' ``, and, the over-refusal,
+    `mytool '$HOME'`; `grep '$x' f` is allowed). A shell's options are read every way the recorded shells
     read them (bash, dash, zsh, ksh; every way for `sh`), and it reports
     its standard input as code when any reading has no script, `s` in a
     cluster, or a script that may be standard input (`-`, under `/dev/`

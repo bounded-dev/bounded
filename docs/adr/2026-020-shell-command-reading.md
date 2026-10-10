@@ -365,7 +365,13 @@ names no tool or language (AGENTS.md). It can own the shape.
       `bun`, `pnpm`, `yarn` and `uv` outside their runner subcommands too).
       For such a program, each argument only the shell can resolve is also
       reported as code (`{ text: <word as written>, role: "code" }`, beside
-      today's `read`); a here-string into it as code (its text as written,
+      today's `read`); so is each literal argument holding shell syntax
+      (`$`, `$(` among them, a backquote, `;`, `&&`, `||`, `|` or a
+      newline), since ssh, watch and their kind run an argument as shell
+      code (`ssh host 'terra``form apply'`, `watch 'terra${x}form apply'`,
+      and, the over-refusal, `mytool '$HOME'`), each argument's scan charged
+      its text; known programs are unchanged (`echo '$HOME'`,
+      `grep '$x' f`); a here-string into it as code (its text as written,
       `<<< 'x'`); piped input into it (any command in a pipeline stage after
       the first, a group or subshell there included, never a substitution)
       as `(piped input)` code; xargs's input to it with the role `code` too.
@@ -910,9 +916,9 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   `revert`, `worktree`, `clean`); text programs beyond the list; aliases
   and functions defined outside the command; heredocs fed to an
   uninterpreted program (only here-strings and pipes are code); a literal
-  argument a program the reader does not interpret runs as code itself
-  (`ssh host 'terra``form apply'`, `watch 'terra${x}form apply'`: a
-  literal word is read, never code); a `{ … }` coproc or `time` body
+  argument with no shell syntax that a program the reader does not
+  interpret still runs as code (`ssh host terraform apply` is seen only as
+  an argument naming terraform); a `{ … }` coproc or `time` body
   re-joined across the `;` the grammar cuts it at; `sudo -e` (sudoedit).
 - A range with a step of zero gives only the word as written and leaves it
   to the shell: no shell was recorded for it. A nested group whose range's
@@ -1001,7 +1007,8 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   `doas -s`, sourced files, `alias`es, recursive runners, a `{ … }`
   coproc, `time cd`, and a program the table does not know given a word
   only the shell can resolve, a here-string or piped input
-  (`mytool "$X"`, `cat a | mytool`).
+  (`mytool "$X"`, `cat a | mytool`), or a literal argument holding shell
+  syntax (`mytool '$HOME'`, `ssh host 'cd x && make'`).
 
 ## Consequences
 
