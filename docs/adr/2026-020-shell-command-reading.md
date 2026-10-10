@@ -21,7 +21,12 @@ plausible reading wherever a wrapper, a shell, git, `env -S` or a
 variable-named program could hide a command; only runs in the same shell
 share it; short option clusters read as getopt reads them; transfers from
 unknown sources report their write; ranges read every way the recorded
-shells read them (see "Every reading adds").
+shells read them (see "Every reading adds"). Amended by
+`shell-reader-coverage` (3.3.0): package runners, programs named by their
+path or in another case, common text programs, `time` and `coproc`,
+`sudo`/`doas` shells, sourced files, `-execdir`/`-okdir`, `trap` and
+`alias`, git's writing subcommands, and code for what reaches a program
+the reader does not interpret (see "The reader's new readings").
 
 ## Context
 
@@ -285,6 +290,185 @@ names no tool or language (AGENTS.md). It can own the shape.
       2026-019): `exec "$@"`, `sudo "$@"`, `bash "$SCRIPT"`,
       `"$CMD" --version`, `bash "$S" "$1"`, `bash "$X" deploy.sh` and
       `"$W" cd sub && rm x` among them.
+  - **The reader's new readings** (*amended by `shell-reader-coverage`*).
+    Each follows "Every reading adds": today's reading of every literal
+    word is kept, every new reading is added (its runs marked `added`, in a
+    copy of where they start), charged through `commandMeaning`'s budget and
+    deduplicated with the one key.
+    - **A program named by its path, or in another case.** `commandMeaning`
+      also looks a name up by its last `/` segment, case folded (`/bin/rm x`,
+      `/usr/bin/env rm x`, `./sudo rm x`, `RM x`), so every caller, xargs's
+      input roles included, gets it. The meaning found is added beside
+      today's (the program as written, reading its operands) and **never
+      moves the shell**: its `cd` is dropped and every run it gives goes in
+      a copy, `builtin`, `command` and `exec`'s included (no `sharesShell`),
+      so `/usr/bin/cd sub; rm .env`, `CD sub; rm .env` and
+      `/usr/bin/command cd sub; rm .env` still delete `./.env`.
+    - **Package runners.** `npx`, `pnpx`, `bunx`, `bun x`, `pnpm exec`,
+      `yarn dlx`, `uvx` and `uv tool run` run their words, after their own
+      options, as a command (an added run), the package word naming it
+      without a trailing `@<version>` and by its last `/` segment
+      (`cdktf@0.20` runs `cdktf`, `@scope/tool@1` runs `tool`). Today's
+      reading (the runner reading its operands) is kept. Known options, each
+      taking the next word or `=value`: `npx`/`pnpx` `-p`/`--package`,
+      `-w`/`--workspace`, `-c`/`--call` (code, parsed and walked); `bunx` and
+      `bun x` `-p`/`--package`, `--cwd`; `pnpm` `--filter`/`-F`,
+      `-C`/`--dir`, `-w`/`--workspace-root` and `-r`/`--recursive` (no
+      value) before `exec`, and `-c`/`--shell-mode` after it (its command
+      line is code); `yarn` `--cwd` before `dlx`, `dlx -p`/`--package`;
+      `uvx`/`uv tool run` `--from`, `--with`, `--python`/`-p`,
+      `--directory` and the index options. Where the command runs: `pnpm -C`,
+      `bunx --cwd`, `yarn --cwd` and `uvx --directory` with a literal
+      directory run it from there (resolved from where the runner runs),
+      with one only the shell can resolve from nowhere known; `pnpm -r`,
+      `--filter`, `-w` and `npx -w` (each matching package's directory, a
+      workspace's) from nowhere known. An option a runner does not know
+      forks as xargs's unknown options do (it takes nothing, or the next
+      word), memoised by where it stands, the directory and the shell mode,
+      each reading charged the words left. `bun`, `pnpm`, `yarn` and `uv`
+      with any other subcommand are read as before, uninterpreted.
+    - **The common text programs** that never run their input or arguments
+      as code are table entries reading their file operands: `cat` (read by
+      the default before; an entry now so what reaches it stays a read),
+      `grep`, `egrep`, `fgrep`, `rg`, `head`, `tail`, `sort`, `uniq`, `wc`,
+      `cut`, `tr`, `jq`, `yq`, `column`, `nl`, `less`, `more`, `diff`,
+      `cmp`, `comm`, `paste`, `fold`, `fmt`, `rev`, `tac`, `base64`,
+      `md5sum`, `sha1sum` … `sha512sum`, `shasum`, `file`, `stat`,
+      `basename`, `dirname`, `realpath`, `date` and `seq` (`printf`,
+      `true`, `false` and `test` stay text; `tee` writes its operands, as
+      before). Each reads as the default did (every operand, every
+      `--option=value`, every short option's attached value), plus, with
+      options read anywhere before `--` as GNU getopt permutes them: the
+      values of file-valued options read (`grep -f`/`--file`,
+      `--exclude-from`; `rg -f`/`--file`, `--ignore-file`; `jq -f`/
+      `--from-file`, `-L`, `--slurpfile <name> <file>`, `--rawfile <name>
+      <file>`; `yq --from-file`; `diff --from-file`, `--to-file`, `-X`;
+      `wc` and `sort --files0-from`; `file -f`/`--files-from`,
+      `-m`/`--magic-file`, `-M`; `date -f`/`--file`, `-r`/`--reference`;
+      `base64 -i`/`--input`; `less -k`, `-T`; `realpath --relative-to`,
+      `--relative-base`); writes (`sort -o`/`--output`, `uniq`'s second
+      operand, `yq -i`/`--inplace`'s files after its expression, `less -o`/
+      `-O`/`--log-file`, macOS `base64 -o`); runs (`rg --pre` and
+      `--hostname-bin`, `sort --compress-program`: the value names the
+      program, an added run, and a literal value with spaces is also split
+      and run, fail closed). Checked against the `--help` or usage of the
+      versions on the machine the item was built on (grep 2.6.0-FreeBSD,
+      ripgrep 14.1.1, jq 1.7.1, Apple diff, less 668, sort 2.3-Apple, file
+      5.41, macOS's `stat`, `date`, `uniq`, `wc`, `column` and `base64`),
+      else against GNU coreutils' and yq's (v4) documentation. A word only
+      the shell can resolve given to one of them is read, never code
+      (`grep "$PATTERN" log.txt`). awk, sed, perl, python and the other
+      interpreters, xargs and find are unchanged.
+    - **What reaches a program the reader does not interpret is code.** A
+      program is uninterpreted when the table does not know it, by its name
+      or its last path segment, case folded (`CommandMeaning.uninterpreted`;
+      `bun`, `pnpm`, `yarn` and `uv` outside their runner subcommands too).
+      For such a program, each argument only the shell can resolve is also
+      reported as code (`{ text: <word as written>, role: "code" }`, beside
+      today's `read`); a here-string into it as code (its text as written,
+      `<<< 'x'`); piped input into it (any command in a pipeline stage after
+      the first, a group or subshell there included, never a substitution)
+      as `(piped input)` code; xargs's input to it with the role `code` too.
+      What reaches a command a known wrapper runs reaches it as well
+      (`cat a | sudo mytool`). Known programs keep their reads:
+      `echo "$HOME"`, `cat "$F"`, `cat a | tee b`, `cat a | grep x`,
+      `git log | head`, `base64 -d <<< 'eA=='` have no code part. The
+      protected-paths pack is unaffected (code parts are allowed by its
+      policy); `bounded/prereqs` refuses these while a rule does not hold
+      (ADR 2026-019): `ssh host "terra$()form apply"`, `su -c …`,
+      `script -c …`, `/bin/sh <<< 'terraform apply'`,
+      `base64 -d <<< … | xargs /usr/bin/env`, and, the over-refusal,
+      `mytool "$X"` and `cat a | mytool`.
+    - **`time`**, as recorded with the repository's tree-sitter-bash
+      (`@vscode/tree-sitter-wasm` 0.3.1): the grammar has no keyword node;
+      `time rm x`, `time -p rm x` and `/usr/bin/time rm x` are commands
+      named `time`, `time { rm x; }` is the words `time { rm x` and a
+      command `}`, and `time (rm x)` a command with a subshell child. It is
+      a wrapper: after `-p`, `--` and `/usr/bin/time`'s `-o`/`--output
+      <file>` (written), `-f`/`--format`, `-a`, `-v`, and a lone `{`, its
+      words run as a command (added); today's reading of its words is kept.
+      A command that would move where later commands run (`time cd sub`;
+      bash runs it in this shell) also reports
+      `(where time's command moves the shell)` as code.
+    - **`coproc`**, as recorded: an ordinary command; a `{ … }` body is cut
+      at its first `;` into the words `{` and the body's first statement,
+      then the body's later statements and a command named `}`; a `( … )`
+      body is a subshell child of the command. Under bash's NAME rule a
+      literal NAME then `{`, or a lone `{`, make the command the words after
+      the `{`, and the body is also reported as `(coproc's { … } body)`
+      code; otherwise the words are the command (`coproc NAME rm x` runs
+      `NAME`). **The reader's adapter walks a command's `subshell` child**
+      after it, in the background (it read only a command's name, arguments,
+      redirections and assignments before), so `coproc (rm x)` and
+      `time (rm x)` delete `x`.
+    - **An empty substitution runs nothing.** The grammar recovers from
+      `$()` (blanks only inside) with an inserted command name; the adapter
+      reads it as the empty substitution bash runs, so no program named for
+      the inserted token is listed (`ssh host "terra$()form apply"` gives
+      its word as code, not an unresolved program name). The word holding
+      it is still one only the shell can resolve.
+    - **Standard input.** prereqs-execute's readings are kept as they are
+      (a shell with neither `-c` nor an operand, or with `-s`; a first
+      operand `-`, `/dev/stdin`, `/dev/fd/N`, `/proc/self/fd/0`; the
+      getopt-style option walk). Added: `sudo -s`/`--shell`/`-i`/`--login`
+      and `doas -s` with no command (a shell reading standard input) report
+      `(standard input)` code; `.` and `source` report the file they name as
+      code besides today's read (`source /dev/stdin`, `. ./env.sh`).
+    - **`sudo`'s long options match as getopt_long matches them**:
+      exactly, or by a unique prefix (`sudo --us root rm .env` runs
+      `rm .env`; sudo 1.9.17p2's options, from `sudo -h`); a prefix of
+      several (`--pr`) is read every way it could be taken. Today's reading
+      of an abbreviation (a word that takes nothing) is kept; each option
+      it may abbreviate is an added reading.
+    - **`-execdir` and `-okdir`** also run their command from nowhere known
+      (added), since they run it from each found path's directory; skipped
+      where the shell is already nowhere known.
+    - **`trap`** reads its first operand as code, walked from where `trap`
+      runs and again from nowhere known (it runs wherever the shell is when
+      the signal comes): not with `-l`, `-p` or `-P`, nor when its only
+      operand is a signal or its code is `-`. **`alias`** reports each
+      `NAME=value`'s value as code and, when literal, walks it from nowhere
+      known. So `trap 'rm x' EXIT; cd sub` deletes `x` and reports `x` as a
+      write only the shell can place; `trap 'terra$()form apply' EXIT` runs a
+      program only the shell can name.
+    - **git's writing subcommands** (`checkout`, `switch`, `restore`,
+      `apply`, `stash`, `reset`, `clone`), with today's reads of their
+      operands kept. Their options are read as git's parse-options reads
+      them, listed from `git <subcommand> -h` of git 2.54.0: short options
+      cluster, a value option taking the rest of its word or the next word;
+      long options by name or unique prefix, `=value` or the next word,
+      `--no-` before a flag. An unknown option, or a word only the shell can
+      resolve, forks (an operand, a flag, or an option taking the next
+      word); a word read one way costs a step, and a fork is memoised by
+      where it stands and what it has read, each charged that state's size
+      and the words left. What each writes, every plausible way: `checkout`
+      the pathspecs after `--`, and without `--` each operand (a branch or a
+      path: git decides) and `(the working tree)`; `checkout -b x` and
+      `switch -c x` with no start point nothing; `switch <branch>` and
+      `switch --orphan` the working tree; `restore` its pathspecs unless
+      `--staged` without `--worktree`; `apply` the working tree unless
+      `--check`, `--stat`, `--numstat`, `--summary` or `--cached` without
+      `--apply` (its `--build-fake-ancestor` file written); `stash` with
+      none, `push`, `save`, `pop`, `apply`, `branch` or a subcommand only
+      the shell can name the working tree, `list`, `show`, `drop`, `clear`,
+      `create`, `store`, `export` and `import` nothing; `reset --hard`,
+      `--merge` and `--keep` the working tree, a path form nothing; `clone`
+      creates its destination, or the directory git's `git_url_basename`
+      names (the source's last `/` or `:` segment, trailing slashes and a
+      `.git` or `.bundle` ending dropped, `.git` added for `--bare` or
+      `--mirror`), and `--separate-git-dir`'s; with a source only the shell
+      can name, a directory only the shell can name. **A pathspec or option
+      that can reach more than its literal path also reports
+      `(the working tree)`**: for `checkout` and `restore`, a pathspec that
+      is `.`, holds `*`, `?` or `[`, starts with `:`, is only the shell's to
+      resolve, or names a directory (told where the command runs:
+      `CommandMeaning.writes[].pathspec`); and `-f`/`--force`,
+      `--discard-changes`, `-m`/`--merge`, `--pathspec-from-file`. The
+      literal path is still written too (`git restore 'src/*'` writes
+      `src/*`).
+    - **The stand-in texts** `(standard input)`, `(piped input)`,
+      `(the working tree)`, `(found path)`, `(coproc's { … } body)` and
+      `(where time's command moves the shell)` are unresolved words.
   - **Brace expansion is read every way a shell running the command could
     expand it**, so every path either shell could touch is judged. Comma
     lists (`{a,b}`) and ranges expand, nested, left to right; quoted and
@@ -451,7 +635,18 @@ names no tool or language (AGENTS.md). It can own the shape.
       third seeded fuzz test, 300 commands of wrappers, shells, git and
       words only the shell can resolve, each read under 250 ms, never
       throwing and never unread for want of time (slowest 2 ms); the two
-      above, 53 ms and 41 ms.
+      above, 53 ms and 41 ms. *Amended by `shell-reader-coverage`* (one run
+      each): a fourth seeded fuzz test, 300 commands of runners, paths to
+      programs, `time`, `coproc`, `trap`, `alias`, git's writing
+      subcommands, the standard-input forms, the text programs and
+      uninterpreted programs (seed `0x2026_0025`), slowest 1 ms; the other
+      three 57, 46 and 3 ms. Read: `git checkout` with 5,000 words in 55 ms,
+      `git restore` with 2,000 in 9 ms, `"$A"` × 10,000 after an
+      uninterpreted program in 39 ms, 3,000 pipeline stages into one in
+      38 ms. Unread for the budget: 3,000 unknown options before `npx`'s,
+      `pnpm`'s or `git checkout`'s command in 8 ms; `sudo --pr` × 3,000 in
+      149 ms (each ambiguous abbreviation forks, memoised). The quoted
+      outcomes above are unchanged.
   - **The cause.** An unread reading carries `cause: "too-complex"` only
     when the command itself is to blame. The parser returning no tree is a
     failure of the parser, not of the command, so it carries no cause, as
@@ -684,20 +879,41 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   than two option words, or into an option and the command at once, is
   covered only as far as readings 1–3 (and the shells' and variable-named
   programs' readings) reach; wrappers and runners the table does not know
-  are read as unknown commands (until `shell-reader-coverage`); a deep chain
+  are read as unknown commands (*amended by `shell-reader-coverage`*: whose
+  words only the shell can resolve, here-strings and piped input are code);
+  a deep chain
   of wrappers each holding such a word outgrows the budget and is unread
   (`sudo "$A"` × 6 before a command is read, × 8 is not).
 - **A `cd` the reading cannot place does not relocate later commands**: a
   `cd` inside an added reading (`"$W" cd sub && rm x`, where `"$W"` may be
   `builtin`, so the shell would delete `sub/x`), `time cd sub; rm x` and a
   coproc `{ … }` body's statements read later commands from where they
-  were. Named, pinned fail-opens for the protected-paths pack;
-  `bounded/prereqs` refuses `"$W" cd sub && rm x` while a rule does not
-  hold (its program name only the shell can resolve), and `time` and
-  `coproc` once `shell-reader-coverage` reads them (the coproc body's code
-  part, `time`'s report). Closing them would need a mechanism that
+  were (`coproc { true; cd sub; }; rm x` deletes `./x` in bash; the reading
+  says `sub/x`). Named, pinned fail-opens for the protected-paths pack;
+  `bounded/prereqs` refuses each while a rule does not hold:
+  `"$W" cd sub && rm x` for its program name only the shell can resolve,
+  `time cd sub` for `(where time's command moves the shell)`, a `{ … }`
+  coproc for `(coproc's { … } body)` (*amended by
+  `shell-reader-coverage`*). Closing them would need a mechanism that
   multiplies readings at every such `cd`: not taken (the orchestrator's
   decision, for the maintainer).
+- **A git pathspec or option that may reach more than its literal path**
+  (`git checkout -- .`, `git restore '*'`, `git stash push -- .`,
+  `git checkout -f main`) writes `(the working tree)`, which the
+  protected-paths pack allows, as its policy on unresolved parts is: such a
+  command overwriting a protected file is not refused by it.
+  `bounded/prereqs` refuses it while a write rule does not hold.
+- **Not read** (*`shell-reader-coverage`*): other runners (`npm exec`,
+  `npm x`, `pnpm dlx`) and runner options not listed (they fork); which
+  packages a recursive runner (`pnpm -r`, `--filter`) runs in (from nowhere
+  known); other git subcommands (`merge`, `rebase`, `pull`, `cherry-pick`,
+  `revert`, `worktree`, `clean`); text programs beyond the list; aliases
+  and functions defined outside the command; heredocs fed to an
+  uninterpreted program (only here-strings and pipes are code); a literal
+  argument a program the reader does not interpret runs as code itself
+  (`ssh host 'terra``form apply'`, `watch 'terra${x}form apply'`: a
+  literal word is read, never code); a `{ … }` coproc or `time` body
+  re-joined across the `;` the grammar cuts it at; `sudo -e` (sudoedit).
 - A range with a step of zero gives only the word as written and leaves it
   to the shell: no shell was recorded for it. A nested group whose range's
   `..` comes from inside its nested group's words (`f{1{..,x}3}`) gets the
@@ -710,14 +926,13 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   can resolve among xargs's options, and the wrapper's forks cover its own
   options (`sudo "$W" rm x` still gives `rm [x]`), but the suffixes of the
   variable-named program's words are not read there.
-- **What `programs` does not list** (*amended by `prereqs-execute`*; each
-  until `shell-reader-coverage` where it fixes it): what programs and
-  scripts run themselves; package runners (`npx`, `bunx`, `pnpm exec`,
-  `yarn dlx`, `uvx`); a program named by its path (`/usr/bin/env terraform`,
-  `/bin/bash -c …`), looked up by its full name, not its last segment;
-  `time` and `coproc`; `trap`'s code and `alias` values; aliases and
-  functions; git's `!` aliases; a script run through a shell or sourced;
-  `-execdir`'s directory (read from where `find` runs).
+- **What `programs` does not list** (*amended by `prereqs-execute` and
+  `shell-reader-coverage`*, which lists package runners' commands, a
+  program named by its path or in another case, `time`'s and `coproc`'s
+  commands, `trap`'s and literal `alias` values' code, and `-execdir`'s from
+  nowhere known): what programs and scripts run themselves; aliases and
+  functions defined outside the command; git's `!` aliases; a script run
+  through a shell or sourced (a sourced file is reported as code).
 - A pack judging writes must look in readings as well as write effects.
 - `bounded/prereqs` matches `before: { execute }` and `before: { write }`
   against readings, and refuses where it cannot see (ADR 2026-019,
@@ -774,6 +989,19 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   `bash "$SCRIPT"`, `bash "$X" deploy.sh` and `bash "$S" "$1"` while a
   rule does not hold, and the protected-paths pack refuses the deletes
   those readings find.
+- **Changed by `shell-reader-coverage`:** readings gain runs, writes and
+  code parts (see "The reader's new readings"), so a pack may refuse what it
+  allowed. The protected-paths pack refuses the writes they find
+  (`/bin/rm x`, `pnpm exec rm x`, `time rm x`, `git checkout x`,
+  `git clone u x`, `sort -o x in.txt`, `sudo --us root rm .env`).
+  `bounded/prereqs` sees runs it saw as arguments before
+  (`/usr/bin/env terraform apply`, `npx terraform apply`,
+  `trap 'terraform apply' EXIT`, `time terraform apply`) and refuses, while
+  a rule does not hold, `(the working tree)` git forms, `sudo -s`,
+  `doas -s`, sourced files, `alias`es, recursive runners, a `{ … }`
+  coproc, `time cd`, and a program the table does not know given a word
+  only the shell can resolve, a here-string or piped input
+  (`mytool "$X"`, `cat a | mytool`).
 
 ## Consequences
 

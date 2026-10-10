@@ -10,6 +10,9 @@ gone; `require` matches the agent the host resolved, exactly, in both
 orders; `pending` is a status; and the records gain run starts. Amended by
 `prereqs-execute` (3.3.0): `before: { execute }`, and shell writes, judged
 from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading.md)).
+Amended by `shell-reader-coverage` (3.3.0): the reader's new readings
+(ADR 2026-020) close the limits it named for execute and write rules, and
+the over-refusals they bring are stated below.
 
 ## Decision
 
@@ -307,10 +310,15 @@ pi-subagents' project agent directory), which give role identity.
   `"git push"` rule, as does any alias or subcommand name the program
   itself expands. Not seen: aliases and functions from the host's shell
   snapshot (`tf apply`); git's `!` aliases; a program named `terraform.exe`;
-  a script run through a shell, or sourced, is not seen to run: it is
-  refused as cannot see only when its name is the rule's program and is
-  written out as an argument (`bash deploy.sh`, `. deploy.sh` under
-  `"deploy.sh"`); a script the shell names where its options are
+  a script run through a shell is not seen to run: it is refused as cannot
+  see only when its name is the rule's program and is written out as an
+  argument (`bash deploy.sh` under `"deploy.sh"`); a sourced script
+  (`. deploy.sh`, `source x.sh`) is code bounded cannot read, refused under
+  any rule while it does not hold (*amended by `shell-reader-coverage`*); a
+  literal argument a program the reader does not interpret runs as code
+  itself (`` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`)
+  is read as text, so the rule's program is found only where its name is
+  written out; a script the shell names where its options are
   (`bash "$S"`) is refused as code bounded cannot read, `"$S"` possibly
   holding `-s` (*amended by `shell-every-reading`*), while one named after
   them (`bash -- "$S"`) or substituted
@@ -318,41 +326,26 @@ pi-subagents' project agent directory), which give role identity.
   read as bash;
   a range bash 3.2 keeps literal and bash 4 expands may shift a later
   word's position.
-- **Execute rules, until `shell-reader-coverage`: an expansion inside an
-  argument or input to a program the reader does not interpret is not
-  seen.** A program the reader does not interpret (one named by its path
-  such as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`, `watch`,
-  `su -c`, `script -c`, `time`, `coproc`) is given its arguments and input
-  as text; the pack finds the rule's program in that text only where its
-  name is written out. Where only the shell would assemble it, it is not
-  found, and the command is allowed while the requirement is unmet:
-  `/bin/bash -c 'terra$()form apply'`, `` ssh host 'terra``form apply' ``,
-  `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
-  `script -c "$(echo … | base64 -d)"`, `time $TF apply`, `coproc $TF
-  apply`, `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'` and
-  `cat commands.txt | xargs /usr/bin/env`. `shell-reader-coverage` gives
-  such an argument, here-string, piped input or xargs input role `code`,
-  so the pack refuses each as cannot see, and interprets `/bin/bash`,
-  `/bin/sh` and `/usr/bin/env` by their path. Until then the same holds of
-  code read from standard input by a program other than a shell named
-  `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code: given no
-  script, `s` in an option cluster in any shell's reading of its options,
-  a script operand that may be standard input (`-`, under `/dev/` or
-  `/proc/`, with a `..` segment, or naming no project path), or an option
-  bounded does not know; ADR 2026-020): `sudo -s`/`sudo -i` and `doas -s` with no command,
-  `source /dev/stdin` and `. /dev/stdin` (each fed by `<<<` or a heredoc),
-  and `trap 'terra$()form apply' EXIT`.
-- **Write rules, until `shell-reader-coverage`** (named, so they are not
-  mistaken for seen): in-place edits (`sed -i`, `perl -i`); what programs
-  and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
-  `yarn dlx`, `uvx`); a program named by its path (`/bin/rm`,
-  `/usr/bin/env rm`); `time` and `coproc`; the other standard-input forms
-  (an unresolved script operand, `.`/`source` of
-  `/dev/stdin`, `sudo -s`/`-i`, `doas -s`); `-execdir`/`-okdir` read
-  from where `find` runs; `trap`'s code and `alias` values; git's writing
-  subcommands (`checkout`, `restore`, `apply`, `stash`, `reset`, `clone`),
-  read as reads. (In-place edits and programs' own writes remain after it
-  too.)
+- **Write rules** (named, so they are not mistaken for seen): in-place
+  edits (`sed -i`, `perl -i`); what programs and scripts write themselves;
+  what ADR 2026-020 names as not read (other runners and git subcommands,
+  aliases defined elsewhere). *Amended by `shell-reader-coverage`:* package
+  runners, a program named by its path or in another case, `time` and
+  `coproc`, the standard-input forms (`sudo -s`/`-i`, `doas -s`,
+  `.`/`source`), `-execdir`/`-okdir` (also from nowhere known), `trap`'s
+  code and `alias` values, and git's writing subcommands (`checkout`,
+  `switch`, `restore`, `apply`, `stash`, `reset`, `clone`) are read; and,
+  for execute and write rules alike, what reaches a program the reader
+  does not interpret (a word only the shell can resolve, a here-string,
+  piped input, xargs's input) is code, so `ssh host "terra$()form apply"`,
+  `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64 -d)"`,
+  `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`,
+  `sudo -s`, `doas -s`, `source /dev/stdin` and
+  `trap 'terra$()form apply' EXIT` are refused as cannot see while a rule
+  does not hold, and `/usr/bin/env terraform apply`, `npx terraform apply`,
+  `trap 'terraform apply' EXIT` and `time terraform apply` are seen to run
+  `terraform apply`.
 - A delegation made from the shell (`claude -p --agent …`) is not one.
 - **Over-refusal while a requirement is missing:** commands bounded cannot
   read through (awk programs, `python -c`, `eval`, `| sh`, a program whose
@@ -362,8 +355,9 @@ pi-subagents' project agent directory), which give role identity.
   program as an argument (`echo terraform`, `which terraform`, a commit
   message naming it). A program named by a variable is refused only where
   the reading lists it as a run whose name is unresolved; given as an
-  argument to a program the reader does not interpret (`time $TF`,
-  `coproc $TF`, `/usr/bin/env "$TF"`), it is not refused yet (above).
+  argument to a program the reader does not interpret, it is refused as
+  code (*amended by `shell-reader-coverage`*; `time $TF`, `coproc $TF` and
+  `/usr/bin/env "$TF"` now list `$TF` as a run).
   *Amended by `shell-every-reading`* (ADR 2026-020): readings add every
   plausible reading of a word only the shell can resolve, so these are
   refused too while a rule does not hold: `exec "$@"`, `sudo "$@"`,
@@ -372,7 +366,21 @@ pi-subagents' project agent directory), which give role identity.
   (standard input), `bash "$S" "$1"` (`"$1"` as code),
   `"$W" cd sub && rm x` (a `cd` bounded cannot place), and writes only the
   shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
-  `ls | xargs cp -t src`).
+  `ls | xargs cp -t src`). *Amended by `shell-reader-coverage`* (the
+  orchestrator's decisions, for the maintainer): also refused while any
+  rule does not hold, under any write rule for the git forms: git commands
+  that write `(the working tree)` (`git checkout main`, `git switch main`,
+  `git stash`, `git stash pop`, `git reset --hard`, `git apply p.patch`,
+  `git checkout -- .`, `git restore :/src`, `git checkout -f main`,
+  `git switch --discard-changes main`); `sudo -s`, `sudo -i`, `doas -s`;
+  any sourced file (`. ./env.sh`); `alias c='…'`; a recursive runner
+  (`pnpm -r exec …`, its directory not told); a `{ … }` coproc;
+  `time cd …`; and a program the table does not know given a word only the
+  shell can resolve, a here-string or piped input (`mytool "$X"`,
+  `cat a | mytool`). The common text programs
+  (`cat`, `grep`, `head`, `sort`, `jq` …; ADR 2026-020) are not refused for
+  this: `cat a | grep x`, `jq . f.json`, `git log | head`, `cat "$F"` and
+  `sort -o out.txt in.txt` stay allowed.
 - **ABA:** files edited and restored between the delegation and its result
   compare equal, so the run counts.
 - Records are per project root; teammates and isolated runs of a required
