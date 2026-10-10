@@ -261,6 +261,11 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
     }
+    // A bare exec (no command) gives what feeds it (a here-string, a < from a process substitution) to the rest of the shell as its
+    // standard input, which any later program may run: code, at the exec, failing closed. A < from a file stays a read.
+    if (name.kind === "literal" && (name.text.split("/").at(-1) ?? "").toLowerCase() === "exec" && meaning.runs.length === 0) {
+      for (const word of how.fed ?? []) if (spend(budget, 1 + textCost([word]))) unresolved.push({ text: word.text, role: "code" });
+    }
     // A program the table does not know may run what reaches it: a word only the shell can resolve, a literal word holding shell
     // syntax (ssh and watch run it as shell code), piped input and a here-string are code, each charged its text (the scan included).
     if (name.kind === "literal" && how.standIn !== true && own.uninterpreted === true) {

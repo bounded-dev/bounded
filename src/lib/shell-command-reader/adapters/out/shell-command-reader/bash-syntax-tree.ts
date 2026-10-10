@@ -257,19 +257,34 @@ const REDIRECTS = new Set(["file_redirect", "heredoc_redirect", "herestring_redi
  * `{ … }` or `( … )`, the grammar recovers from `<<<` as an ERROR `<<` then a
  * `< 'x'` file redirection (`{ a; } <<< 'x'`): that is read as the
  * here-string it is, beside the file redirection the grammar gives (every
- * reading adds).
+ * reading adds); the file redirection's substitutions run once, through it.
+ * Any other ERROR child (recorded: `{ a; } <<<< x` gives an ERROR `<<<`,
+ * `while a; do b; done 0<<< x` an ERROR ` 0`) is text the parser could not
+ * read: unparsed, so code, failing closed. Each child is mapped once.
  */
-function statementRedirects(node: Node): ShellRedirect[] {
-  const children = named(node);
-  return children.flatMap((child, index): ShellRedirect[] => {
-    if (REDIRECTS.has(child.type)) return [redirect(child)];
-    const next = children[index + 1];
-    if (child.type === "ERROR" && child.text === "<<" && next?.type === "file_redirect" && redirect(next).operator === "<") {
-      return [{ operator: "<<<", target: { kind: "unresolved", text: `${child.text}${next.text}`, commands: substituted(next) } }];
+function statementRedirects(node: Node, body: Node | null): { readonly redirects: ShellRedirect[]; readonly unparsed: string[] } {
+  const children = named(node).filter((child) => body === null || child.startIndex !== body.startIndex || child.endIndex !== body.endIndex);
+  const mapped = children.map((child) => (REDIRECTS.has(child.type) ? redirect(child) : undefined));
+  const redirects: ShellRedirect[] = [];
+  const unparsed: string[] = [];
+  for (const [index, child] of children.entries()) {
+    const own = mapped[index];
+    if (own !== undefined) {
+      redirects.push(own);
+      continue;
     }
-    return [];
-  });
+    if (child.type !== "ERROR") continue;
+    const next = children[index + 1];
+    if (child.text === "<<" && next?.type === "file_redirect" && mapped[index + 1]?.operator === "<") {
+      redirects.push({ operator: "<<<", target: { kind: "unresolved", text: `${child.text}${next.text}`, commands: [] } });
+    } else unparsed.push(child.text);
+  }
+  return { redirects, unparsed };
 }
+
+/** `node` followed by each text the parser could not read, as unparsed parts (code). */
+const withUnparsed = (node: ShellNode, unparsed: readonly string[]): ShellNode =>
+  unparsed.reduce<ShellNode>((left, text) => ({ kind: "list", left, operator: ";", right: { kind: "unparsed", text } }), node);
 
 /** Constructs whose insides may or may not run. */
 const CONTROL = new Set(["if_statement", "while_statement", "for_statement", "c_style_for_statement", "case_statement", "function_definition"]);
@@ -287,13 +302,13 @@ function statementAt(node: Node): ShellNode | undefined {
       return command(node);
     case "redirected_statement": {
       const body = node.childForFieldName("body");
-      const redirects = statementRedirects(node);
-      if (body === null) return { kind: "command", name: null, args: [], redirects, assignments: [] };
-      if (body.type === "command") return command(body, redirects);
+      const { redirects, unparsed } = statementRedirects(node, body);
+      if (body === null) return withUnparsed({ kind: "command", name: null, args: [], redirects, assignments: [] }, unparsed);
+      if (body.type === "command") return withUnparsed(command(body, redirects), unparsed);
       const inner = statement(body);
-      if (inner === undefined) return { kind: "group", body: [], redirects };
+      if (inner === undefined) return withUnparsed({ kind: "group", body: [], redirects }, unparsed);
       // The grammar hangs a redirection after `a && b` (or `a | b`) on the whole list; the shell gives it to the last command, which runs where the list has taken it.
-      return body.type === "list" || body.type === "pipeline" ? lastRedirected(inner, redirects) : { kind: "group", body: [inner], redirects };
+      return withUnparsed(body.type === "list" || body.type === "pipeline" ? lastRedirected(inner, redirects) : { kind: "group", body: [inner], redirects }, unparsed);
     }
     case "list": {
       const [left, right] = named(node).map(statement);

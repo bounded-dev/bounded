@@ -392,7 +392,19 @@ names no tool or language (AGENTS.md). It can own the shape.
       a file stays a read, judged as one, never code (`mytool < input.txt`
       is not refused): a named limit, since what the program makes of the
       file is not seen. xargs named by its path (`/usr/bin/xargs`) reads its
-      runs as xargs does, by its last path segment.
+      runs as xargs does, by its last path segment. *Second final review,
+      M1:* a bare `exec` (no command) sets the standard input of the rest of
+      the shell, so a here-string or a `<` from a process substitution given
+      to it is reported as code at the `exec`, failing closed
+      (`exec <<< 'terraform apply'; ssh host`,
+      `exec < <(echo terraform apply); ssh host` are refused by
+      `bounded/prereqs` while a rule does not hold); `exec < input.txt` stays
+      a read, the named file limit. Any other ERROR the grammar leaves in a
+      redirected statement (recorded: `{ a; } <<<< x` leaves `<<<`,
+      `while a; do b; done 0<<< x` leaves ` 0`) is unparsed text, code,
+      failing closed; the recovered here-string's target names no commands
+      of its own (the file redirection beside it runs its substitutions), so
+      nested groups cost linear work.
       What reaches a command a known wrapper runs reaches it as well
       (`cat a | sudo mytool`). Known programs keep their reads:
       `echo "$HOME"`, `cat "$F"`, `cat a | tee b`, `cat a | grep x`,
