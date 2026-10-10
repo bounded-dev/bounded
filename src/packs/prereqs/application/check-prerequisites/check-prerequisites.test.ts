@@ -160,7 +160,7 @@ describe("CheckPrerequisites — an action needs a delegation to have succeeded 
     const verdict = await handler.before(delegation("plan-reviewer", "c1", { finishUnreported: true }));
     expect(reasonOf(verdict)).toStartWith("bounded/prereqs.rules:");
     expect(redirectOf(verdict)).toContain("whose finish the host reports");
-    expect(redirectOf(verdict)).toBe("Run plan-reviewer as a run whose finish the host reports (not as a teammate or an asynchronous run)");
+    expect(redirectOf(verdict)).toBe("Run plan-reviewer as a new run whose finish the host reports");
   });
 
   test("a delegation of a required agent without a call id is refused", async () => {
@@ -356,7 +356,7 @@ describe("check-prerequisites — the resolved agent and runs that finish after 
     const isolated = await handler.before(delegation("PLAN-REVIEWER", "c1", { isolated: true }));
     expect(reasonOf(isolated)).toStartWith("bounded/prereqs.rules:");
     expect(redirectOf(isolated)).toBe("Run PLAN-REVIEWER without isolation, on the project's own files");
-    expect(redirectOf(await handler.before(delegation("Plan-Reviewer", "c2", { finishUnreported: true })))).toBe("Run Plan-Reviewer as a run whose finish the host reports (not as a teammate or an asynchronous run)");
+    expect(redirectOf(await handler.before(delegation("Plan-Reviewer", "c2", { finishUnreported: true })))).toBe("Run Plan-Reviewer as a new run whose finish the host reports");
     expect(reasonOf(await handler.before(delegation(" plan-reviewer ", null)))).toContain("call id");
     expect(records.startedByCall.size).toBe(0);
   });
