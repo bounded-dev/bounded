@@ -6094,5 +6094,68 @@
       "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > every way to give xargs a replace string is one: -I, --replace=X, a bare --replace or -i ({}), -iX and BSD -J; the string's words are listed as (input)"
     },
     "reason": "a word holding xargs's replace string is listed as (input) in programs, so a rule cannot match it as written (ADR 2026-020, amended by prereqs-execute); every word is still judged as written"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+    "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > a program whose name only the shell can resolve is listed with an unresolved name",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+      "case": "TreeSitterShellCommandReader — a word only the shell can resolve never hides a literal one (every reading adds) > a variable-named program is walked like an unknown wrapper: every literal-led suffix is a command"
+    },
+    "reason": "a variable-named program is walked like an unknown wrapper, so its words are also read as a command, and the reading lists that run too; every reading adds (ADR 2026-020, amended by shell-every-reading)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+    "case": "TreeSitterShellCommandReader conforms to ShellCommandReader > what only the shell can resolve is unresolved, never guessed",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+      "case": "TreeSitterShellCommandReader conforms to ShellCommandReader > what only the shell can resolve is unresolved, never guessed; a program it names may be a wrapper, so its words also run"
+    },
+    "reason": "a variable-named program is walked like an unknown wrapper, so its words are also read as a command, and the reading lists that run too; every reading adds (ADR 2026-020, amended by shell-every-reading). The case is in the published conformance suite (read-shell-command.shell-command-reader.test-support.ts), so the change is in ADR 2026-020's 3.3.0 release notes"
+  },
+  {
+    "file": "src/lib/shell-command-reader/domain/shell-command.test.ts",
+    "case": "describeShellCommand — the programs a command runs, and what it could not resolve > describeShellCommand lists the programs a parsed command runs, with where each runs",
+    "successor": {
+      "file": "src/lib/shell-command-reader/domain/shell-command.test.ts",
+      "case": "describeShellCommand — the programs a command runs, and what it could not resolve > describeShellCommand lists the programs a parsed command runs, with where each runs, a variable-named program's words as a run of their own"
+    },
+    "reason": "a variable-named program is walked like an unknown wrapper, so its words are also read as a command, and the reading lists that run too; every reading adds (ADR 2026-020, amended by shell-every-reading)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+    "case": "expandBraces: what a pass is charged, and where it looks at the time > a pass is charged its length, then nothing every CHARGE_EVERY characters, each a chance to stop",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+      "case": "expandBraces: what a pass is charged, and where it looks at the time > a pass is charged its length, then nothing every CHARGE_EVERY characters, each a chance to stop; its words come with whether the text is also left to the shell"
+    },
+    "reason": "expandBraces gives every word a recorded shell prints with whether the text is also left to the shell ({ words, alsoUnresolved }), so a range's words never replace the unresolved report the reading before gave; the words and charges are as before (ADR 2026-020, amended by shell-every-reading)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+    "case": "expandBraces: what a pass is charged, and where it looks at the time > text with no brace is not charged",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+      "case": "expandBraces: what a pass is charged, and where it looks at the time > text with no brace is not charged, and is its one word"
+    },
+    "reason": "expandBraces gives every word a recorded shell prints with whether the text is also left to the shell ({ words, alsoUnresolved }), so a range's words never replace the unresolved report the reading before gave; the words and charges are as before (ADR 2026-020, amended by shell-every-reading)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+    "case": "expandBraces: what a pass is charged, and where it looks at the time > a range's words and a kept group arrive escaped, so a later pass never expands them",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/brace-expansion.test.ts",
+      "case": "expandBraces: what a pass is charged, and where it looks at the time > a range's words and a kept group arrive escaped, so a later pass never expands them; nothing is left to the shell"
+    },
+    "reason": "expandBraces gives every word a recorded shell prints with whether the text is also left to the shell ({ words, alsoUnresolved }), so a range's words never replace the unresolved report the reading before gave; the words and charges are as before (ADR 2026-020, amended by shell-every-reading)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+    "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > brace expansion of literals gives each word; braces inside quotes are text",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > brace expansion of literals gives each word; braces inside quotes are text; a range past the cap is kept as written and left to the shell"
+    },
+    "reason": "a range the reader cannot spell out keeps its word as written beside the unresolved report, never a bare unresolved report, so cat {1..100000} reads the word {1..100000} (ADR 2026-020, amended by shell-every-reading; final review, M1)"
   }
 ]

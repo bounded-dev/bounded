@@ -145,7 +145,11 @@ function template(node: Node): string | undefined {
   }
 }
 
-/** The words a word becomes: its brace expansion, each literal; one unresolved word when the shell alone can say. */
+/**
+ * The words a word becomes: its brace expansion, each word any recorded
+ * shell gives a literal, and, where only the shell can say (as well, or
+ * alone), the word as written, unresolved.
+ */
 function words(node: Node): ShellWord[] {
   // A token the parser inserted is no word written: never a literal (such as an empty command name).
   if (node.isMissing) return [unresolved(node)];
@@ -153,7 +157,8 @@ function words(node: Node): ShellWord[] {
   // Quoted and escaped braces arrive escaped in the template, so only text that can expand costs expansion work.
   const expanded = text === undefined ? undefined : expandBraces(text, chargeBraces);
   if (expanded === undefined || expanded === TOO_COSTLY) return [unresolved(node)];
-  return expanded.map((each) => ({ kind: "literal", text: withoutEscapes(each) }));
+  const literals: ShellWord[] = expanded.words.map((each) => ({ kind: "literal", text: withoutEscapes(each) }));
+  return expanded.alsoUnresolved ? [...literals, unresolved(node)] : literals;
 }
 
 /** One word: a word that expands to several is one only the shell can make sense of here (a redirection's target, an assignment's value). */

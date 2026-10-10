@@ -165,10 +165,19 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `find -exec`'s `{}` as `(found path)`, and a shell reading its standard
   input (`… | sh`, `bash <<EOF`) reports `(standard input)` as unresolved
   code. What it cannot resolve the
-  protected-paths pack allows. A copy or move whose sources are unknown records no
-  write into its destination directory (`xargs cp -t dir` without a replace
-  string, `cp $X dir/`), so
-  nothing there is judged (ADR 2026-020, "Limits"). A command past the
+  protected-paths pack allows. From 3.3.0 every reading adds (ADR 2026-020,
+  amended by `shell-every-reading`): a word only the shell can resolve where
+  a wrapper's, `builtin`/`command`/`exec`'s, a shell's or git's options are,
+  `env -S`'s string and trailing words, and a program named by a variable
+  are read every plausible way, each reading beside today's, so
+  `sudo "$OPT" rm x`, `bash "$X" -c "rm x"`, `git $OPTS rm x`,
+  `env -S $S rm x` and `"$W" rm x` all delete `x`; a short option cluster is
+  read as getopt reads it (`sudo -Eu root rm .env` deletes `.env`); a child
+  process's `cd` no longer moves the shell (`env cd sub; rm .env` deletes
+  `.env`); a copy or move whose source only the shell can name reports its
+  write, unresolved (`cp "$X" dir/`: `dir/"$X"`; `xargs cp -t dir`:
+  `dir/(input)`; a moved source is a write); and ranges give every word a
+  recorded shell prints. A command past the
   reader's bounds (1,000 ms per read on the clock, 65,536 characters,
   brace expansion past 1,000,000 characters of work, a syntax tree past
   1,000 levels, 200,000 steps of work, nesting past 64) is unread as too
@@ -176,27 +185,30 @@ when written; keep it current (AGENTS.md, "Working with the user").
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
   `protectedPaths`): planned, not built.
-  - **Unresolved word hides a literal one; planned: every-plausible-reading,
-    as xargs now does** (ADR 2026-020, "Limits"; already so before it):
-    - `sudo "$OPT" rm x`, `doas "$X" rm x`, `env "$X" rm x`,
-      `nice "$N" rm x`, `nohup "$X" rm x`, `stdbuf "$X" rm x`,
-      `ionice "$X" rm x`, `builtin "$X" rm x`, `command "$X" rm x`,
-      `exec "$X" rm x`: read as reads of `rm` and `x`; lost: the delete of
-      `x`.
-    - `bash "$X" -c "rm x"`, and the same with `sh`, `zsh`, `dash` and
-      `ksh`: read as nothing; lost: the code `rm x` and its delete of `x`.
-    - `git $OPTS rm x`: read as reads of `rm` and `x`; lost: `git rm`'s
-      delete of `x`.
-    - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
-      directory.
-    - `env -S $S rm x`: read as nothing; lost: `rm x` and its delete of `x`.
+  - **What every-plausible-reading does not reach** (ADR 2026-020,
+    "Limits"): an unquoted word that splits into more than two option
+    words, or into an option and the command at once, is covered only as
+    far as the readings reach; wrappers and runners the table does not know
+    are read as unknown commands (until `shell-reader-coverage`); a deep
+    chain of wrappers each holding such a word is unread (`sudo "$A"` × 8).
+  - **A `cd` the reading cannot place does not relocate later commands: a
+    named fail-open for the protected-paths pack** (ADR 2026-020, "Limits"):
+    `"$W" cd sub && rm x` (the shell may delete `sub/x` if `"$W"` is
+    `builtin`), `time cd sub; rm x` and a coproc `{ … }` body's statements.
+    `bounded/prereqs` refuses `"$W" cd sub && rm x` while a rule does not
+    hold; `time` and `coproc` are `shell-reader-coverage`'s. Closing them
+    would need readings multiplied at every such `cd`: decided against.
+  - A write only the shell can name (`cp -t "$D" x`, `cp "$X" dir/`,
+    `mv "$F" notes.txt`) is unresolved, so the protected-paths pack allows
+    it; `bounded/prereqs` refuses it while a write rule does not hold.
 - **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md), [ADR 2026-025](adr/2026-025-agent-run-finish.md)):
   - `before: { execute }` and `before: { write }` see a shell command only
     through its reading: what programs and scripts do themselves, aliases
     and functions, git's `!` aliases, a program named `terraform.exe`, a
     script run through a shell or sourced (refused as cannot see only when
     its name is the rule's program written out, `bash deploy.sh`;
-    `bash "$S"` and `bash <(…)` are allowed until `shell-every-reading`),
+    `bash "$S"` is refused as code it cannot read, since `"$S"` may hold
+    `s`; `bash -- "$S"` and `bash <(…)` are allowed),
     and PowerShell (read as bash) are not seen. Until
     `shell-reader-coverage`, write rules do not see in-place edits, package
     runners, a program named by its path, `time`, `coproc`, the other
@@ -228,9 +240,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     cluster, or a script that may be standard input (`-`, under `/dev/`
     or `/proc/`, with a `..` segment, or naming no project path), or when
     an option is unknown; so `bash - <<< …`, `bash -euo pipefail <<< …`
-    and `bash -oe pipefail <<< …` are refused. An operand only the shell
-    can resolve (`bash "$S"`, `bash ~/x.sh`) is not, until
-    `shell-every-reading`.
+    and `bash -oe pipefail <<< …` are refused. A word only the shell can
+    resolve where a shell's options are may be a cluster holding `s` or
+    `c`, so `bash "$S"`, `bash "$X" deploy.sh` and `bash "$S" "$1"` are
+    refused as code bounded cannot read (`shell-every-reading`); one after
+    the options (`bash -- "$S"`) and `bash ~/x.sh` are not.
   - Drift never watches `.bounded/`, so records forged by a shell command
     the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.
@@ -396,7 +410,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
     `before: { execute }` and shell writes (ADR 2026-019, amended),
     additively (`ProgramPrefix` and its types, `PrerequisiteRule`'s
     `matchBefore`), and changes what a reading's `programs` lists for xargs
-    replace strings and `find -exec`'s `{}` (ADR 2026-020, amended).
+    replace strings and `find -exec`'s `{}` (ADR 2026-020, amended). 3.3.0
+    also reads every plausible reading of a word only the shell can resolve
+    (ADR 2026-020, amended by `shell-every-reading`): readings gain runs and
+    parts, so a pack may refuse what it allowed, and the published
+    conformance suite's case for a program only the shell can name now
+    expects its words listed as a run too.
     `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm

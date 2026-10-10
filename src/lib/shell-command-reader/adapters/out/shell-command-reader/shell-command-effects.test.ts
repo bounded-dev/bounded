@@ -99,10 +99,10 @@ describe("read by bounded's shell command reader — describeShellCommand: a par
 });
 
 describe("read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them", () => {
-  test("brace expansion of literals gives each word; braces inside quotes are text", () => {
+  test("brace expansion of literals gives each word; braces inside quotes are text; a range past the cap is kept as written and left to the shell", () => {
     expect(described("cat {.env,x} a{1..3}b '{q,r}' \"{s,t}\"").reads).toEqual([".env", "x", "a1b", "a2b", "a3b", "{q,r}", "{s,t}"]);
     expect(described("cat a{c..e}").reads).toEqual(["ac", "ad", "ae"]);
-    expect(described("cat {1..100000}").reads).toEqual([]);
+    expect(described("cat {1..100000}")).toMatchObject({ reads: ["{1..100000}"], unresolved: ["{1..100000}"] });
   });
 
   test("a shell given code with -c runs it as a nested command line, in a shell of its own", () => {
@@ -257,5 +257,43 @@ describe("the work budget: what reading a command costs", () => {
     const many = cost(`cat ${"a ".repeat(1000)}`).workSpent;
     expect(many).toBeGreaterThan(few * 50);
     expect(cost(`${"xargs $A ".repeat(24)}true ${"w ".repeat(5000)}`)).toMatchObject({ unread: true });
+  });
+});
+
+describe("read by bounded's shell command reader — describeShellCommand: every reading adds, charged and asking the time, and only a run in the same shell moves it", () => {
+  /** What `command` does, read with `outOfTime` as its clock, in a project where only the root exists. */
+  const describedWith = (command: string, outOfTime: () => boolean) =>
+    describeShellCommand(made(parser.parse(commandOf(command))), { cwd: null, root: ROOT, kindOfPath: kindOf({}), parseScript: () => ({ ok: false, error: "no nested shell" }), outOfTime });
+
+  test("a fork-heavy command asks the time as it forks: with a counted clock that runs out after the questions a plain command needs, it is unread (reading what it does)", () => {
+    let plain = 0;
+    describedWith("sudo rm x", () => {
+      plain++;
+      return false;
+    });
+    let calls = 0;
+    const forked = describedWith(`${'sudo "$A" '.repeat(8)}rm x`, () => ++calls > plain);
+    expect(forked.unreadWhy).toBe("the command is too complex to read within the time bounded allows for one command (reading what it does)");
+  });
+
+  test("a child process's cd never moves the shell", () => {
+    const paths: PathsForTest = { sub: "directory" };
+    expect(described("env cd sub; rm .env", null, paths).writes).toEqual([{ path: ".env", change: "delete" }]);
+    expect(described("find . -maxdepth 0 -exec cd sub \\; ; rm .env", null, paths).writes).toEqual([{ path: ".env", change: "delete" }]);
+    expect(described("xargs cd sub; rm x", null, paths).writes).toEqual([{ path: "x", change: "delete" }]);
+    expect(described("sudo cd sub && rm x", null, paths).writes).toEqual([{ path: "x", change: "delete" }]);
+    // builtin runs its command in the same shell: its cd moves it.
+    expect(described("builtin cd sub; rm x", null, paths).writes).toEqual([{ path: "sub/x", change: "delete" }]);
+  });
+
+  test("limit: a cd inside an added reading does not carry to later commands", () => {
+    // "$W" may be builtin, and the shell then deletes sub/x: a named fail-open for the protected-paths pack (ADR 2026-020). The reading deletes x.
+    expect(described('"$W" cd sub && rm x', null, { sub: "directory" }).writes).toContainEqual({ path: "x", change: "delete" });
+  });
+
+  test("carrying where a deep cd took later commands is charged as before", () => {
+    const spent = (command: string): number => describedWith(command, () => false).workSpent;
+    // 857 steps at the red commit's parent: keeping the cost with the scope changes the time it takes, never the charges.
+    expect(spent(`cd ${"abcdefg/".repeat(200)} && cat a b`) - spent("cat a b")).toBe(857);
   });
 });
