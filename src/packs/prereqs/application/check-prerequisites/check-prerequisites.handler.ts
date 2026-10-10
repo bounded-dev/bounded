@@ -6,6 +6,7 @@ import {
   type AgentRunId,
   type CallId,
   type Composition,
+  DecisionTime,
   type DelegateEffect,
   type DelegatedAgentRun,
   describeEffect,
@@ -19,10 +20,12 @@ import {
 import { FileSetFingerprint } from "../../domain/file-set-fingerprint.ts";
 import { PendingAgentRun } from "../../domain/pending-agent-run.ts";
 import { PrerequisiteRecord } from "../../domain/prerequisite-record.ts";
-import type { BeforeMatch, PrerequisiteRule } from "../../domain/prerequisite-rule.contract.ts";
-import { rulesIn } from "../../domain/prerequisite-rule.ts";
+import type { BeforeMatch, PrerequisiteRule, PrerequisiteStatus } from "../../domain/prerequisite-rule.contract.ts";
+import { beforeWireOf, rulesIn } from "../../domain/prerequisite-rule.ts";
 import { PrerequisiteStart } from "../../domain/prerequisite-start.ts";
-import type { CheckPrerequisites, FileSetFingerprints, PrerequisiteRecords } from "./check-prerequisites.contract.ts";
+import type { PrerequisiteRequirementStatusJSON, PrerequisiteRuleStatusJSON, PrerequisiteStatusSnapshotFormat } from "../../domain/prerequisite-status-snapshot.contract.ts";
+import { PrerequisiteStatusSnapshot } from "../../domain/prerequisite-status-snapshot.ts";
+import type { CheckPrerequisites, FileSetFingerprints, PrerequisiteRecords, PrerequisiteStatusSnapshots } from "./check-prerequisites.contract.ts";
 
 /** Every refusal and message begins with the pack's point. */
 const PREFIX = "bounded/prereqs.rules:";
@@ -31,6 +34,100 @@ const UNREADABLE_RECORDS = "Fix what stops bounded/prereqs's records from being 
 const HOST = "Report this to the maintainers of the host adapter; the delegation is refused meanwhile";
 const NOTHING_TO_REPORT = (): AfterToolReport => ({ message: null, record: null });
 const NOTHING_TO_RECORD: AgentRunFinishReport = Object.freeze({ record: null });
+const SNAPSHOT_FORMAT: PrerequisiteStatusSnapshotFormat = "bounded-prereqs-status/1";
+/** How long a status snapshot's save may take before it is abandoned (ADR 2026-026). */
+const SAVE_WITHIN_MS = 500;
+
+/** What `work` gives, or what `late` gives once `ms` have passed; the timer never outlives the race. */
+async function within<T>(work: Promise<T>, ms: number, late: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const overrun = new Promise<T>((settle) => {
+    timer = setTimeout(() => settle(late()), ms);
+  });
+  try {
+    return await Promise.race([work, overrun]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** An unread status snapshot, as of `readingStartedAt`, saying `why`. */
+function unreadSnapshot(readingStartedAt: DecisionTime, why: string): PrerequisiteStatusSnapshot {
+  const snapshot = PrerequisiteStatusSnapshot.parse({ format: SNAPSHOT_FORMAT, outcome: "unread", readingStartedAt: readingStartedAt.value, why });
+  if (snapshot.ok) return snapshot.value;
+  // Only a why that is blank or not text is refused, and every why here begins with the pack's point.
+  throw new Error(`the status snapshot could not be made: ${snapshot.error}`);
+}
+
+/** Saves the snapshot `read` gives for the store's time now (ADR 2026-026), as CheckPrerequisites.writeStatusSnapshot says. Never rejects. */
+async function saveStatusSnapshot(snapshots: PrerequisiteStatusSnapshots, read: (readingStartedAt: DecisionTime) => Promise<PrerequisiteStatusSnapshot>, withinMs: number): Promise<void> {
+  try {
+    const time = DecisionTime.parse(snapshots.now());
+    if (!time.ok) return;
+    const readingStartedAt = time.value;
+    const snapshot = await within(read(readingStartedAt), withinMs, () => unreadSnapshot(readingStartedAt, `${PREFIX} reading the status did not finish within ${withinMs} ms`));
+    await within(
+      Promise.resolve().then(() => snapshots.save(snapshot)),
+      SAVE_WITHIN_MS,
+      () => undefined,
+    );
+  } catch {
+    // For display only: a snapshot that cannot be saved decides nothing, and the store removes the one it kept.
+  }
+}
+
+/** What one requirement comes to now: its status, its files' fingerprint and the run it waits on; or what could not be read, and why. */
+type Evaluated =
+  | { readonly ok: true; readonly status: PrerequisiteStatus; readonly current: FileSetFingerprint; readonly pendingRun: PendingAgentRun | undefined }
+  | { readonly ok: false; readonly unreadable: "records" | "files" | "pending"; readonly error: string };
+
+/**
+ * One reading of the rules' requirements, shared by the check before a call
+ * and the status snapshot: the records read once, the runs still to finish
+ * read at most once and only when a requirement does not hold by its
+ * records, and each requirement's files fingerprinted once. It only reads.
+ */
+class RequirementReading {
+  #records: Promise<Result<readonly PrerequisiteRecord[]>> | undefined;
+  #pendingRuns: Promise<Result<readonly PendingAgentRun[]>> | undefined;
+  readonly #byRequirement = new Map<string, Promise<Evaluated>>();
+
+  constructor(
+    private readonly readRecords: () => Promise<Result<readonly PrerequisiteRecord[]>>,
+    private readonly readPendingRuns: () => Promise<Result<readonly PendingAgentRun[]>>,
+    private readonly fingerprint: (patterns: readonly string[]) => Promise<Result<FileSetFingerprint>>,
+  ) {}
+
+  /** Every record, each parsed, read once. */
+  records(): Promise<Result<readonly PrerequisiteRecord[]>> {
+    this.#records ??= this.readRecords();
+    return this.#records;
+  }
+
+  /** What `rule`'s requirement comes to now, evaluated once per requirement. */
+  evaluate(rule: PrerequisiteRule): Promise<Evaluated> {
+    const key = rule.requirementKey();
+    let evaluated = this.#byRequirement.get(key);
+    if (evaluated === undefined) {
+      evaluated = this.evaluateOnce(rule);
+      this.#byRequirement.set(key, evaluated);
+    }
+    return evaluated;
+  }
+
+  private async evaluateOnce(rule: PrerequisiteRule): Promise<Evaluated> {
+    const records = await this.records();
+    if (!records.ok) return { ok: false, unreadable: "records", error: records.error };
+    const current = await this.fingerprint(rule.unchangedSince);
+    if (!current.ok) return { ok: false, unreadable: "files", error: current.error };
+    const status = rule.status(records.value, current.value);
+    if (status === "holds" || current.value.isEmpty()) return { ok: true, status, current: current.value, pendingRun: undefined };
+    this.#pendingRuns ??= this.readPendingRuns();
+    const pendingRuns = await this.#pendingRuns;
+    if (!pendingRuns.ok) return { ok: false, unreadable: "pending", error: pendingRuns.error };
+    return { ok: true, status: rule.status(records.value, current.value, pendingRuns.value), current: current.value, pendingRun: rule.pendingRun(pendingRuns.value, current.value) };
+  }
+}
 
 function text(thrown: unknown): string {
   try {
@@ -132,30 +229,23 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
       }
 
       if (gated.length > 0) {
-        const records = await this.recorded();
+        const reading = this.reading();
+        const records = await reading.records();
         if (!records.ok) return Verdict.refuse(`${PREFIX} the prerequisites recorded so far could not be read: ${records.error}`, UNREADABLE_RECORDS);
-        // The runs still to finish are read only when a rule does not hold, and then once.
-        let pendingRuns: Result<readonly PendingAgentRun[]> | undefined;
         for (const { rule, effect, match } of gated) {
           const { tail, fixTail } = wouldDo(rule.value, effect, match);
-          const now = await this.fingerprint(rule.value.unchangedSince);
-          if (!now.ok) return Verdict.refuse(`${PREFIX} the files of ${named(rule)} could not be fingerprinted: ${now.error}`, UNREADABLE_FILES);
-          let status = rule.value.status(records.value, now.value);
+          const evaluated = await reading.evaluate(rule.value);
+          if (!evaluated.ok) return Verdict.refuse(unreadableWhy(evaluated, rule), evaluated.unreadable === "files" ? UNREADABLE_FILES : UNREADABLE_RECORDS);
+          const { status, current, pendingRun } = evaluated;
           if (status === "holds") continue;
-          if (!now.value.isEmpty()) {
-            pendingRuns ??= await this.pending();
-            if (!pendingRuns.ok) return Verdict.refuse(`${PREFIX} the runs still to finish could not be read: ${pendingRuns.error}`, UNREADABLE_RECORDS);
-            status = rule.value.status(records.value, now.value, pendingRuns.value);
-            const waitedOn = rule.value.pendingRun(pendingRuns.value, now.value);
-            if (status === "pending" && waitedOn !== undefined) {
-              const started = `${rule.value.requiredAgent().value}'s run started at ${waitedOn.startedAt.value}`;
-              return Verdict.refuse(
-                `${PREFIX} ${named(rule)}, and ${started} has not finished yet: wait for its finish. This call would ${tail}`,
-                `Wait for ${started} to finish (it is recorded when it does); if it stopped without finishing, ${rule.value.redirect}${fixTail}`,
-              );
-            }
+          if (status === "pending" && pendingRun !== undefined) {
+            const started = `${rule.value.requiredAgent().value}'s run started at ${pendingRun.startedAt.value}`;
+            return Verdict.refuse(
+              `${PREFIX} ${named(rule)}, and ${started} has not finished yet: wait for its finish. This call would ${tail}`,
+              `Wait for ${started} to finish (it is recorded when it does); if it stopped without finishing, ${rule.value.redirect}${fixTail}`,
+            );
           }
-          const why = now.value.isEmpty()
+          const why = current.isEmpty()
             ? "those patterns match no file, so it can never be met"
             : status === "stale"
               ? `${rule.value.requiredAgent().value} succeeded over them, but they have changed since`
@@ -297,6 +387,61 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
     }
   }
 
+  async readRuleStatuses(readingStartedAt: DecisionTime): Promise<PrerequisiteStatusSnapshot> {
+    try {
+      const rules = this.rules();
+      if (!rules.ok) return unreadSnapshot(readingStartedAt, `${PREFIX} the rules cannot be read: ${rules.error}`);
+      const reading = this.reading();
+      const requirements: PrerequisiteRequirementStatusJSON[] = [];
+      const ruleStatuses: PrerequisiteRuleStatusJSON[] = [];
+      for (const rule of rules.value) {
+        const evaluated = await reading.evaluate(rule.value);
+        // One part that cannot be read makes the whole reading unread: a half-read status invites trusting its other lines.
+        if (!evaluated.ok) return unreadSnapshot(readingStartedAt, unreadableWhy(evaluated, rule));
+        const key = rule.value.requirementKey();
+        if (!requirements.some((requirement) => requirement.key === key)) {
+          const { status, current, pendingRun } = evaluated;
+          requirements.push({
+            key,
+            requiredAgent: rule.value.requiredAgent().value,
+            unchangedSince: rule.value.unchangedSince,
+            status,
+            filesMatched: current.fileCount,
+            pendingRun: pendingRun === undefined ? null : { agentRunId: pendingRun.agentRunId.value, startedAt: pendingRun.startedAt.value },
+          });
+        }
+        // The gate refuses an action a rule comes before, or cannot see through, exactly when its requirement does not hold.
+        ruleStatuses.push({ contributedBy: rule.fromPackId.value, before: beforeWireOf(rule.value.before), requirementKey: key, allows: evaluated.status === "holds" });
+      }
+      const snapshot = PrerequisiteStatusSnapshot.parse({ format: SNAPSHOT_FORMAT, outcome: "read", readingStartedAt: readingStartedAt.value, requirements, rules: ruleStatuses });
+      return snapshot.ok ? snapshot.value : unreadSnapshot(readingStartedAt, `${PREFIX} the status could not be made: ${snapshot.error}`);
+    } catch (thrown) {
+      return unreadSnapshot(readingStartedAt, `${PREFIX} the status could not be read: ${text(thrown)}`);
+    }
+  }
+
+  async writeStatusSnapshot(snapshots: PrerequisiteStatusSnapshots, { withinMs }: { readonly withinMs: number }): Promise<void> {
+    await saveStatusSnapshot(snapshots, (readingStartedAt) => this.readRuleStatuses(readingStartedAt), withinMs);
+  }
+
+  /**
+   * Saves an unread status snapshot saying `why`, as writeStatusSnapshot
+   * saves one, for a project whose requirements cannot be read at all (the
+   * pack's own ports are missing). Never rejects.
+   */
+  static async writeUnreadStatusSnapshot(snapshots: PrerequisiteStatusSnapshots, why: string, { withinMs }: { readonly withinMs: number }): Promise<void> {
+    await saveStatusSnapshot(snapshots, async (readingStartedAt) => unreadSnapshot(readingStartedAt, why), withinMs);
+  }
+
+  /** A new reading of the rules' requirements, shared by the rules it is asked about. */
+  private reading(): RequirementReading {
+    return new RequirementReading(
+      () => this.recorded(),
+      () => this.pending(),
+      (patterns) => this.fingerprint(patterns),
+    );
+  }
+
   /** Moves a launched run's starts from its call to its run, so its finish, reported later, can be recorded; nothing is told. */
   private async keepForRun(rules: readonly Rule[], effect: DelegateEffect, starts: readonly PrerequisiteStart[], callId: CallId, agentRunId: AgentRunId): Promise<Outcome> {
     const agent = effect.agent.value;
@@ -413,6 +558,13 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
       return { ok: false, error: text(thrown) };
     }
   }
+}
+
+/** Why a requirement could not be read, for a refusal or an unread snapshot; the rule it was read for names its files. */
+function unreadableWhy(evaluated: Extract<Evaluated, { readonly ok: false }>, rule: Rule): string {
+  if (evaluated.unreadable === "records") return `${PREFIX} the prerequisites recorded so far could not be read: ${evaluated.error}`;
+  if (evaluated.unreadable === "pending") return `${PREFIX} the runs still to finish could not be read: ${evaluated.error}`;
+  return `${PREFIX} the files of ${named(rule)} could not be fingerprinted: ${evaluated.error}`;
 }
 
 /** An outcome that only tells the agent. */

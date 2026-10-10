@@ -595,7 +595,7 @@ describe("architecture", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
     expect(foldersUnder("src/core/adapters/out")).toEqual(["bounded-log", "clock", "compose-packs-catalog", "decision-ids", "host-installer-source", "project-bounded-logs", "project-config-source", "project-setup-files"]);
     expect(foldersUnder("src/packs/protected-paths/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
-    expect(foldersUnder("src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
+    expect(foldersUnder("src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records", "prerequisite-status-snapshots"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {

@@ -76,4 +76,30 @@ describe("bounded/prereqs's status snapshot end to end: openProject with the sna
     expect(kept(root)).toMatchObject({ outcome: "unread", why: "bounded/prereqs.rules: reading the status did not finish within 2000 ms" });
     expect(existsSync(statusFile(root))).toBe(true);
   }, 10_000);
+
+  test("opened without the snapshot port, nothing is written", async () => {
+    const root = project(PREREQS);
+    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions() });
+    expect((await judge(review("c1"))).kind).toBe("allow");
+    await afterTool(reviewed("c1", true));
+    await afterTool(readme("r1"));
+    expect(existsSync(join(root, ".bounded", "prereqs", "records.jsonl"))).toBe(true);
+    expect(existsSync(statusFile(root))).toBe(false);
+  });
+
+  test("a project not selecting bounded/prereqs gets no status.json", async () => {
+    const root = project(`import { corePack, defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [corePack] });\n`);
+    const { afterTool, problem } = await openProject(root, { ports: [...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()] });
+    expect(problem).toBeNull();
+    await afterTool(readme("r1"));
+    expect(existsSync(join(root, ".bounded", "prereqs"))).toBe(false);
+  });
+
+  test("an unusable configuration writes nothing", async () => {
+    const root = project("export default 5;\n");
+    const { afterTool, problem } = await openProject(root, { ports: [...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()] });
+    expect(problem).not.toBeNull();
+    await afterTool(readme("r1"));
+    expect(existsSync(statusFile(root))).toBe(false);
+  });
 });

@@ -1,5 +1,5 @@
 import type { BasePack, ExtensionPoint, PortKey } from "bounded/domain";
-import type { FileSetFingerprints, PrerequisiteRecords } from "./application/check-prerequisites/check-prerequisites.contract.ts";
+import type { FileSetFingerprints, PrerequisiteRecords, PrerequisiteStatusSnapshots } from "./application/check-prerequisites/check-prerequisites.contract.ts";
 import type { PrereqsId } from "./domain/prereqs-id.contract.ts";
 import type { PrerequisiteRule } from "./domain/prerequisite-rule.contract.ts";
 
@@ -20,9 +20,15 @@ export type PrereqsPorts = {
   readonly prerequisiteRecords: PortKey<PrerequisiteRecords, PrereqsId>;
 };
 
-/** The prerequisites pack: its id, its points and its ports. */
+/** The adapters a host may provide (ADR 2026-026): the status snapshot, for a host that shows the pack's status. Every verdict and record is the same without them. */
+export type PrereqsOptionalPorts = {
+  readonly prerequisiteStatusSnapshots: PortKey<PrerequisiteStatusSnapshots, PrereqsId>;
+};
+
+/** The prerequisites pack: its id, its points, its ports and its optional ports. */
 export interface Prereqs extends BasePack {
   readonly id: PrereqsId;
   readonly points: PrereqsPoints;
   readonly ports: PrereqsPorts;
+  readonly optionalPorts: PrereqsOptionalPorts;
 }

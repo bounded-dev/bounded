@@ -132,6 +132,20 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
   });
 
+  test("pi opens projects without the status snapshot port: no status.json is written", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-prereqs-status-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "plans"));
+    writeFileSync(join(project, "plans", "plan.md"), "the plan\n");
+    writeFileSync(join(project, "bounded.config.ts"), PREREQS_CONFIG);
+    const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "read", effects: [{ kind: "read", path: "plans/plan.md" }], ok: true, callId: "1" });
+    if (!result.ok) throw new Error(result.error);
+    const decide = await composeProject(project);
+    expect(await decide.afterTool?.(result.value)).toEqual({ message: null });
+    expect(existsSync(join(project, ".bounded", "prereqs", "status.json"))).toBe(false);
+  });
+
   test("a bash call whose reader rejects is blocked: the protected-paths pack refuses its unread reading, saying why", async () => {
     const project = projectWith(PROTECTED_PATHS_CONFIG, "bounded-pi-unread-");
     const rejecting: ShellCommandReader = {
