@@ -410,11 +410,59 @@ function contextImportViolations(path: string, text: string): string[] {
 
 /**
  * Outside every scan: the repository's own tests (src/test/), bounded's
- * build output (src/dist/), src/'s own files (bounded's build) and installed
- * packages.
+ * build output (src/dist/), src/'s own files (bounded's build), installed
+ * packages, and the declarations Claude Code writes into a plugin folder it
+ * loads (`.claude-plugin/types/`, ADR 2026-027).
  */
 const outsideEveryScan = (path: string): boolean =>
-  path.startsWith("src/test/") || path.startsWith("src/dist/") || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules");
+  path.startsWith("src/test/") || path.startsWith("src/dist/") || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules") || path.includes("/.claude-plugin/types/");
+
+/** The prereqs status band (ADR 2026-027): a Claude Code plugin folder, shipped alone in dist, so it reaches nothing outside itself. */
+const BAND = "src/hosts/claude-code/prereqs-status-band/";
+/** What a hooks module may not use: Claude Code runs it with no Node and no timers, and the band reads time only through `$.clock`. */
+const BAND_HOOKS_BANNED: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+  { pattern: /\bBun\./, why: "Bun's API: a hooks module runs with no Bun or Node" },
+  { pattern: /(?<![\w.$])process\./, why: "Node's process: a hooks module runs with no Node" },
+  { pattern: /\brequire\(/, why: "require: a hooks module is an ES module" },
+  { pattern: /\bsetTimeout\(/, why: "setTimeout: a hooks module has no timers; use $.clock" },
+  { pattern: /\bsetInterval\(/, why: "setInterval: a hooks module has no timers; use $.clock" },
+  { pattern: /\bDate\.now\(/, why: "Date.now(): the band reads the time only through $.clock.now()" },
+  { pattern: /\bnew Date\(\s*\)/, why: "new Date(): the band reads the time only through $.clock.now()" },
+];
+
+/**
+ * The band rule for one band file: it imports only files of the band, by
+ * relative path; its plugin tests (tests/*.test.ts) may import
+ * claude-code/testing, and tests/register.typecheck.ts a type of claude-code;
+ * nothing holds an import() call (a module holding one does not load); a
+ * file in hooks/ uses no Node, no timers and no wall clock; and its one
+ * declaration file, types/index.d.ts (the state contract plugin.json names),
+ * imports and exports nothing.
+ */
+function bandViolations(path: string, text: string): string[] {
+  const inBand = path.slice(BAND.length);
+  const out: string[] = [];
+  if (path.endsWith(".d.ts")) {
+    if (inBand !== "types/index.d.ts") return [`${path} — the band's one declaration file is types/index.d.ts, its state contract`];
+    if (/^\s*(?:import|export)\b/m.test(text)) out.push(`${path} — the band's state contract imports and exports nothing: Claude Code reads it as a contract`);
+    return out;
+  }
+  if (/\bimport\s*\(/.test(text)) out.push(`${path} — an import() call: a hooks module holding one does not load`);
+  for (const { spec, line, typeOnly } of importsOf(path, text)) {
+    const at = `${path}:${line} imports "${spec}"`;
+    if (spec.startsWith(".")) {
+      if (!new URL(spec, `file:///${path}`).pathname.slice(1).startsWith(BAND)) out.push(`${at} — the band imports only its own files: it ships alone in dist`);
+      continue;
+    }
+    if (spec === "claude-code/testing" && /^tests\/[^/]+\.test\.ts$/.test(inBand)) continue;
+    if (spec === "claude-code" && typeOnly && inBand === "tests/register.typecheck.ts") continue;
+    out.push(`${at} — the band imports no package: only its plugin tests import claude-code/testing, and its typecheck file a type of claude-code`);
+  }
+  if (inBand.startsWith("hooks/")) {
+    for (const { pattern, why } of BAND_HOOKS_BANNED) if (pattern.test(text)) out.push(`${path} — ${why}`);
+  }
+  return out;
+}
 
 const violations: string[] = [];
 /** Every file of a context or a shipped pack, tests included; not a unit's test/. */
@@ -521,6 +569,10 @@ function appImportViolations(path: string, text: string): string[] {
 }
 
 for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
+
+/** The band rule over every band file. */
+const bandRuleViolations: string[] = [];
+for (const path of appFiles.filter((file) => file.startsWith(BAND))) bandRuleViolations.push(...bandViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
 // No file imports a pack's example: the files above are read for it by shippedPackViolations; every other file (the apps', src/test/ and every unit's test/) is read here.
 const scannedForExampleImports = new Set(files);
@@ -1206,6 +1258,43 @@ describe("architecture", () => {
       `${hook}:1 imports "./test/fixtures/refusing-hook.ts" — an app's source does not import its test/, which holds its end-to-end tests and fixtures`,
     ]);
     expect(appImportViolations(hook, 'import { x } from "../pi/index.ts";\n')).toEqual([`${hook}:1 imports "../pi/index.ts" — an app reaches outside its own directory only through packages`]);
+  });
+
+  test("the prereqs status band imports only its own files and uses no Node, timers or wall clock; its tests may import claude-code/testing, its typecheck file a type of claude-code", () => {
+    expect(appFiles).toContain(`${BAND}hooks/register.ts`);
+    expect(appFiles).toContain(`${BAND}types/index.d.ts`);
+    expect(bandRuleViolations).toEqual([]);
+    const hooks = `${BAND}hooks/register.ts`;
+    const pluginTest = `${BAND}tests/prereqs-status-band-drawing.test.ts`;
+    const typecheck = `${BAND}tests/register.typecheck.ts`;
+    const contract = `${BAND}types/index.d.ts`;
+    // Refused.
+    expect(bandViolations(hooks, 'import { x } from "../../hook.ts";\n')).toHaveLength(1);
+    expect(bandViolations(hooks, 'import { corePack } from "bounded/domain";\n')).toHaveLength(1);
+    expect(bandViolations(hooks, 'import { test } from "claude-code/testing";\n')).toHaveLength(1);
+    expect(bandViolations(`${BAND}tests/helper.ts`, 'import { test } from "claude-code/testing";\n')).toHaveLength(1);
+    expect(bandViolations(typecheck, 'import { atom } from "claude-code";\n')).toHaveLength(1);
+    expect(bandViolations(hooks, 'const lines = await import("./x.ts");\n').length).toBeGreaterThan(0);
+    for (const used of ["setTimeout(() => {}, 1);", "const home = process.env.HOME;", "const now = Date.now();", "const now = new Date();", "Bun.file('x');", "setInterval(() => {}, 1);", 'require("x");']) {
+      expect([used, bandViolations(hooks, `${used}\n`).length > 0]).toEqual([used, true]);
+      expect([used, bandViolations(pluginTest, `${used}\n`).filter((violation) => !violation.includes(" imports ")).length]).toEqual([used, 0]);
+    }
+    expect(bandViolations(contract, 'import type { X } from "claude-code";\ndeclare module "claude-code" {}\n')).toHaveLength(1);
+    expect(bandViolations(contract, 'declare module "claude-code" {}\nexport {};\n')).toHaveLength(1);
+    expect(bandViolations(`${BAND}hooks/other.d.ts`, 'declare module "claude-code" {}\n')).toHaveLength(1);
+    // Accepted.
+    expect(bandViolations(hooks, 'import { readStatusFile } from "./prereqs-status-file";\nimport type { On } from "./engine-subset.ts";\n')).toEqual([]);
+    expect(bandViolations(pluginTest, 'import { expect, mock, test } from "claude-code/testing";\n')).toEqual([]);
+    expect(bandViolations(typecheck, 'import type { Register } from "claude-code";\nimport { register } from "../hooks/register";\n')).toEqual([]);
+    expect(bandViolations(hooks, "const at = new Date(text).toISOString();\nconst id = e.process.pid;\nconst n = subprocess.x;\n")).toEqual([]);
+    expect(bandViolations(contract, 'declare module "claude-code" {\n  interface PluginState {}\n}\n')).toEqual([]);
+    expect(outsideEveryScan(`${BAND}.claude-plugin/types/claude-code/index.d.ts`)).toBe(true);
+  });
+
+  test("git ignores what Claude Code writes into the band's folder", () => {
+    for (const path of [`${BAND}.claude-plugin/types/claude-code/index.d.ts`, `${BAND}tsconfig.json`]) {
+      expect([path, Bun.spawnSync(["git", "check-ignore", "-q", path], { cwd: ROOT }).exitCode]).toEqual([path, 0]);
+    }
   });
 
   test("a library's value object is implemented in the library: a class of the core does not satisfy it, while the core and its shipped packs are one context", () => {

@@ -380,6 +380,32 @@ describe("bounded, the one published package", () => {
     expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
   });
 
+  test("dist carries the prereqs status band as a plugin folder: its manifest at bounded's version, hooks.json and its hooks modules, its state contract, no tests, importing only its own files", () => {
+    const band = "dist/hosts/claude-code/prereqs-status-band/";
+    expect(packed.filter((file) => file.startsWith(band)).map((file) => file.slice(band.length))).toEqual(
+      [
+        ".claude-plugin/plugin.json",
+        "hooks/engine-subset.ts",
+        "hooks/hooks.json",
+        "hooks/prereqs-status-band-lines.ts",
+        "hooks/prereqs-status-file.ts",
+        "hooks/project-config-names.ts",
+        "hooks/register.ts",
+        "types/index.d.ts",
+      ].sort(),
+    );
+    const manifest = JSON.parse(readFileSync(join(CORE, band, ".claude-plugin/plugin.json"), "utf8")) as { name?: string; version?: string; types?: string };
+    expect(manifest.name).toBe("bounded-prereqs-status-band");
+    expect(manifest.version).toBe(VERSION);
+    expect(manifest.types).toBe("./types/index.d.ts");
+    for (const file of packed.filter((path) => path.startsWith(band) && path.endsWith(".ts"))) {
+      for (const spec of importsIn(readFileSync(join(CORE, file), "utf8"))) {
+        expect([file, spec, spec.startsWith("./")]).toEqual([file, spec, true]);
+        expect([file, spec, new URL(spec, `file:///${file}`).pathname.slice(1).startsWith(band)]).toEqual([file, spec, true]);
+      }
+    }
+  });
+
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
     const into = mkdtempSync(join(tmpdir(), "bounded-packaging-"));
     const ran = Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE, stdout: "pipe", stderr: "pipe" });

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectSetupFilesConformance } from "../../../application/project-setup/init-project/init-project.project-setup-files.test-support.ts";
+import { PROJECT_CONFIG_NAMES } from "../project-config-source/project-config-names.ts";
 import { FileSystemProjectSetupFiles } from "./project-setup-files.ts";
 
 function project(files: Record<string, string>): string {
@@ -27,6 +28,15 @@ projectSetupFilesConformance("FileSystemProjectSetupFiles", async (files) => {
 });
 
 describe("FileSystemProjectSetupFiles", () => {
+  test("configFileNames lists the names of PROJECT_CONFIG_NAMES present, in its order", async () => {
+    const root = project({});
+    for (const name of [...PROJECT_CONFIG_NAMES].reverse()) writeFileSync(join(root, name), "export default 1;\n");
+    expect(await new FileSystemProjectSetupFiles().configFileNames(root)).toEqual({ ok: true, value: [...PROJECT_CONFIG_NAMES] });
+    const empty = project({});
+    expect(await new FileSystemProjectSetupFiles().createConfig(empty, "export default 1;\n")).toEqual({ ok: true, value: PROJECT_CONFIG_NAMES[0] });
+    expect(readFileSync(join(empty, PROJECT_CONFIG_NAMES[0]), "utf8")).toBe("export default 1;\n");
+  });
+
   test("refuses to list a directory that does not exist, naming it", async () => {
     const missing = join(tmpdir(), "bounded-setup-missing", String(Date.now()));
     const listed = await new FileSystemProjectSetupFiles().configFileNames(missing);
