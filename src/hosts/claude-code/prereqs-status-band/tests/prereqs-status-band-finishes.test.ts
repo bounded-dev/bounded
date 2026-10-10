@@ -51,8 +51,7 @@ function world(on: On, files: Map<string, string>) {
 
 /** The band mounted on every surface, read again on each call. */
 async function mountAll($: Engine) {
-  const mounted = [];
-  for (const surface of SURFACES) mounted.push(await $.ui.mount({ plugin: PLUGIN, surface, component: "AbovePrompt", props: PROPS }));
+  const mounted = await Promise.all(SURFACES.map((surface) => $.ui.mount({ plugin: PLUGIN, surface, component: "AbovePrompt", props: PROPS })));
   return async (): Promise<string[]> => {
     const all: string[] = [];
     for (const ui of mounted) all.push((await ui.findAll({ type: "Text" })).map((element) => element.text).join("\n"));
@@ -127,10 +126,10 @@ test("the classic hooks pass the chain's answer through unchanged", async ($, on
   world(on, new Map([[CONFIG, ""]]));
   on("classic.PostToolUse", () => ({ additionalContext: ["x"] }));
   on("classic.PostToolUseFailure", () => ({ additionalContext: ["y"] }));
-  on("classic.SubagentStop", () => ({ block: true, stopReason: "z" }));
+  on("classic.SubagentStop", () => ({ additionalContext: ["z"] }));
   expect(await postToolUse($)).toEqual({ additionalContext: ["x"] });
   expect(await $.classic.PostToolUseFailure({ tool_name: "Bash", tool_input: {}, tool_use_id: "toolu_2", error: "exit 1" })).toEqual({ additionalContext: ["y"] });
-  expect(await $.classic.SubagentStop({ stop_hook_active: false, agent_id: "a1", agent_transcript_path: "", agent_type: "plan-reviewer" })).toEqual({ block: true, stopReason: "z" });
+  expect(await $.classic.SubagentStop({ stop_hook_active: false, agent_id: "a1", agent_transcript_path: "", agent_type: "plan-reviewer" })).toEqual({ additionalContext: ["z"] });
 });
 
 test("a band whose state write fails still passes the answer through", async ($, on) => {
