@@ -133,12 +133,13 @@ test("the classic hooks pass the chain's answer through unchanged", async ($, on
 });
 
 test("a band whose state write fails still passes the answer through", async ($, on) => {
-  world(on, new Map([[CONFIG, ""]]));
-  on("state.set", () => {
-    throw new Error("the session's state is unavailable");
-  });
+  world(on, new Map([[CONFIG, ""], [STATUS, readSnapshot(T0 + 5)]]));
+  // Refused, $.state.set rejects, and the band's hook fails after marking nothing.
+  on("state.set", () => ({ deny: "the session's state is unavailable" }));
   on("classic.PostToolUse", () => ({ additionalContext: ["x"] }));
+  const read = await mountAll($);
   expect(await postToolUse($)).toEqual({ additionalContext: ["x"] });
+  expect((await read()).join("\n")).toContain("no reading yet");
 });
 
 test("without session.start, the first finished call starts the 2-second redraw", async ($, on) => {
