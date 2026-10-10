@@ -132,7 +132,8 @@ missing library is refused, and nothing is written.
   refused.
 - **The contract.** The pack's type in `<name>.contract.ts` declares its
   points (`ExtensionPoint<Value, Id>`, each with TSDoc) and ports
-  (`PortKey<Adapter, Id>`), with the same keys as the overview. A point's
+  (`PortKey<Adapter, Id>`), and its optional ports in `optionalPorts`, with
+  the same keys as the overview; `## Ports` names every one of them. A point's
   wire type (a value object's `toJSON` result, or plain data's own type,
   named or not) must be one ts-json-schema-generator can describe: the
   catalogue carries its JSON Schema. A point whose values are code carries

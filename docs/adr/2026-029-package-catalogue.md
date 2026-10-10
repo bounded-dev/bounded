@@ -5,7 +5,10 @@ review, and the maintainer's answers to its two open questions, marked
 below). Ships in `bounded` 3.3.0, unreleased, with no version bump of its
 own. Amends [ADR 2026-016](2026-016-cli-app.md): the CLI gains
 `bounded catalog build`, and bounded's prepack runs it after building
-`dist/`.
+`dist/`. Recorded as 2026-026 while it was built; renumbered 2026-029 on
+merging main, which had recorded the prereqs status snapshot as
+[ADR 2026-026](2026-026-prereqs-status-snapshot.md) (whose optional ports
+the catalogue carries) and reserved 2026-027.
 
 ## Context
 
@@ -51,6 +54,10 @@ contract every one of them reads.
       "adapterType": "FileSetFingerprints", "documentation": "<the interface's TSDoc, without tags>",
       "declaration": "interface FileSetFingerprints { … }"
     }],
+    "optionalPorts": [{
+      "id": "bounded/prereqs#prerequisiteStatusSnapshots", "key": "prerequisiteStatusSnapshots",
+      "adapterType": "PrerequisiteStatusSnapshots", "documentation": "…", "declaration": "interface PrerequisiteStatusSnapshots { … }"
+    }],
     "readme": {
       "path": "packs/prereqs/README.md", "introduction": "<before the first section>",
       "whatItIsFor": "…", "ruleShape": "…", "workflowsItFits": "…", "whatItObserves": "…",
@@ -71,10 +78,19 @@ contract every one of them reads.
   listed.
 - **Paths are package-relative**, and the output is deterministic: the same
   sources give the same bytes.
+- **Optional ports are listed apart** ([ADR 2026-026](2026-026-prereqs-status-snapshot.md)):
+  `optionalPorts`, in the pack's `optionalPorts` section's order, each
+  entry shaped as a port's, is present only when the pack has any; a
+  reader treats it absent as none. A port is required or optional, never
+  both. The build reads them from the pack object and the contract's
+  `optionalPorts`, refuses a contract and pack object that disagree on
+  their keys, and wants the README's `## Ports` to name each as inline
+  code, as it does the required ones.
 - **What it takes from where.** From the pack object (`PackDescription`):
   the id, `dependsOn`'s ids, each point's id, key (a group's member as
   `<group>.<member>`, `keyedPointsOf`) and description, the distinct ids of
-  the points it contributes to in contribution order, and each port's id.
+  the points it contributes to in contribution order, each port's id, and
+  each optional port's id.
   From its overview and contract, with TypeScript: the pack's TSDoc, each
   point's value type and TSDoc, each port's adapter interface, its TSDoc and
   declaration. From the README (`PackReadme`): the summary (the title's
