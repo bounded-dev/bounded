@@ -105,8 +105,8 @@ plan-reviewer rules.
   subcommand a project names.
 
 Each needs the required agent to be a delegation the host reports the
-finish of: Claude Code's subagents do; on pi, a requirement cannot be met
-yet (see "What it observes").
+finish of: Claude Code's subagents and pi-subagents' runs do (see "What it
+observes").
 
 ## What it observes
 
@@ -120,8 +120,9 @@ yet (see "What it observes").
   lower-cased again) and surrounding spaces) has its files
   fingerprinted as it starts. It is refused when it runs isolated (on a
   separate copy of the files, such as a worktree), when the host will not
-  report its finish (a Claude Code teammate, any pi run that does not say
-  `async: false`), or when it has no call id.
+  report its finish (a Claude Code teammate, a pi resume), or when it has
+  no call id. The redirect is "Run <agent> as a new run whose finish the
+  host reports".
 - **A run the host says finished, on its result** (a foreground run): it is
   recorded when it succeeded, the host says it ran the required agent
   exactly, and the files' fingerprint is the one taken at the start.
@@ -147,16 +148,31 @@ captured, so unknown: whether a run interrupted by the user (Esc) or ended by
 an API error fires SubagentStop. If it does, Claude Code does not say how the
 run ended, and the run counts.
 
-**On pi, a requirement cannot be met yet.** pi-subagents 0.52.1 runs a
-`subagent` call in the background unless it says `async: false`
-(`asyncByDefault` defaults to true, `src/extension/config.ts:150-151`), and
-even then its `forceTopLevelAsync` setting can run it in the background
-(`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
-leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`). So
-a delegation without `async: false` is refused, and no pi result is counted
-as finished: the agent is told that the host does not report when the agent
-finishes, so it cannot meet the requirement yet. This holds until the pack observes pi-subagents' completion (ADR 2026-019,
-"Future work").
+**On pi** (pi-subagents 0.52.1, ADR 2026-028), a run counts under the
+same rules. A background run's launch result is a run whose finish is
+reported later, and pi-subagents' completion is its finish: it ran to its
+end only when the completion says the run completed and its one agent
+completed, with nothing stopped, timed out or detached. A foreground run's
+result says whether its one agent ran to its end; a timed-out or
+interrupted one does not count. A result bounded cannot pair with one run,
+or cannot read or trust, never counts, and the agent is told the host does
+not report that run's finish. Three limits:
+
+- **The main trust gap of pi completion: a completion can be forged from a
+  file. Anything running as the user, the guarded agent's own shell
+  included, can write a result file in pi-subagents' results directory
+  under the OS temp directory, and pi-subagents then reports it as a
+  completion. On pi this can count a pending review early.** It must name
+  a run bounded launched and is waiting on, as the required agent, and
+  counts only over files unchanged since that launch.
+- **An interrupted background run counts:** pi-subagents reports it as a
+  success. Another extension, and possibly the user, can interrupt a run;
+  the guarded agent cannot.
+- **A resumed run never counts.** A resume of a run bounded saw launched
+  and finish is judged as a delegation to that agent whose finish goes
+  unreported, so a resume of an agent some rule requires is refused with
+  "Run <agent> as a new run whose finish the host reports"; a resume
+  bounded cannot tie to an agent is refused by bounded's pi adapter itself.
 
 ## What it cannot see
 
