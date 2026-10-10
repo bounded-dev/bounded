@@ -14,11 +14,11 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-006](2026-006-effects.md) | A tool use is a list of precise effects (amended by 2026-019, 2026-020 and 2026-025) |
 | [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
 | [2026-008](2026-008-guard-log.md) | Every decision is recorded in the guard log, and an unrecorded decision fails closed (superseded by 2026-022) |
-| [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules (renamed `bounded/protected-paths` by 2026-021) |
+| [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules (renamed `bounded/protected-paths` by 2026-021; amended by `pack-structure`: a pack's examples sit outside its code, import as a project does, and nothing imports them) |
 | [2026-010](2026-010-project-configuration.md) | A project's configuration (defineConfig), and opening a project for judging |
 | [2026-011](2026-011-drift.md) | Undoing what shell commands change in watched files |
 | [2026-012](2026-012-value-objects-are-classes.md) | Value objects are classes, as in the example; a point takes a value object's wire form |
-| [2026-013](2026-013-restructure.md) | The restructure: names that say what they hold, contracts everywhere, and rules that keep them (amended by 2026-025: the `onAgentRunFinish` point and `recordAgentRunFinish`) |
+| [2026-013](2026-013-restructure.md) | The restructure: names that say what they hold, contracts everywhere, and rules that keep them (amended by 2026-025: the `onAgentRunFinish` point and `recordAgentRunFinish`; by `pack-structure`: R7 requires a README with seven sections and at least one example) |
 | [2026-014](2026-014-legacy-harness-moves-to-legacy.md) | The legacy harness moves to `legacy/`, both histories kept; its ADRs become `LEG-2026-NNN` |
 | [2026-015](2026-015-host-installers.md) | Host installers are found by package export, outside pack composition: installing is distribution |
 | [2026-016](2026-016-cli-app.md) | One package, `bounded`, carrying the CLI and the host adapters (separate apps in source), compiled for Node; installs and upgrades hand over to the installed version |

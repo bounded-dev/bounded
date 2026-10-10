@@ -19,7 +19,11 @@ or an app) as that ADR defines it, and the composition root is
 `src/core/composition-root/`. Amended by [ADR 2026-025](2026-025-agent-run-finish.md): the core pack gains the
 lifecycle point `onAgentRunFinish`, and `ProjectJudge` and
 `ProjectLifecycle` gain `recordAgentRunFinish`, which hosts call when a
-delegated agent run they started finishes.
+delegated agent run they started finishes. Amended by `pack-structure`
+(issue #68, step 1, the standard pack structure): R7 requires a shipped
+pack's `README.md`, with its title and seven required sections, and at
+least one example in `examples/`, a folder outside the pack's code (below,
+"R7 and the standard pack structure").
 
 ## Decision
 
@@ -240,6 +244,33 @@ delegated agent run they started finishes.
   `functionOf` in `guard-points.ts`.
 - **R7** checks both: a shipped pack's layout, and every overview's sections,
   order, types, imports and lack of logic.
+- **R7 and the standard pack structure** (amended by `pack-structure`,
+  issue #68, step 1). A shipped pack's directory holds exactly
+  `<name>.pack.ts`, `<name>.contract.ts`, `<name>.pack.test.ts`, `index.ts`
+  and a **required** `README.md`, and only the folders `domain/`,
+  `application/`, `adapters/` and `examples/`.
+  - The README's title is `# <pack id>: <one-line summary>`, with the
+    pack's exact id. It has these headings, each once, in any order, each
+    with a non-blank body: `## What it is for`, `## Rule shape`,
+    `## Workflows it fits`, `## What it observes`, `## What it cannot see`,
+    `## Ports` and `## Examples`; other `##` sections are allowed.
+    `## Rule shape` names each point key, and `## Ports` each port key, as
+    inline code; a pack with none says so. No README holds a project
+    configuration: `## Examples` says what each example file shows.
+  - `examples/` holds only `<slug>.config.ts` files, one level deep, at
+    least one. Each is a complete project configuration (`export default
+    defineConfig(...)`) whose default export's TSDoc gives its title (the
+    first line) and description (the rest). An example is outside the
+    pack's code ([ADR 2026-009](2026-009-path-gate-pack.md), amended): it
+    imports only `bounded/*` export paths, and no file imports it. The
+    other R-rules do not apply to it; the packs' declarations
+    (`tsconfig.types.json`) leave it out, and the package ships it.
+  - The architecture test checks the layout and the imports;
+    `src/core/composition-root/pack-readmes.test.ts` the README's title and
+    sections, and `src/core/composition-root/pack-examples.test.ts` that
+    every example opens as a project's `bounded.config.ts` with no problem.
+    The catalogue build (issue #68, step 2) is to become the authoritative
+    check of the README.
 - Inside a shipped pack (architecture test): `domain/` imports only itself,
   `application/` its domain and application, the root files their domain,
   application and root, and only `adapters/out/<tech>/` may do I/O.

@@ -69,6 +69,8 @@ src/                    bounded             the published package: package.json,
   packs/
     protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
     prereqs/                                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
+      README.md                             each pack's README, with the seven required sections (R7; docs/writing-a-pack.md)
+      examples/<slug>.config.ts             each pack's examples: projects' configurations, outside its code (ADR 2026-009)
   lib/
     shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands, for the host adapters: ReadShellCommand,
                                             its ShellCommandReader port and TreeSitterShellCommandReader;
@@ -123,7 +125,8 @@ harness's hexagonal worked example:
 ```
 
 A shipped pack is bounded's, in `src/packs/<name>/` (ADR 2026-009); a
-`packs/` folder inside a context is no layer.
+`packs/` folder inside a context is no layer. How to write one is
+[docs/writing-a-pack.md](docs/writing-a-pack.md).
 
 Rules, enforced by `src/test/architecture.test.ts` unless stated:
 
@@ -199,8 +202,14 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   shape (a class with a static `parse` or a private constructor, a `parse`
   function, a command), or is named in the test with its reason. R7: a
   shipped pack's directory holds exactly `<name>.pack.ts` (its overview),
-  `<name>.contract.ts`, `index.ts`, the overview's test and an optional
-  README, and only the folders `domain/`, `application/` and `adapters/`;
+  `<name>.contract.ts`, `index.ts`, the overview's test and a required
+  `README.md`, and only the folders `domain/`, `application/`, `adapters/`
+  and `examples/`. The README is titled `# <pack id>: <summary>` and has the
+  sections What it is for, Rule shape (naming every point key), Workflows
+  it fits, What it observes, What it cannot see, Ports (naming every port
+  key) and Examples, and holds no project configuration; `examples/` holds
+  only `<slug>.config.ts` files, at least one, each a project's
+  configuration whose default export's TSDoc gives its title;
   a pack is defined only in an overview, which binds imported names in
   definePack's sections (id, dependsOn, points, contributes, ports, in that
   order), typed by its contract, with no logic, and imports only its own
@@ -223,6 +232,10 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   own directory and libraries the package declares, and does no I/O; nothing
   outside that directory imports it but tests under a context's composition
   root (`src/core/composition-root/`), so the core never depends on a pack.
+  Its `examples/` sit outside its code: an example imports only `bounded/*`
+  export paths, as a project's configuration does, and no file imports an
+  example, tests included; tests open one as a project's
+  `bounded.config.ts`.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are

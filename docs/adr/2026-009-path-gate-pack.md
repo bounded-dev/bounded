@@ -18,7 +18,9 @@ Renamed by [ADR 2026-021](2026-021-protected-paths-rename.md): the pack is
 Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): the pack is
 the repository's `src/packs/protected-paths/`, and the tests that may import
 it are those under a context's `composition-root/`
-(`src/core/composition-root/`).
+(`src/core/composition-root/`). Amended by `pack-structure` (issue #68,
+step 1): a shipped pack's `examples/` sits outside its code (below,
+"Examples").
 
 ## Decision
 
@@ -221,6 +223,17 @@ it are those under a context's `composition-root/`
   `.bounded/`, `node_modules` or `.git` (see drift.md), so the rules on those
   refuse only writes the path gate can see: an edit, or a command naming the path.
   Adapters write the guard log in `.bounded/` directly, not through guards.
+
+### Examples
+
+(Amended by `pack-structure`, issue #68, step 1.) A shipped pack's
+`examples/<slug>.config.ts` files are projects' configurations, not the
+pack's code. An example imports only `bounded/*` export paths, any pack's,
+as a project's `bounded.config.ts` does, never a relative path. No file
+imports an example: not the pack's root, not its other layers, not another
+pack, and not a test under a composition root, with no exemption. Tests
+reach an example only by opening a project whose `bounded.config.ts` is the
+example's text. The layout is ADR 2026-013's R7, amended.
 
 ## Why
 
