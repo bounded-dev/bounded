@@ -53,7 +53,7 @@ without any lookup.
   but not available. Make it available, or remove it from the list", "Pack
   'X' is listed twice. List each pack once", "Listed pack 'X' was not built
   with definePack(...)…", "Compose takes a list of available packs and a
-  list of listed packs". "Selected" now includes
+  list of the packs to compose". "Selected" now includes
   brought-in packs, so the old words would be wrong. They are entry-neutral
   because they also serve the catalog path, which has no `packs`.
 - **`bounded/project` depends on the listed packs only, and a project
@@ -71,8 +71,13 @@ without any lookup.
   contribution's point is owned by a listed pack, and says to add it to
   `packs` ("…which bounded.config.ts does not list in packs (it is selected
   only because 'D' depends on it). Add 'X' to packs, or remove the
-  contribution"), or to contribute to the listed pack's point when the owner
-  is another copy of it. Composition's direct-dependency rule stays as the
+  contribution"), or, when the owner is another copy of a listed pack, to
+  contribute to the listed pack's point, and when it is another copy of a
+  brought-in pack, to list the selected copy and contribute to its point
+  ("…(the selected 'X' is another copy, brought in by 'D'). List the
+  selected 'X' in packs and contribute to its point, or remove the
+  contribution": listing the copy the contribution names instead would
+  select two copies of one id). Composition's direct-dependency rule stays as the
   backstop for every other pack.
 - **`corePack` is implied like any other pack, only through `dependsOn`**,
   never added unconditionally (one plug-in mechanism, no special cases).

@@ -31,7 +31,9 @@ export default defineConfig({
 ```
 
 - `before` is one action: `{ delegate: <agent> }` (a delegation to that
-  agent in any spelling: ignoring case and surrounding spaces, since a host
+  agent in any spelling: ignoring case (lower-cased, upper-cased, then
+  lower-cased again, so 'ß', 'ẞ' and 'SS' are one spelling) and
+  surrounding spaces, since a host
   may resolve another spelling to the same agent), `{ write: <pattern> }`
   (a file tool's write to a path the pattern matches, or a shell command
   whose reading writes one), or `{ execute: "<program> <words>" }` (a shell
@@ -107,7 +109,8 @@ review of the plan meets both plan-reviewer rules above.
   and carry its redirect. The first rule that does not hold, in contribution
   order, refuses.
 - **A delegation that may run a required agent** (its requested name is
-  the required agent's, ignoring case and surrounding spaces) has its files
+  the required agent's, ignoring case (lower-cased, upper-cased, then
+  lower-cased again) and surrounding spaces) has its files
   fingerprinted as it starts. It is refused when it runs isolated (on a
   separate copy of the files, such as a worktree), when the host will not
   report its finish (a Claude Code teammate, any pi run that does not say
@@ -208,8 +211,10 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
 - **Symbolic links:** a link is never followed. A link to a directory the
-  patterns could reach into, or a link whose own path the patterns match (to
-  a file, or dangling), makes the rule refuse, naming the link; replace it
+  patterns could reach into (a link `stat` cannot examine, other than a
+  missing target, counts as one: a loop, or one behind a directory bounded
+  may not read), or a link whose own path the patterns match (to a file, or
+  dangling), makes the rule refuse, naming the link; replace it
   with the files, or leave it out of the patterns. Any other link is
   ignored.
 - **Special files:** a FIFO, socket or device the patterns match makes the

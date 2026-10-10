@@ -493,7 +493,8 @@ names no tool or language (AGENTS.md). It can own the shape.
   given.
 - **`ReadShellCommand`**, the reader library's in port
   (`src/lib/shell-command-reader/application/shell-commands/read-shell-command/`),
-  is what a host calls. `prepare()` starts the reader's preparation once and
+  is what a host calls. `prepare()` starts the reader's preparation once,
+  and again after a read has waited `prepareWithinMs` for it in vain, and
   never rejects: a preparation that fails, throws or never settles is let
   go, and reading works unprepared or says why it cannot.
   `read({ projectRoot, command, cwd })` gives the reading's wire form and
@@ -519,8 +520,14 @@ names no tool or language (AGENTS.md). It can own the shape.
   session start, so its calls normally find the grammar loaded; a call made
   while loading still runs waits for it (up to `prepareWithinMs`) and is
   blocked (fail closed) only if loading outruns pi's 3 s decision deadline.
-  A preparation that never settles is cached and never retried, so every
-  later shell call in that pi process waits up to 5 s for it and is blocked.
+  A preparation that never settles is waited on once: later calls do not
+  wait for it, and the next session start prepares again; while bounded's
+  reader's grammar load still hangs, each shell call is read unread (timed
+  out) within 2 s and refused. A read lets go only of the very preparation
+  it waited out, never of a newer one. Bounded's own reader keeps a grammar
+  load that never settles until it settles (only a rejection clears it), so
+  with it a retry joins the same load; the gain is that each call waits
+  `readWithinMs`, not `prepareWithinMs` more.
 - **The host's decision deadline covers the whole call**: reading its
   commands and deciding, on both hosts, as before the correction.
 - **The core's part.** `Effect.parse` requires the reading and checks its

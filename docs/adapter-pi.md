@@ -138,8 +138,10 @@ unread reading saying why, which the protected-paths pack refuses. pi's
 `powershell` commands are read as bash. The grammar normally loads at
 session start; a call made while it still loads waits for it (up to 5 s)
 and is blocked only if loading outruns the 3 s deadline. A preparation that
-never settles is cached and never retried, so every later shell call in
-that pi process waits up to 5 s for it and is blocked.
+never settles is waited on once: later calls do not wait for it, and the
+next session start prepares again; while bounded's reader's grammar load
+still hangs, each shell call is read unread (timed out) within 2 s and
+refused.
 
 `composeProject` opens the project with the core's `openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] })` (every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`);
 `decide` is its judge, which decides each tool use with the composed packs
