@@ -14,6 +14,7 @@ export type {
   Declarations,
   DefinedPack,
   ExtensionPoint,
+  KeyedPoint,
   Pack,
   PackFactory,
   PackListRules,
@@ -26,7 +27,27 @@ export type {
   StrictSpec,
   WireOf,
 } from "./packs/pack.contract.ts";
-export { contribution, definePack, point, pointGroup } from "./packs/pack.ts";
+export { contribution, definePack, keyedPointsOf, parsePack, point, pointGroup } from "./packs/pack.ts";
+
+// The package catalogue (ADR 2026-029).
+export type {
+  CataloguedExampleJSON,
+  CataloguedPackJSON,
+  CataloguedPointJSON,
+  CataloguedPortJSON,
+  CataloguedReadmeJSON,
+  CataloguedSectionJSON,
+  CataloguedWireJSON,
+  PackageCatalogFactory,
+  PackageCatalogJSON,
+} from "./catalog/package-catalog.contract.ts";
+export { PackageCatalog } from "./catalog/package-catalog.ts";
+export type { ListedPack, PackageManifestFactory, PackageManifestJSON } from "./catalog/package-manifest.contract.ts";
+export { PackageManifest } from "./catalog/package-manifest.ts";
+export type { DescribedPoint, DescribedPort, PackDescriptionFactory } from "./catalog/pack-description.contract.ts";
+export { PackDescription } from "./catalog/pack-description.ts";
+export type { PackReadmeFactory, PackReadmeInput, ReadmeSection, ReadmeText, RequiredReadmeField } from "./catalog/pack-readme.contract.ts";
+export { PackReadme } from "./catalog/pack-readme.ts";
 export type { IsExact, PackIdFactory, Refused } from "./packs/pack-id.contract.ts";
 export { PackId, packIdsFor } from "./packs/pack-id.ts";
 

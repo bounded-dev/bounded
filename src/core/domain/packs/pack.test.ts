@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Composition } from "../composition/composition.ts";
 import type { Result } from "../shared/result.ts";
 import type { BasePack } from "./pack.contract.ts";
-import { contribution, definePack, parsePack, point, pointGroup } from "./pack.ts";
+import { contribution, definePack, keyedPointsOf, parsePack, point, pointGroup } from "./pack.ts";
+import { corePack } from "../core-pack/core.pack.ts";
 import { portKeysFor } from "../lifecycle/port-key.ts";
 import { packIdsFor } from "./pack-id.ts";
 
@@ -133,6 +134,17 @@ describe("Pack — the ports it needs a host to provide", () => {
     expect(untypedPack({ id: "test-packs/gate", ports: { files: { owner: gateId, name: "files" } } }).problem).toBe("its port 'files' must be declared with portKeysFor(...) by this copy of bounded");
     expect(untypedPack({ id: "test-packs/other", ports: { files } }).problem).toBe("its port 'files' belongs to test-packs/gate: a pack declares only its own ports");
     expect(untypedPack({ id: "test-packs/gate", ports: { "a.b": files } }).problem).toBe("its port key 'a.b' must be a camelCase word, such as 'sourceFiles'");
+  });
+});
+
+describe("keyedPointsOf — a pack's points with the keys it declares them under", () => {
+  test("keyedPointsOf gives each point with its key, a group's members as `<group>.<member>`, in declaration order", () => {
+    const keyed = keyedPointsOf(corePack);
+    expect(keyed.map(({ key }) => key).slice(0, 3)).toEqual(["toolUseGuards", "sessionStartGuards", "effectGuards.read"]);
+    expect(keyed.map(({ key }) => key)).toContain("onAgentRunFinish");
+    for (const { key, point: keyedPoint } of keyed) expect(keyedPoint.id).toBe(`bounded/core.${key}`);
+    expect(keyed.find(({ key }) => key === "effectGuards.read")?.point).toBe(corePack.points.effectGuards.read);
+    expect(keyed.length).toBe(new Set(keyed.map(({ key }) => key)).size);
   });
 });
 

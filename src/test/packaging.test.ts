@@ -39,6 +39,8 @@ interface Manifest {
   bin?: Record<string, string>;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
+  keywords?: string[];
+  bounded?: { catalog?: string; packs?: Record<string, string> };
 }
 
 const manifestOf = (dir: string): Manifest => JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8")) as Manifest;
@@ -90,7 +92,22 @@ describe("bounded, the one published package", () => {
     expect(manifest.engines).toEqual({ node: ">=22.18" });
     expect(manifest.files).toEqual(expect.arrayContaining(["dist", "core", "packs"]));
     expect(manifest.bin).toEqual({ bounded: "dist/cli.js" });
-    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts");
+    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts && node dist/cli.js catalog build");
+  });
+
+  test("points to its catalogue from the bounded field, carries the bounded-pack keyword, and lists every shipped pack", () => {
+    const manifest = manifestOf("src");
+    expect(manifest.keywords).toContain("bounded-pack");
+    expect(manifest.files).toContain("bounded.catalog.json");
+    expect(manifest.bounded?.catalog).toBe("./bounded.catalog.json");
+    const shippedPacks = readdirSync(join(CORE, "packs"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    expect(shippedPacks.length).toBeGreaterThan(0);
+    expect(manifest.bounded?.packs).toEqual(Object.fromEntries(shippedPacks.map((name) => [`./${name}`, `packs/${name}`])));
+    for (const exportPath of Object.keys(manifest.bounded?.packs ?? {})) expect(Object.keys(manifest.exports ?? {})).toContain(exportPath);
+    expect(packed).toContain("bounded.catalog.json");
   });
 
   test("every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first", () => {
@@ -135,7 +152,7 @@ describe("bounded, the one published package", () => {
 
   test("its tarball holds dist/, the core's and the packs' sources, the published reader suite and its contract, README.md, LICENSE and package.json: nothing else of the libraries', the hosts' or the cli's sources, nor the repository's tests", () => {
     const topLevel = [...new Set(packed.map((file) => file.split("/")[0] ?? ""))].sort();
-    const allowed = ["LICENSE", "README.md", "core", "dist", "lib", "package.json", "packs"];
+    const allowed = ["LICENSE", "README.md", "bounded.catalog.json", "core", "dist", "lib", "package.json", "packs"];
     expect(topLevel.filter((entry) => !allowed.includes(entry))).toEqual([]);
     expect(topLevel).toEqual(allowed);
     expect(packed.filter((file) => file.startsWith("lib/")).sort()).toEqual([...PUBLISHED_LIBRARY_SOURCES].sort());
@@ -343,6 +360,24 @@ describe("bounded, the one published package", () => {
     const ran = Bun.spawnSync(["node", "--input-type=module", "-e", script], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
     expect(ran.stderr.toString()).toBe("");
     expect(ran.stdout.toString().trim()).toBe("read");
+  });
+
+  test("no published declaration under dist/types/core/ imports a library the catalogue build loads from the package it catalogues", () => {
+    const declarations = distFiles(join(CORE, "dist", "types", "core")).filter((file) => file.endsWith(".d.ts"));
+    expect(declarations.length).toBeGreaterThan(0);
+    const buildLibraries = ["typescript", "ts-json-schema-generator", "marked"];
+    const importing = declarations.filter((file) => importsIn(readFileSync(file, "utf8")).some((spec) => buildLibraries.some((library) => spec === library || spec.startsWith(`${library}/`))));
+    expect(importing.map((file) => file.slice(CORE.length + 1))).toEqual([]);
+    expect(readFileSync(join(CORE, "dist", "types", "core", "adapters", "out", "pack-source-api", "pack-source-api.d.ts"), "utf8")).toContain("TypeScriptPackSourceApi");
+  });
+
+  test("packed, its manifest has no peerDependencies: the catalogue build's libraries are the catalogued package's devDependencies", () => {
+    const into = mkdtempSync(join(tmpdir(), "bounded-packaging-peers-"));
+    const ran = Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
+    expect(ran.exitCode).toBe(0);
+    const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest & { peerDependencies?: Record<string, string> };
+    expect(inTarball.peerDependencies).toBeUndefined();
+    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
   });
 
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {

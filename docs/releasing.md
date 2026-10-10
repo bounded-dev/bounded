@@ -27,11 +27,14 @@ an outward action (AGENTS.md).
    test (`npx bounded init` and `npx bounded update --from` from the
    tarball, with bun and with npm without bun).
 3. **Dry-run first.** In `src`, run `bun publish --dry-run`. Its
-   prepack (`bun build-dist.ts`) builds `dist/` afresh. Check the file list:
+   prepack (`bun build-dist.ts && node dist/cli.js catalog build`) builds
+   `dist/` afresh, then the package catalogue, `bounded.catalog.json`
+   ([ADR 2026-029](adr/2026-029-package-catalogue.md)), with Node. Check the file list:
    - `dist/` (the library, its declarations in `dist/types/`, `dist/cli.js`
      and `dist/hosts/`);
    - `core/` and `packs/`, the core's and the shipped packs' sources, without tests, test support (but
      the two conformance suites under `bounded/testing/*`) or fixtures;
+   - `bounded.catalog.json`, generated (it is gitignored);
    - `README.md`, `LICENSE` and `package.json`.
 
    `bun pm pack` gives the same tarball, to install by hand

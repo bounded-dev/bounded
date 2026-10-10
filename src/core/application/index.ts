@@ -23,6 +23,26 @@ export { InitProjectHandler } from "./project-setup/init-project/init-project.ha
 export type { UpdateProject } from "./project-setup/update-project/update-project.contract.ts";
 export { requireInitialised, UpdateProjectHandler } from "./project-setup/update-project/update-project.handler.ts";
 
+export type {
+  BuildPackageCatalog,
+  BuildPackageCatalogCommandFactory,
+  BuildPackageCatalogInput,
+  BuiltPackageCatalog,
+  MarkdownDocument,
+  MarkdownSections,
+  ModuleExport,
+  PackageCatalogFiles,
+  PackModules,
+  PackSourceApi,
+  PackSourceApiReading,
+  PackSourceExample,
+  PackSourcePoint,
+  PackSourcePort,
+  PackSourceRequest,
+} from "./catalog/build-package-catalog/build-package-catalog.contract.ts";
+export { BuildPackageCatalogCommand } from "./catalog/build-package-catalog/build-package-catalog.command.ts";
+export { BuildPackageCatalogHandler } from "./catalog/build-package-catalog/build-package-catalog.handler.ts";
+
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.
 import * as exported from "./index.ts";

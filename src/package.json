@@ -2,6 +2,9 @@
   "name": "bounded",
   "version": "3.3.0",
   "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the protected-paths pack, and hooks for Claude Code and pi, with the bounded command to set a project up",
+  "keywords": [
+    "bounded-pack"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,11 +18,12 @@
     "bounded": "dist/cli.js"
   },
   "scripts": {
-    "prepack": "bun build-dist.ts"
+    "prepack": "bun build-dist.ts && node dist/cli.js catalog build"
   },
   "files": [
     "dist",
     "README.md",
+    "bounded.catalog.json",
     "core",
     "packs",
     "lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.contract.ts",
@@ -27,7 +31,7 @@
     "!{core,packs}/**/*.test.ts",
     "!core/{adapters,composition-root,domain}/**/*.test-support.ts",
     "!packs/**/*.test-support.ts",
-    "!core/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
+    "!core/application/{catalog,composition,lifecycle,project-config}/**/*.test-support.ts",
     "!core/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
     "!core/application/project-setup/**/*{-source,-files}.test-support.ts",
     "!{core,packs}/**/fixtures/**",
@@ -95,5 +99,12 @@
     "./hosts/pi": "./dist/hosts/pi/index.js",
     "./hosts/pi/host-installer": "./dist/hosts/pi/host-installer.js"
   },
-  "type": "module"
+  "type": "module",
+  "bounded": {
+    "catalog": "./bounded.catalog.json",
+    "packs": {
+      "./prereqs": "packs/prereqs",
+      "./protected-paths": "packs/protected-paths"
+    }
+  }
 }

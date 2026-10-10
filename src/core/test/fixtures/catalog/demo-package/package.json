@@ -1,0 +1,18 @@
+{
+  "name": "demo-package",
+  "version": "1.0.0",
+  "description": "A package of one pack, for the package catalogue build's tests",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./demo": {
+      "default": "./dist/demo/index.js"
+    }
+  },
+  "bounded": {
+    "catalog": "./bounded.catalog.json",
+    "packs": {
+      "./demo": "packs/demo"
+    }
+  }
+}
