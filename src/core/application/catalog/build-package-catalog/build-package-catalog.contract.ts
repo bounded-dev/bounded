@@ -67,18 +67,20 @@ export interface ModuleExport {
  */
 export interface PackModules {
   /**
-   * Every export of the module an export path of the package (`./prereqs`)
-   * names. Refuses an export path its package.json does not list, and one
+   * Every export of the module an export path of the package (`./prereqs`,
+   * or `.` for the package root) names. Refuses an export path its package.json does not list, and one
    * whose entry has no `default`, `require` or `node` target, before
    * resolving it, so it refuses alike under every runtime.
    */
   load(packageDir: string, exportPath: string): Promise<Result<readonly ModuleExport[]>>;
 }
 
-/** What to read of a pack's sources: the package, the pack's source directory and its examples, all package-relative. */
+/** What to read of a pack's sources: the package, the pack's source directory and its examples, all package-relative, and the name its export path exports the pack under. */
 export interface PackSourceRequest {
   readonly packageDir: string;
   readonly packDir: string;
+  /** The name the overview exports the pack under: the one the module loader found. */
+  readonly exportName: string;
   readonly examplePaths: readonly string[];
 }
 
@@ -90,7 +92,7 @@ export interface PackSourcePoint {
   readonly valueType: string;
   /** The TSDoc the contract gives it. */
   readonly documentation: string;
-  /** How a contribution is written: its wire type's name and JSON Schema; null when the values are code. */
+  /** How a contribution is written: its wire type's text and that type's JSON Schema; null when the values are code. */
   readonly wire: { readonly type: string; readonly schema: Readonly<Record<string, unknown>> } | null;
 }
 
@@ -113,7 +115,7 @@ export interface PackSourceExample {
 
 /** A pack's typed public API, as its overview and contract declare it. */
 export interface PackSourceApiReading {
-  /** The pack's exported name in its overview, `<name>.pack.ts`, and its TSDoc. */
+  /** The pack as its overview, `<name>.pack.ts`, exports it under the request's export name, and its TSDoc. */
   readonly overview: { readonly name: string; readonly documentation: string };
   readonly points: readonly PackSourcePoint[];
   readonly ports: readonly PackSourcePort[];

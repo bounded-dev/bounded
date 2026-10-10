@@ -1,10 +1,11 @@
 // bounded's own catalogue (ADR 2026-026): `bounded catalog build`, the built
 // CLI under Node, run in src/ as bounded's prepack runs it.
 //
-// This test and src/core/composition-root/pack-wire-schemas.test.ts both
-// write the shared, gitignored src/bounded.catalog.json. They rely on
-// `bun test` running test files one after another, and each rebuilds the file
-// before reading it.
+// This test writes the shared, gitignored src/bounded.catalog.json, as do
+// src/core/composition-root/pack-wire-schemas.test.ts, src/test/packaging.test.ts
+// and src/cli/test/bounded-cli.e2e.test.ts (both pack bounded, whose prepack
+// builds it). They rely on `bun test` running test files one after another,
+// and each test that reads the file rebuilds it first.
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";

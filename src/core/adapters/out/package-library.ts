@@ -11,8 +11,8 @@ import type { Result } from "bounded/domain";
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 
-/** The library `name` as the package at `packageDir` resolves it, imported; or a refusal naming it and the fix. */
-export async function loadPackageLibrary(packageDir: string, name: string): Promise<Result<unknown>> {
+/** The library `name` as the package at `packageDir` resolves it, imported, with the file it was resolved to; or a refusal naming it and the fix. */
+export async function loadPackageLibrary(packageDir: string, name: string): Promise<Result<{ readonly module: unknown; readonly path: string }>> {
   let resolved: string;
   try {
     resolved = createRequire(join(packageDir, "package.json")).resolve(name);
@@ -20,7 +20,7 @@ export async function loadPackageLibrary(packageDir: string, name: string): Prom
     return { ok: false, error: `${name} cannot be found from ${packageDir}: install ${name} as a devDependency of the package to build its catalogue` };
   }
   try {
-    return { ok: true, value: await import(pathToFileURL(resolved).href) };
+    return { ok: true, value: { module: await import(pathToFileURL(resolved).href), path: resolved } };
   } catch (thrown) {
     return { ok: false, error: `${name}, found at ${resolved}, cannot be loaded (${message(thrown)}): reinstall it as a devDependency of the package to build its catalogue` };
   }

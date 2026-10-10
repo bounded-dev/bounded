@@ -3,11 +3,13 @@ import { demoPackage } from "../../../application/catalog/build-package-catalog/
 import { ADD_A_DEFAULT_CONDITION, packModulesConformance } from "../../../application/catalog/build-package-catalog/build-package-catalog.pack-modules.test-support.ts";
 import { NodePackModules } from "./pack-modules.ts";
 
-/** A copy of the demonstration package whose ./demo export entry is `demoExport` (the fixture's when none is given). */
-const packageWith = (demoExport?: unknown): Promise<string> =>
-  demoPackage(demoExport === undefined ? {} : { manifest: (manifest) => ({ ...manifest, exports: { "./demo": demoExport } }) });
+/** A copy of the demonstration package whose ./demo export entry is `demoExport`, or whose exports are `exports` (the fixture's when neither is given). */
+const packageWith = (demoExport?: unknown, exports?: unknown): Promise<string> => {
+  const written = exports ?? (demoExport === undefined ? undefined : { "./demo": demoExport });
+  return demoPackage(written === undefined ? {} : { manifest: (manifest) => ({ ...manifest, exports: written }) });
+};
 
-packModulesConformance("NodePackModules", async (demoExport) => ({ modules: new NodePackModules(), packageDir: await packageWith(demoExport) }));
+packModulesConformance("NodePackModules", async (demoExport, exports) => ({ modules: new NodePackModules(), packageDir: await packageWith(demoExport, exports) }));
 
 describe("NodePackModules", () => {
   test("refuses an import-only entry with the same message under Node as under the test runner's runtime", async () => {

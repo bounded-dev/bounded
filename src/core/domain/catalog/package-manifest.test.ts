@@ -20,6 +20,13 @@ describe("PackageManifest — what the package catalogue build reads of package.
     expect(parsed.value.toJSON()).toEqual({ name: "demo-package", version: "1.0.0", bounded: { catalog: "./bounded.catalog.json", packs: { "./demo": "packs/demo", "./other": "packs/other" } } });
   });
 
+  test("accepts the package root, `.`, as the export path of a pack", () => {
+    const parsed = PackageManifest.parse({ ...manifest, bounded: { ...manifest.bounded, packs: { ".": "packs/demo" } } });
+    expect(parsed.ok ? "ok" : parsed.error).toBe("ok");
+    expect(parsed.ok && parsed.value.packs).toEqual([{ exportPath: ".", packDir: "packs/demo" }]);
+    expect(parsed.ok && parsed.value.toJSON().bounded.packs).toEqual({ ".": "packs/demo" });
+  });
+
   test("refuses a package.json with no bounded.packs, saying what to add", () => {
     const { bounded: _bounded, ...withoutBounded } = manifest;
     for (const raw of [withoutBounded, { ...manifest, bounded: { catalog: "./bounded.catalog.json" } }, { ...manifest, bounded: { ...manifest.bounded, packs: {} } }, { ...manifest, bounded: "yes" }]) {

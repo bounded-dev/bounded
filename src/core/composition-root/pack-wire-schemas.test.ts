@@ -5,10 +5,12 @@
 // shipped examples contribute validates, and what does not compile is
 // rejected.
 //
-// This test and src/cli/bounded-cli.catalog-bounded.test.ts both write the
-// shared, gitignored src/bounded.catalog.json, by running the built CLI's
-// `bounded catalog build` in src/. They rely on `bun test` running test files
-// one after another, and each rebuilds the file before reading it.
+// This test writes the shared, gitignored src/bounded.catalog.json by
+// running the built CLI's `bounded catalog build` in src/, as do
+// src/cli/bounded-cli.catalog-bounded.test.ts, src/test/packaging.test.ts and
+// src/cli/test/bounded-cli.e2e.test.ts (both pack bounded, whose prepack
+// builds it). They rely on `bun test` running test files one after another,
+// and each test that reads the file rebuilds it first.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { spawnSync } from "node:child_process";

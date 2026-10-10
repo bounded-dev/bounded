@@ -13,7 +13,7 @@ export interface PackSourceApiChanges {
 }
 
 const EXAMPLE = "packs/demo/examples/basic.config.ts";
-const request = (packageDir: string) => ({ packageDir, packDir: "packs/demo", examplePaths: [EXAMPLE] });
+const request = (packageDir: string) => ({ packageDir, packDir: "packs/demo", exportName: "demoPack", examplePaths: [EXAMPLE] });
 
 /** NoteJSON as a type the schema generator cannot describe, though TypeScript can. */
 const UNDESCRIBABLE_NOTE = `import type { Result } from "bounded/domain";
@@ -35,6 +35,32 @@ export interface NoteFactory {
   parse(raw: unknown): Result<Note>;
 }
 `;
+
+/** The demonstration pack's contract, with `points` written over its points' declarations and `imports` added after its own. */
+const demoContract = (points: string, imports = ""): string => `import type { BasePack, ExtensionPoint, PortKey } from "bounded/domain";
+import type { NoteStore } from "./application/keep-notes.contract.ts";
+import type { DemoId } from "./domain/demo-id.ts";
+import type { Note } from "./domain/note.contract.ts";
+${imports}
+/** The demonstration pack's points. */
+export type DemoPoints = {
+${points}
+};
+
+/** The adapters the demonstration pack needs a host to provide. */
+export type DemoPorts = {
+  readonly noteStore: PortKey<NoteStore, DemoId>;
+};
+
+/** The demonstration pack: its id, its points and its ports. */
+export interface DemoPack extends BasePack {
+  readonly id: DemoId;
+  readonly points: DemoPoints;
+  readonly ports: DemoPorts;
+}
+`;
+const NOTES_POINT = `  /** Notes: one line of text each, kept by the project for its agents. */
+  readonly notes: ExtensionPoint<Note, DemoId>;`;
 
 /** The behaviour every PackSourceApi must have. */
 export function packSourceApiConformance(name: string, fixture: (changes?: PackSourceApiChanges) => Promise<PackSourceApiFixture>): void {
@@ -101,6 +127,75 @@ export function packSourceApiConformance(name: string, fixture: (changes?: PackS
       const read = await given.sourceApi.read(request(given.packageDir));
       expect(read.ok).toBe(true);
       expect(read).toEqual(baseline);
+    });
+    test("describes a point of plain data with no name directly: its type text, and a schema of the type itself", async () => {
+      const points = `${NOTES_POINT}
+  /** Labels: one word each. */
+  readonly labels: ExtensionPoint<string, DemoId>;
+  /** A level. */
+  readonly levels: ExtensionPoint<"low" | "high", DemoId>;`;
+      const given = await fixture({ files: { "packs/demo/demo.contract.ts": demoContract(points) } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      expect(read.value.points.map(({ key }) => key)).toEqual(["notes", "labels", "levels"]);
+      const labels = read.value.points.find(({ key }) => key === "labels");
+      expect(labels?.valueType).toBe("string");
+      expect(labels?.wire?.type).toBe("string");
+      expect(labels?.wire?.schema).toMatchObject({ type: "string" });
+      const levels = read.value.points.find(({ key }) => key === "levels");
+      expect(levels?.wire?.type).toBe('"low" | "high"');
+      expect(levels?.wire?.schema).toMatchObject({ type: "string", enum: ["low", "high"] });
+    });
+
+    test("generates a wire type's schema from the declaration the checker resolved, never by name: a same-named type elsewhere does not replace it", async () => {
+      const shadow = `/** Another NoteJSON, unrelated to the point's. */
+export interface NoteJSON {
+  readonly shadowed: number;
+}
+`;
+      const imports = `import type { NoteJSON as ShadowNoteJSON } from "./domain/shadow.contract.ts";
+/** Uses the shadowing type, so it is in the program. */
+export type Shadowing = ShadowNoteJSON;
+`;
+      const given = await fixture({ files: { "packs/demo/domain/shadow.contract.ts": shadow, "packs/demo/demo.contract.ts": demoContract(NOTES_POINT, imports) } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      const schema = JSON.stringify(read.value.points[0]?.wire?.schema);
+      expect(schema).toContain('"text"');
+      expect(schema).not.toContain("shadowed");
+    });
+
+    test("names the overview's pack by the name the module exports it under, not the first exported const", async () => {
+      const overview = `import { contribution, corePack, definePack } from "bounded/domain";
+import { noteStorePort } from "./application/keep-notes.contract.ts";
+import { allowEveryCall } from "./application/keep-notes.lifecycle.ts";
+import { demoId } from "./domain/demo-id.ts";
+import { notesPoint } from "./domain/note.ts";
+import type { DemoPack } from "./demo.contract.ts";
+
+/** A helper exported before the pack. */
+export const helperValue = 1;
+
+/**
+ * The demonstration pack, \`demo-package/demo\`: projects contribute notes to
+ * \`notes\`, and its check before each tool call allows it.
+ */
+export const demoPack: DemoPack = definePack({
+  id: demoId,
+  dependsOn: [corePack],
+  points: { notes: notesPoint },
+  contributes: [contribution(corePack.points.beforeTool, [allowEveryCall])],
+  ports: { noteStore: noteStorePort },
+});
+`;
+      const given = await fixture({ files: { "packs/demo/demo.pack.ts": overview } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      expect(read.value.overview.name).toBe("demoPack");
+      expect(read.value.points.map(({ key }) => key)).toEqual(["notes"]);
     });
   });
 }

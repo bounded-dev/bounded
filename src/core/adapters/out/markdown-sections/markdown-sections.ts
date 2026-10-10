@@ -43,7 +43,7 @@ export class MarkedMarkdownSections implements MarkdownSections {
   async read(packageDir: string, markdown: string): Promise<Result<MarkdownDocument>> {
     const loaded = await loadPackageLibrary(packageDir, "marked");
     if (!loaded.ok) return loaded;
-    const library = loaded.value;
+    const library = loaded.value.module;
     const lexer: unknown = isRecord(library) ? (library.lexer ?? (isRecord(library.marked) ? library.marked.lexer : undefined)) : undefined;
     if (typeof lexer !== "function") return { ok: false, error: "marked, as the package resolves it, has no lexer: reinstall it as a devDependency of the package to build its catalogue" };
     let lexed: unknown;

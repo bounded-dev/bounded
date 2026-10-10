@@ -3,7 +3,7 @@ import type { Result } from "../shared/result.ts";
 /** The brand only PackageManifest itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const packageManifestBrand: unique symbol;
 
-/** One pack a package lists: the export path that exports it (`./prereqs`) and its source directory, package-relative (`packs/prereqs`). */
+/** One pack a package lists: the export path that exports it (`./prereqs`, or `.` for the package root) and its source directory, package-relative (`packs/prereqs`). */
 export interface ListedPack {
   readonly exportPath: string;
   readonly packDir: string;
@@ -45,7 +45,7 @@ export interface PackageManifestFactory {
    * The manifest, from a package.json's JSON, or why it cannot be built from:
    * not an object; no name or version; no `bounded.catalog` naming a
    * package-relative `.json` file; no `bounded.packs`, or one that lists no
-   * pack; an export path that is not `./<path>`, or a pack directory that is
+   * pack; an export path that is not `.` or `./<path>`, or a pack directory that is
    * not package-relative. Never throws.
    */
   parse(raw: unknown): Result<PackageManifest>;

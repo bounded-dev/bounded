@@ -71,7 +71,7 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
     const examplePaths = await this.files.listExamples(packageDir, packDir);
     if (!examplePaths.ok) return examplePaths;
     if (examplePaths.value.length === 0) return refused(`${id} has no example: add ${packDir}/examples/<slug>.config.ts, a complete bounded.config.ts the package's tests open as a project's configuration`);
-    const api = await this.sourceApi.read({ packageDir, packDir, examplePaths: examplePaths.value });
+    const api = await this.sourceApi.read({ packageDir, packDir, exportName: exported.exportName, examplePaths: examplePaths.value });
     if (!api.ok) return refused(`${id}: ${api.error}`);
     const disagreement = this.disagreement(id, packDir, description, api.value);
     if (disagreement !== undefined) return refused(disagreement);
@@ -79,7 +79,7 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
     if (!readme.ok) return readme;
     const examples: CataloguedExampleJSON[] = [];
     for (const path of examplePaths.value) {
-      const example = await this.exampleAt(packageDir, path, api.value);
+      const example = await this.exampleAt(packageDir, id, path, api.value);
       if (!example.ok) return example;
       examples.push(example.value);
     }
@@ -129,12 +129,12 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
   private async readmeOf(packageDir: string, packDir: string, description: PackDescription): Promise<Result<PackReadme>> {
     const path = `${packDir}/README.md`;
     const text = await this.files.readText(packageDir, path);
-    if (!text.ok) return text;
+    if (!text.ok) return refused(`${description.id}: ${text.error}`);
     if (text.value === null) {
       return refused(`${description.id} has no README at ${path}: add one titled \`# ${description.id}: <one-line summary>\`, with the sections What it is for, Rule shape, Workflows it fits, What it observes, What it cannot see, Ports and Examples`);
     }
     const document = await this.markdown.read(packageDir, text.value);
-    if (!document.ok) return refused(`${path}: ${document.error}`);
+    if (!document.ok) return refused(`${description.id}: ${path}: ${document.error}`);
     return PackReadme.parse({
       packId: description.id,
       path,
@@ -147,13 +147,13 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
   }
 
   /** An example, embedded verbatim, titled by the first line of the TSDoc on its default export. */
-  private async exampleAt(packageDir: string, path: string, api: PackSourceApiReading): Promise<Result<CataloguedExampleJSON>> {
+  private async exampleAt(packageDir: string, id: string, path: string, api: PackSourceApiReading): Promise<Result<CataloguedExampleJSON>> {
     const source = await this.files.readText(packageDir, path);
-    if (!source.ok) return source;
-    if (source.value === null) return refused(`${path} could not be read: it was listed as an example, then disappeared`);
+    if (!source.ok) return refused(`${id}: ${source.error}`);
+    if (source.value === null) return refused(`${id}: ${path} could not be read: it was listed as an example, then disappeared`);
     const documentation = api.examples.find((example) => example.path === path)?.documentation ?? "";
     const [title = "", ...rest] = documentation.split("\n");
-    if (title.trim() === "") return refused(`${path} has no TSDoc title on its default export: begin the TSDoc above \`export default\` with a one-line title, then a blank line and what the example does`);
+    if (title.trim() === "") return refused(`${id}: ${path} has no TSDoc title on its default export: begin the TSDoc above \`export default\` with a one-line title, then a blank line and what the example does`);
     return { ok: true, value: { path, title: title.trim(), description: rest.join("\n").trim(), source: source.value } };
   }
 }

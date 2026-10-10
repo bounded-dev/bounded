@@ -50,7 +50,7 @@ class PackageManifestImpl implements Contract.PackageManifest {
       if (catalogPath === undefined || !catalogPath.endsWith(".json")) return { ok: false, error: `package.json's bounded.catalog does not name a .json file in the package: give "catalog": "./bounded.catalog.json"` };
       const packs: Contract.ListedPack[] = [];
       for (const [exportPath, dir] of Object.entries(bounded.data.packs)) {
-        if (!exportPath.startsWith("./") || packageRelative(exportPath) === undefined) return { ok: false, error: `package.json's bounded.packs lists '${exportPath}', which is not an export path: name it as package.json's exports does, such as "./${exportPath.replace(/^[./]+/, "")}"` };
+        if (exportPath !== "." && (!exportPath.startsWith("./") || packageRelative(exportPath) === undefined)) return { ok: false, error: `package.json's bounded.packs lists '${exportPath}', which is not an export path: name it as package.json's exports does, such as "./${exportPath.replace(/^[./]+/, "")}"` };
         const packDir = packageRelative(dir);
         if (packDir === undefined) return { ok: false, error: `package.json's bounded.packs gives ${exportPath} the directory '${dir}', which is not in the package: give the pack's source directory, package-relative, such as "packs/<name>"` };
         packs.push(Object.freeze({ exportPath, packDir }));

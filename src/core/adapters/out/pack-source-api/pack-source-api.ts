@@ -4,9 +4,13 @@
 // tsc finds it. The overview's exported pack gives its name and TSDoc; the type it is declared
 // with (its contract's) gives each point's value type and TSDoc, and each port's adapter
 // interface. A point's wire type is a value object's `toJSON` result, or plain data's own type,
-// and its JSON Schema comes from ts-json-schema-generator over the same program; a point whose
-// values are code has none. TypeScript and the generator are the package's own devDependencies,
-// loaded from it; only TypeScript 5 is read.
+// and its JSON Schema comes from ts-json-schema-generator over the same program, from the
+// declaration the checker resolved (or, for a type with no name, from where the contract writes
+// it), never by looking a name up; a point whose values are code has none. TypeScript and the
+// generator are the package's own devDependencies, loaded from it, and must share one copy of
+// TypeScript; only TypeScript 5 is read.
+import { readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import type { PackSourceApi, PackSourceApiReading, PackSourceExample, PackSourcePoint, PackSourcePort, PackSourceRequest } from "bounded/application";
 import type { Result } from "bounded/domain";
@@ -14,9 +18,12 @@ import type * as TypeScript from "typescript";
 import { loadPackageLibrary } from "../package-library.ts";
 
 type TS = typeof TypeScript;
-/** What the catalogue build uses of ts-json-schema-generator. */
+/** What the catalogue build uses of ts-json-schema-generator: a schema from root nodes of a program it is given. */
 interface SchemaGeneratorLibrary {
-  createGenerator(config: Readonly<Record<string, unknown>>): { createSchema(type: string): unknown };
+  readonly DEFAULT_CONFIG: Readonly<Record<string, unknown>>;
+  createParser(program: TypeScript.Program, config: Readonly<Record<string, unknown>>): unknown;
+  createFormatter(config: Readonly<Record<string, unknown>>): unknown;
+  readonly SchemaGenerator: new (program: TypeScript.Program, parser: unknown, formatter: unknown, config: Readonly<Record<string, unknown>>) => { createSchemaFromNodes(nodes: readonly TypeScript.Node[]): unknown };
 }
 
 /** The TypeScript major this reader reads. */
@@ -29,21 +36,56 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 /** A CommonJS library's exports, as `import()` gives them under Node and bun. */
 const exportsOf = (module: unknown): unknown => (isRecord(module) && isRecord(module.default) ? module.default : module);
 
-async function typescriptOf(packageDir: string): Promise<Result<TS>> {
+async function typescriptOf(packageDir: string): Promise<Result<{ readonly ts: TS; readonly path: string }>> {
   const loaded = await loadPackageLibrary(packageDir, "typescript");
   if (!loaded.ok) return loaded;
-  const ts = exportsOf(loaded.value);
+  const ts = exportsOf(loaded.value.module);
   if (!isRecord(ts) || typeof ts.createProgram !== "function" || typeof ts.version !== "string") return { ok: false, error: "typescript, as the package resolves it, is not the TypeScript compiler: reinstall it as a devDependency of the package to build its catalogue" };
   const major = ts.version.split(".")[0];
   if (major !== TYPESCRIPT_MAJOR) return { ok: false, error: `typescript ${ts.version} is installed, and the catalogue build reads TypeScript ${TYPESCRIPT_MAJOR}: install typescript@${TYPESCRIPT_MAJOR} as a devDependency of the package to build its catalogue` };
-  return { ok: true, value: ts as unknown as TS };
+  return { ok: true, value: { ts: ts as unknown as TS, path: loaded.value.path } };
 }
 
-async function schemaGeneratorOf(packageDir: string): Promise<Result<SchemaGeneratorLibrary>> {
+/** The version of the typescript `from` resolves, read from its package.json; undefined when it cannot be read. */
+function typescriptVersionFrom(from: string): string | undefined {
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(createRequire(from).resolve("typescript/package.json"), "utf8"));
+    return isRecord(manifest) && typeof manifest.version === "string" ? manifest.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The real path of a file, or the path as given when it cannot be resolved. */
+function realPathOf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** ts-json-schema-generator as the package resolves it, refused unless it resolves the same copy of typescript as the package: it reads the program the build compiles. */
+async function schemaGeneratorOf(packageDir: string, typescript: { readonly ts: TS; readonly path: string }): Promise<Result<SchemaGeneratorLibrary>> {
   const loaded = await loadPackageLibrary(packageDir, "ts-json-schema-generator");
   if (!loaded.ok) return loaded;
-  const library = exportsOf(loaded.value);
-  if (!isRecord(library) || typeof library.createGenerator !== "function") return { ok: false, error: "ts-json-schema-generator, as the package resolves it, has no createGenerator: reinstall it as a devDependency of the package to build its catalogue" };
+  let generatorTypescript: string | undefined;
+  try {
+    generatorTypescript = createRequire(loaded.value.path).resolve("typescript");
+  } catch {
+    generatorTypescript = undefined;
+  }
+  if (generatorTypescript === undefined || realPathOf(generatorTypescript) !== realPathOf(typescript.path)) {
+    const theirs = generatorTypescript === undefined ? "no typescript" : `typescript ${typescriptVersionFrom(loaded.value.path) ?? "of an unknown version"} (${generatorTypescript})`;
+    return {
+      ok: false,
+      error: `ts-json-schema-generator, as the package resolves it, uses ${theirs}, not the package's typescript ${typescript.ts.version} (${typescript.path}): install them so they share one copy of typescript, since the generator reads the program the catalogue build compiles`,
+    };
+  }
+  const library = exportsOf(loaded.value.module);
+  if (!isRecord(library) || typeof library.createParser !== "function" || typeof library.createFormatter !== "function" || typeof library.SchemaGenerator !== "function" || !isRecord(library.DEFAULT_CONFIG)) {
+    return { ok: false, error: "ts-json-schema-generator, as the package resolves it, has no createParser, createFormatter, SchemaGenerator and DEFAULT_CONFIG: install version 2 as a devDependency of the package to build its catalogue" };
+  }
   return { ok: true, value: library as unknown as SchemaGeneratorLibrary };
 }
 
@@ -105,18 +147,19 @@ class PackProgram {
     this.checker = program.getTypeChecker();
   }
 
-  /** The overview's exported pack: its name, its TSDoc and the type it is declared with. */
-  overview(path: string, shown: string): Result<{ readonly name: string; readonly documentation: string; readonly type: TypeScript.Type }> {
+  /** The pack the overview exports under `exportName`, the name its export path exports it under: its TSDoc and the type it is declared with. */
+  overview(path: string, shown: string, exportName: string): Result<{ readonly name: string; readonly documentation: string; readonly type: TypeScript.Type }> {
     const { ts } = this;
     const source = this.program.getSourceFile(path);
     if (source === undefined) return { ok: false, error: `its overview, ${shown}, cannot be read: a pack is defined in <its directory>/<its name>.pack.ts` };
     for (const statement of source.statements) {
       if (!ts.isVariableStatement(statement) || !(ts.getModifiers(statement) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
-      const declaration = statement.declarationList.declarations[0];
-      if (declaration === undefined || !ts.isIdentifier(declaration.name)) continue;
-      return { ok: true, value: { name: declaration.name.text, documentation: tsDocOf(ts, statement) ?? "", type: this.checker.getTypeAtLocation(declaration.name) } };
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue;
+        return { ok: true, value: { name: exportName, documentation: tsDocOf(ts, statement) ?? "", type: this.checker.getTypeAtLocation(declaration.name) } };
+      }
     }
-    return { ok: false, error: `its overview, ${shown}, exports no pack: it holds \`export const <name>: <Type> = definePack({ … })\`` };
+    return { ok: false, error: `its overview, ${shown}, does not export \`${exportName}\`, the name its export path exports the pack under: define the pack there, as \`export const ${exportName}: <Type> = definePack({ … })\`` };
   }
 
   /** The points the pack's type declares, a group's members as `<group>.<member>`, each with its value type, TSDoc and wire type. */
@@ -148,17 +191,39 @@ class PackProgram {
     const wireType = toJSON === undefined ? valueType : checker.getTypeOfSymbol(toJSON).getCallSignatures()[0]?.getReturnType();
     if (wireType === undefined) return { ok: false, error: `the point '${key}' takes ${valueText}, whose toJSON gives nothing: a value object's toJSON gives its wire form` };
     if (holdsFunction(ts, checker, wireType)) return { ok: true, value: { ...base, wire: null } };
-    const wireName = declaredNameOf(wireType);
     const wireText = checker.typeToString(wireType, undefined, ts.TypeFormatFlags.NoTruncation);
-    if (wireName === undefined) return { ok: false, error: `the point '${key}' is written as ${wireText}, a type with no name: declare it as an exported interface or type alias, so its JSON Schema can be generated` };
+    const node = this.wireNode(symbol, wireType, toJSON);
+    if (node === undefined) return { ok: false, error: `the point '${key}' is written as ${wireText}, and where that type is written cannot be found: declare the point as ExtensionPoint<Value, PackId> in the pack's contract` };
     try {
-      const generator = this.generator.createGenerator({ tsProgram: this.program, skipTypeCheck: true, functions: "fail", expose: "export", topRef: true, jsDoc: "extended", additionalProperties: false });
-      const schema = generator.createSchema(wireName);
-      if (!isRecord(schema)) return { ok: false, error: `the point '${key}''s wire type ${wireName} gave no JSON Schema` };
-      return { ok: true, value: { ...base, wire: { type: wireName, schema } } };
+      // A declaration is referenced from the top, as definitions/<its name>; a type written in place is described inline.
+      const config = { ...this.generator.DEFAULT_CONFIG, tsProgram: this.program, skipTypeCheck: true, functions: "fail", expose: "export", topRef: !ts.isTypeNode(node), jsDoc: "extended", additionalProperties: false };
+      const generator = new this.generator.SchemaGenerator(this.program, this.generator.createParser(this.program, config), this.generator.createFormatter(config), config);
+      const schema = generator.createSchemaFromNodes([node]);
+      if (!isRecord(schema)) return { ok: false, error: `the point '${key}''s wire type ${wireText} gave no JSON Schema` };
+      return { ok: true, value: { ...base, wire: { type: wireText, schema } } };
     } catch (thrown) {
-      return { ok: false, error: `the point '${key}''s wire type ${wireName} cannot be described as JSON Schema (${message(thrown)}): write it as plain JSON data, which the schema generator describes` };
+      return { ok: false, error: `the point '${key}''s wire type ${wireText} cannot be described as JSON Schema (${message(thrown)}): write it as plain JSON data, which the schema generator describes` };
     }
+  }
+
+  /**
+   * The node the wire type's schema is generated from: the declaration the checker resolved
+   * the type to, when it is declared under a name; else where it is written, the toJSON
+   * method's return type for a value object, or the point's `ExtensionPoint<Value, …>` type
+   * argument for plain data. Undefined when there is none.
+   */
+  private wireNode(point: TypeScript.Symbol, wireType: TypeScript.Type, toJSON: TypeScript.Symbol | undefined): TypeScript.Node | undefined {
+    const { ts } = this;
+    const named = declaredNameOf(wireType) === undefined ? undefined : (wireType.aliasSymbol ?? wireType.getSymbol());
+    const declaration = named?.getDeclarations()?.find((node) => ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node) || ts.isClassDeclaration(node));
+    if (declaration !== undefined) return declaration;
+    if (toJSON !== undefined) {
+      const method = toJSON.getDeclarations()?.find((node) => ts.isMethodSignature(node) || ts.isMethodDeclaration(node));
+      return method !== undefined && (ts.isMethodSignature(method) || ts.isMethodDeclaration(method)) ? method.type : undefined;
+    }
+    const property = point.getDeclarations()?.find((node) => ts.isPropertySignature(node) || ts.isPropertyDeclaration(node));
+    const written = property !== undefined && (ts.isPropertySignature(property) || ts.isPropertyDeclaration(property)) ? property.type : undefined;
+    return written !== undefined && ts.isTypeReferenceNode(written) ? written.typeArguments?.[0] : undefined;
   }
 
   /** The ports the pack's type declares, each with its adapter interface, that interface's TSDoc and its declaration. */
@@ -193,11 +258,12 @@ export class TypeScriptPackSourceApi implements PackSourceApi {
   async read(request: PackSourceRequest): Promise<Result<PackSourceApiReading>> {
     const { packageDir, packDir, examplePaths } = request;
     if (!isAbsolute(packageDir)) return { ok: false, error: `${packageDir} is not an absolute path` };
-    const ts = await typescriptOf(packageDir);
-    if (!ts.ok) return ts;
-    const generator = await schemaGeneratorOf(packageDir);
+    const typescript = await typescriptOf(packageDir);
+    if (!typescript.ok) return typescript;
+    const { ts } = typescript.value;
+    const generator = await schemaGeneratorOf(packageDir, typescript.value);
     if (!generator.ok) return generator;
-    const options = compilerOptionsOf(ts.value, packageDir);
+    const options = compilerOptionsOf(ts, packageDir);
     if (!options.ok) return options;
     const name = packDir.split("/").at(-1) ?? "";
     const overviewPath = `${packDir}/${name}.pack.ts`;
@@ -206,11 +272,11 @@ export class TypeScriptPackSourceApi implements PackSourceApi {
     const roots = [overviewPath, contractPath, ...examplePaths].map((path) => join(packageDir, path));
     let program: PackProgram;
     try {
-      program = new PackProgram(ts.value, ts.value.createProgram(roots, { ...options.value, noEmit: true }), generator.value);
+      program = new PackProgram(ts, ts.createProgram(roots, { ...options.value, noEmit: true }), generator.value);
     } catch (thrown) {
       return { ok: false, error: `the pack's sources in ${packDir} cannot be compiled: ${message(thrown)}` };
     }
-    const overview = program.overview(join(packageDir, overviewPath), overviewPath);
+    const overview = program.overview(join(packageDir, overviewPath), overviewPath, request.exportName);
     if (!overview.ok) return overview;
     const points = program.points(overview.value.type);
     if (!points.ok) return points;

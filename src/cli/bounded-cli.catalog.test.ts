@@ -14,6 +14,8 @@ const REPOSITORY_ROOT = resolve(import.meta.dir, "../..");
 const BOUNDED_DIR = join(REPOSITORY_ROOT, "src");
 const CLI = join(BOUNDED_DIR, "dist", "cli.js");
 const DEMO_PACKAGE = join(BOUNDED_DIR, "core", "test", "fixtures", "catalog", "demo-package");
+/** A second pack, `demo-package/alpha`, first in id order, to copy into the package beside the first. */
+const ALPHA_PACK = join(BOUNDED_DIR, "core", "test", "fixtures", "catalog", "alpha-pack");
 const LIBRARIES = ["typescript", "ts-json-schema-generator", "marked"];
 const EXAMPLE = "packs/demo/examples/basic.config.ts";
 
@@ -22,12 +24,15 @@ interface DemoOptions {
   readonly remove?: readonly string[];
   readonly manifest?: (manifest: Record<string, unknown>) => Record<string, unknown>;
   readonly libraries?: readonly string[];
+  /** Whether the second pack, packs/alpha, is copied in and built to dist/alpha/index.js too. */
+  readonly withAlpha?: boolean;
 }
 
 /** A fresh copy of the demonstration package, its pack built to dist/demo/index.js. */
 async function demoPackage(options: DemoOptions = {}): Promise<string> {
   const packageDir = realpathSync(mkdtempSync(join(tmpdir(), "bounded-catalog-cli-")));
   cpSync(DEMO_PACKAGE, packageDir, { recursive: true });
+  if (options.withAlpha === true) cpSync(ALPHA_PACK, packageDir, { recursive: true });
   for (const path of options.remove ?? []) rmSync(join(packageDir, path), { recursive: true, force: true });
   for (const [path, text] of Object.entries(options.files ?? {})) {
     mkdirSync(dirname(join(packageDir, path)), { recursive: true });
@@ -42,6 +47,10 @@ async function demoPackage(options: DemoOptions = {}): Promise<string> {
   for (const library of options.libraries ?? LIBRARIES) symlinkSync(join(REPOSITORY_ROOT, "node_modules", library), join(packageDir, "node_modules", library), "dir");
   const built = await Bun.build({ entrypoints: [join(packageDir, "packs", "demo", "index.ts")], outdir: join(packageDir, "dist", "demo"), target: "node", format: "esm", packages: "external" });
   if (!built.success) throw new AggregateError(built.logs, "the demonstration pack could not be built");
+  if (options.withAlpha === true) {
+    const alpha = await Bun.build({ entrypoints: [join(packageDir, "packs", "alpha", "index.ts")], outdir: join(packageDir, "dist", "alpha"), target: "node", format: "esm", packages: "external" });
+    if (!alpha.success) throw new AggregateError(alpha.logs, "the second demonstration pack could not be built");
+  }
   return packageDir;
 }
 
@@ -135,6 +144,34 @@ describe("bounded catalog build", () => {
     expect(readFileSync(join(packageDir, "bounded.catalog.json"), "utf8")).toBe(first);
   });
 
+  test("lists the packs in id order, whatever order bounded.packs lists them in", async () => {
+    const packageDir = await demoPackage({
+      withAlpha: true,
+      manifest: (manifest) => ({
+        ...manifest,
+        exports: { "./demo": { default: "./dist/demo/index.js" }, "./alpha": { default: "./dist/alpha/index.js" } },
+        bounded: { catalog: "./bounded.catalog.json", packs: { "./demo": "packs/demo", "./alpha": "packs/alpha" } },
+      }),
+    });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expect(ran.stderr).toBe("");
+    expect(ran.status).toBe(0);
+    const packs = catalogueIn(packageDir).packs as { id: string; importPath: string }[];
+    expect(packs.map(({ id, importPath }) => ({ id, importPath }))).toEqual([
+      { id: "demo-package/alpha", importPath: "demo-package/alpha" },
+      { id: "demo-package/demo", importPath: "demo-package/demo" },
+    ]);
+  });
+
+  test("refuses an example with no TSDoc title, naming the pack first and the example", async () => {
+    const untitled = readFileSync(join(DEMO_PACKAGE, EXAMPLE), "utf8").replace(/\/\*\*[\s\S]*?\*\/\n/, "");
+    expect(untitled).not.toContain("Keep a note");
+    const packageDir = await demoPackage({ files: { [EXAMPLE]: untitled } });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran, EXAMPLE, "TSDoc title");
+    expect(ran.stderr).toStartWith("bounded: demo-package/demo: ");
+  });
+
   test("refuses a README missing `## Workflows it fits`, naming the pack, the README and the heading, and writes nothing", async () => {
     const readme = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "README.md"), "utf8").replace(/## Workflows it fits\n\n[^\n]*\n\n/, "");
     expect(readme).not.toContain("Workflows it fits");
@@ -179,7 +216,9 @@ describe("bounded catalog build", () => {
 
   test("refuses, naming it, when marked cannot be resolved from the package", async () => {
     const packageDir = await demoPackage({ libraries: ["typescript", "ts-json-schema-generator"] });
-    expectRefused(packageDir, bounded(["catalog", "build"], packageDir), "install marked as a devDependency");
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran, "install marked as a devDependency");
+    expect(ran.stderr).toStartWith("bounded: demo-package/demo: ");
   });
 
   test("refuses an export entry with only an import condition, naming the path and the fix", async () => {
