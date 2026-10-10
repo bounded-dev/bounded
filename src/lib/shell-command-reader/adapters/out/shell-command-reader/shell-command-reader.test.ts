@@ -1111,6 +1111,28 @@ describe("TreeSitterShellCommandReader — the reader's new readings (every read
     expect(deletesOf(await read("sudo --us root rm .env"))).toEqual([".env"]);
   });
 
+  test("an empty substitution runs nothing: no program is named for the token the parser inserts to recover from it; the word holding it is still one only the shell can resolve", async () => {
+    for (const [command, program] of [
+      ["echo $()", "echo"],
+      ["echo $( )", "echo"],
+      ['echo "a$()b"', "echo"],
+      ["cat <( )", "cat"],
+    ] as const) {
+      expect({ command, programs: (await read(command)).programs.map((each) => each.name.text) }).toEqual({ command, programs: [program] });
+    }
+    expect((await read('rm "a$()b"')).unresolved).toEqual([{ text: '"a$()b"', role: "write" }]);
+    // A substitution with a command still runs it.
+    expect((await read("echo $(rm x)")).programs.map(programLine)).toEqual(["rm [x] @.", "echo [$(rm x)] @."]);
+  });
+
+  test("what reaches a known wrapper's command reaches it too: piped input and a here-string into sudo's command the table does not know are code", async () => {
+    expect(codeOf(await read("sudo mytool <<< 'x'"))).toEqual(["<<< 'x'"]);
+    expect(codeOf(await read("cat a | env A=1 mytool"))).toEqual(["(piped input)"]);
+    expect(codeOf(await read("cat a | { mytool; }"))).toEqual(["(piped input)"]);
+    // Not into a substitution: what it runs reads its own input.
+    expect(codeOf(await read("cat a | echo $(mytool)"))).toEqual([]);
+  });
+
   /** mulberry32 from a fixed seed: the same numbers in [0, 1) every run. */
   const seededRandom = (seed: number) => (): number => {
     seed = (seed + 0x6d2b79f5) | 0;

@@ -4,7 +4,8 @@ import * as CommandMeanings from "./command-meanings.ts";
 import { commandMeaning, newWorkBudget, WORK_BUDGET_STEPS } from "./command-meanings.ts";
 import type { ShellWord } from "./shell-command.contract.ts";
 
-const words = (...texts: string[]): ShellWord[] => texts.map((text) => ({ kind: "literal", text }));
+/** Each text as a literal word, one for each, so a word at a given place is known to be there. */
+const words = <Texts extends string[]>(...texts: Texts): { [Index in keyof Texts]: ShellWord } => texts.map((text): ShellWord => ({ kind: "literal", text })) as { [Index in keyof Texts]: ShellWord };
 
 describe("read by bounded's shell command reader — commandMeaning — what a command's name and words say it does", () => {
   test("cat reads its operands; rm deletes them; touch creates them if missing", () => {

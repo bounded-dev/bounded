@@ -86,9 +86,20 @@ const named = (node: Node): Node[] => node.namedChildren.filter((child): child i
 const SUBSTITUTIONS = new Set(["command_substitution", "process_substitution"]);
 const GLOB = /(^|[^\\])[*?[]/;
 
+/**
+ * A substitution with nothing but blanks inside, `$()`: bash runs nothing
+ * for it. The grammar recovers from it with an inserted command name
+ * (recorded: `echo $( )` gives (command_substitution (command name:
+ * (command_name (MISSING word))))), which is no command written.
+ */
+const EMPTY_SUBSTITUTION = /^[$<>]\([ \t\n]*\)$/;
+
 /** The commands substituted anywhere inside `node`, each run in a subshell of its own. */
 function substituted(node: Node): ShellNode[] {
-  return deeper(() => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: statements(node) }] : named(node).flatMap(substituted)), []);
+  return deeper(
+    () => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: EMPTY_SUBSTITUTION.test(node.text) ? [] : statements(node) }] : named(node).flatMap(substituted)),
+    [],
+  );
 }
 
 /** How a token tree-sitter inserted to recover from an error (of no text) is named: a reading names every part, and the shell would refuse the command. */
@@ -177,7 +188,20 @@ function redirect(node: Node): ShellRedirect {
 
 const nonNull = (nodes: (Node | null)[]): Node[] => nodes.filter((node): node is Node => node !== null);
 
+/**
+ * A command, and after it each subshell the grammar hangs on it: coproc's
+ * and time's ( … ) body (recorded: `coproc (rm x)` is a command named coproc
+ * with a subshell child), each run in a subshell of its own, in the
+ * background.
+ */
 function command(node: Node, redirects: readonly ShellRedirect[] = []): ShellNode {
+  const simple = simpleCommand(node, redirects);
+  return named(node)
+    .filter((child) => child.type === "subshell")
+    .reduce<ShellNode>((left, child) => ({ kind: "list", left, operator: "&", right: { kind: "subshell", body: statements(child) } }), simple);
+}
+
+function simpleCommand(node: Node, redirects: readonly ShellRedirect[]): ShellNode {
   const name = node.childForFieldName("name");
   const nameWord = name === null ? null : (named(name)[0] ?? name);
   // The name's own expansion runs as the command and its first arguments, as in {cat,.env}.

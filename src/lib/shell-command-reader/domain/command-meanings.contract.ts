@@ -11,7 +11,12 @@ export type MeaningChange = "create" | "delete" | "write" | "create-if-missing";
 export interface CommandMeaning {
   readonly reads: readonly ShellWord[];
   readonly lists: readonly ShellWord[];
-  readonly writes: readonly { readonly word: ShellWord; readonly change: MeaningChange }[];
+  /**
+   * The paths it writes. A `pathspec` (git checkout's, restore's) that names
+   * a directory reaches every file beneath it, so the working tree is
+   * reported written too.
+   */
+  readonly writes: readonly { readonly word: ShellWord; readonly change: MeaningChange; readonly pathspec?: true }[];
   /** Copies (moves when `moves`) from `sources` to `destination`, a file or a directory to put them in: sources are read either way, and deleted when moved. */
   readonly transfers: readonly { readonly sources: readonly ShellWord[]; readonly destination: ShellWord; readonly moves: boolean }[];
   /**
@@ -57,6 +62,19 @@ export interface CommandMeaning {
   }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];
+  /**
+   * Code that runs later, from wherever the shell is then (trap's code, an
+   * alias's value): parsed and walked in a shell of its own whose directory
+   * is nowhere known (ADR 2026-020).
+   */
+  readonly scriptsFromNowhereKnown?: readonly ShellWord[];
+  /**
+   * The table does not say what the program does (it is not in it by its
+   * name, its last path segment or either case-folded): what bounded cannot
+   * see reaching it (a word only the shell can resolve, a here-string, piped
+   * input, xargs's input) is code (ADR 2026-020).
+   */
+  readonly uninterpreted?: true;
   /** Operands naming a path in the repository as <rev>:<path>: the path is read, relative to the repository's root, or to where the command runs when it starts with ./ or ../. */
   readonly repositoryReads: readonly ShellWord[];
   /**
