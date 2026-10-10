@@ -99,6 +99,23 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(failed.refuse).toBeUndefined();
   });
 
+  test("the decide carries the project's recordAgentRunFinish; an openProject that rejects has none", async () => {
+    const finishes: unknown[] = [];
+    const recording: Open = async () => ({
+      judge: async () => Verdict.allow,
+      afterTool: async () => ({ changed: [], restored: true, message: null }),
+      refuse: async () => Verdict.refuse("refused", "fix it"),
+      recordAgentRunFinish: async (finish) => void finishes.push(finish),
+      problem: null,
+    });
+    const finish = { kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "r1", ranToEnd: true };
+    const decide = await composeProject(root, recording);
+    expect(decide.recordAgentRunFinish).toBeDefined();
+    await decide.recordAgentRunFinish?.(finish);
+    expect(finishes).toEqual([finish]);
+    expect((await composeProject(root, rejecting)).recordAgentRunFinish).toBeUndefined();
+  });
+
   test("the default open provides bounded/prereqs's ports", async () => {
     const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-prereqs-")));
     mkdirSync(join(project, "node_modules"));
@@ -113,6 +130,20 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("bounded/prereqs.rules:");
     expect(verdict.kind === "refuse" && verdict.reason).toContain("has not succeeded");
     expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
+  });
+
+  test("pi opens projects without the status snapshot port: no status.json is written", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-prereqs-status-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "plans"));
+    writeFileSync(join(project, "plans", "plan.md"), "the plan\n");
+    writeFileSync(join(project, "bounded.config.ts"), PREREQS_CONFIG);
+    const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "read", effects: [{ kind: "read", path: "plans/plan.md" }], ok: true, callId: "1" });
+    if (!result.ok) throw new Error(result.error);
+    const decide = await composeProject(project);
+    expect(await decide.afterTool?.(result.value)).toEqual({ message: null });
+    expect(existsSync(join(project, ".bounded", "prereqs", "status.json"))).toBe(false);
   });
 
   test("a bash call whose reader rejects is blocked: the protected-paths pack refuses its unread reading, saying why", async () => {

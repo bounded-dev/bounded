@@ -1,6 +1,6 @@
 // The prerequisites pack: an ordinary pack shipped in the `bounded` package.
 // It depends only on the core's public exports; the core never imports it.
-export type { Prereqs, PrereqsId, PrereqsPoints, PrereqsPorts } from "./prereqs.contract.ts";
+export type { Prereqs, PrereqsId, PrereqsOptionalPorts, PrereqsPoints, PrereqsPorts } from "./prereqs.contract.ts";
 export { prereqs } from "./prereqs.pack.ts";
 export type { BeforeMatch, PrerequisiteBefore, PrerequisiteBeforeJSON, PrerequisiteRuleFactory, PrerequisiteRuleJSON, PrerequisiteStatus } from "./domain/prerequisite-rule.contract.ts";
 export { PrerequisiteRule } from "./domain/prerequisite-rule.ts";
@@ -14,8 +14,26 @@ export type { PrerequisiteStartFactory } from "./domain/prerequisite-start.contr
 export { PrerequisiteStart } from "./domain/prerequisite-start.ts";
 export type { PendingAgentRunFactory } from "./domain/pending-agent-run.contract.ts";
 export { PendingAgentRun } from "./domain/pending-agent-run.ts";
-export type { CheckPrerequisites, FileSetFingerprintJSON, FileSetFingerprints, PendingAgentRunJSON, PrerequisiteRecordJSON, PrerequisiteRecords, PrerequisiteStartJSON } from "./application/check-prerequisites/check-prerequisites.contract.ts";
-export { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
+export type { PrerequisiteStatusSnapshotFactory } from "./domain/prerequisite-status-snapshot.contract.ts";
+export { PrerequisiteStatusSnapshot } from "./domain/prerequisite-status-snapshot.ts";
+export type {
+  CheckPrerequisites,
+  FileSetFingerprintJSON,
+  FileSetFingerprints,
+  PendingAgentRunJSON,
+  PrerequisiteRecordJSON,
+  PrerequisiteRecords,
+  PrerequisiteRequirementStatusJSON,
+  PrerequisiteRuleStatusJSON,
+  PrerequisiteStartJSON,
+  PrerequisiteStatusSnapshotFileJSON,
+  PrerequisiteStatusSnapshotFormat,
+  PrerequisiteStatusSnapshotJSON,
+  PrerequisiteStatusSnapshots,
+  ReadPrerequisiteStatusSnapshotJSON,
+  UnreadPrerequisiteStatusSnapshotJSON,
+} from "./application/check-prerequisites/check-prerequisites.contract.ts";
+export { fileSetFingerprintsPort, prerequisiteRecordsPort, prerequisiteStatusSnapshotsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
 
 // Everything exported here is frozen, so code loaded later cannot patch it.
 import * as exported from "./index.ts";

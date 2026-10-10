@@ -139,6 +139,15 @@ const reading = await shellCommandReading.read({ projectRoot: root, command, cwd
 const verdict = await project.judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null, reading }] });
 ```
 
+A pack's `optionalPorts` are adapters a host may provide (3.3.0): opening
+never requires them, and a pack's checks read them with
+`ports.ifProvided(key)`. They serve output only, never a verdict or a
+record. `bounded/prereqs` has one, its status snapshot: a host that shows
+the pack's status adds `...prereqsStatusSnapshotPortProvisions()` to the
+ports above, and the pack saves `.bounded/prereqs/status.json` after every
+call and finish. `BasePack` gains `optionalPorts`, so a hand-built look-alike
+must give it; packs built with `definePack` are unchanged.
+
 An execute effect without a reading is refused; one whose command could not
 be read carries why, and the protected-paths pack refuses it. A host with a
 shell of its own may write its own reader of the `ShellCommandReader` port

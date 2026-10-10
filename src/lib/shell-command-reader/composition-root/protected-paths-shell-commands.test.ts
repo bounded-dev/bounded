@@ -508,3 +508,92 @@ describe("read by bounded's shell command reader — the protected-paths pack �
     expect(reason(await reads('cp -t "$D" x'))).toContain("this command reads 'x'");
   });
 });
+
+describe("read by bounded's shell command reader — the protected-paths pack — the reader's new readings", () => {
+  const x = rules("a", { match: "x", file: true, deny: ["create", "modify", "delete"], redirect: "Leave x alone" });
+  const dotEnv = rules("b", { match: ".env", file: true, deny: ["delete"], redirect: "Leave .env alone" });
+  /** Each of `commands` refused, saying it deletes or writes `path`. */
+  const refusedFor = async (shell: (command: string) => Promise<Verdict>, commands: readonly string[], path: string) => {
+    for (const command of commands) {
+      const said = reason(await shell(command));
+      expect({ command, refused: said.includes(`this command deletes '${path}'`) || said.includes(`this command writes '${path}'`) }).toEqual({ command, refused: true });
+    }
+  };
+
+  test("a program named by its path is refused as the table's program", async () => {
+    await refusedFor(await shellWith([x]), ["/bin/rm x", "/usr/bin/env rm x", "RM x"], "x");
+  });
+
+  test("a cd found by path or case never moves the shell", async () => {
+    const shell = await shellWith([dotEnv], { sub: "directory" });
+    for (const command of ["/usr/bin/cd sub; rm .env", "CD sub; rm .env", "/usr/bin/command cd sub; rm .env"]) {
+      expect({ command, reason: reason(await shell(command)) }).toEqual({ command, reason: expect.stringContaining("this command deletes '.env'") });
+    }
+  });
+
+  test("package runners are refused for their command's write", async () => {
+    await refusedFor(await shellWith([x]), ["pnpm exec rm x", "npx -c 'rm x'", "pnpm exec -c 'rm x'", "yarn dlx -p pkg rm x", "uvx --from y rm x", "bunx rm x", "bun x rm x", "pnpx rm x", "npx --bogus rm x"], "x");
+  });
+
+  test("time, coproc, trap and the text programs' writes are refused", async () => {
+    await refusedFor(
+      await shellWith([x], { sub: "directory" }),
+      ["time rm x", "time -p rm x", "/usr/bin/time -o x true", "coproc rm x", "coproc NAME { rm x; }", "coproc (rm x)", "trap 'rm x' EXIT", "trap 'rm x' EXIT; cd sub", "sort -o x in.txt", "uniq in x", "yq -i '.a=1' x", "rg --pre 'rm x' y"],
+      "x",
+    );
+  });
+
+  test("git's writing subcommands are refused for the paths they write", async () => {
+    const shell = await shellWith([x]);
+    await refusedFor(shell, ["git checkout -- x", "git checkout x", "git checkout -f x", "git restore x", "git clone https://h/r/x.git", "git clone --depth 1 https://h/r/x.git", "git clone u x"], "x");
+    // The named limit: a pathspec that may reach more than its literal path writes the working tree, which this pack allows.
+    for (const command of ["git checkout -- .", "git restore '*'", "git stash push -- ."]) expect({ command, verdict: reason(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
+  test("-execdir and -okdir keep today's reading, still refused", async () => {
+    await refusedFor(await shellWith([x]), ["find . -execdir rm x \\;", "find . -okdir rm x \\;"], "x");
+  });
+
+  test("forms that give only an unresolved part stay allowed, as the pack's policy is", async () => {
+    const shell = await shellWith([x]);
+    for (const command of [
+      "bash -",
+      "bash -xs",
+      "sudo -s",
+      ". ./env.sh",
+      "source /dev/stdin",
+      "alias c='rm y'",
+      "git stash",
+      "git reset --hard",
+      "git apply p.patch",
+      "git checkout -b x",
+      "pnpm -r exec rm x",
+      "coproc NAME { true; }",
+      'mytool "$X"',
+      "cat a | mytool",
+      'ssh host "terra$()form apply"',
+    ]) {
+      expect({ command, verdict: reason(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    }
+  });
+
+  test("today's reads are kept: a runner's, an uninterpreted program's literal arguments, and the text programs' operands and file-valued options", async () => {
+    const shell = await shellWith([rules("a", { match: ".env", file: true, deny: ["read"], redirect: "Keep .env private" })]);
+    for (const command of ["npx dotenv .env", 'mytool .env "$X"', "grep x .env", "grep -f .env log.txt", "jq --rawfile n .env .", "sort .env", "stat .env", "basename .env"]) {
+      expect({ command, reason: reason(await shell(command)) }).toEqual({ command, reason: expect.stringContaining("this command reads '.env'") });
+    }
+  });
+
+  test("limit: a cd under time, or in a coproc body's later statements, moves the shell unseen", async () => {
+    // Named fail-opens (ADR 2026-020): bash runs `time cd sub` in this shell, so it deletes sub/x, and a coproc body runs in a
+    // subshell, so it deletes ./x; the reading gives the other path each time. bounded/prereqs refuses both while a rule does not hold.
+    const anywhere = rules("a", { match: "**/x", file: true, deny: ["delete"], redirect: "Leave x alone" });
+    const shell = await shellWith([anywhere], { sub: "directory" });
+    expect(reason(await shell("time cd sub; rm x"))).toContain("this command deletes 'x'");
+    expect(reason(await shell("coproc { true; cd sub; }; rm x"))).toContain("this command deletes 'sub/x'");
+  });
+
+  test("sudo's abbreviated long options are read as getopt_long reads them", async () => {
+    await refusedFor(await shellWith([dotEnv]), ["sudo --us root rm .env", "sudo --user=root rm .env", "sudo --pres rm .env"], ".env");
+  });
+});

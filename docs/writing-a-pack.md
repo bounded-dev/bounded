@@ -12,7 +12,7 @@ are worked examples.
 
 ```
 src/packs/<name>/
-  <name>.pack.ts          the overview: definePack's sections (id, dependsOn, points, contributes, ports), bound from imported names, no logic
+  <name>.pack.ts          the overview: definePack's sections (id, dependsOn, points, contributes, ports, optionalPorts), bound from imported names, no logic
   <name>.contract.ts      the pack's type, which the overview is typed by
   <name>.pack.test.ts     the overview's test
   index.ts                what bounded/<name> exports

@@ -28,12 +28,17 @@ Every file below is in `src/hosts/pi/`.
    read opens it, fallback spellings included. POSIX paths only.
 3. `translate.ts` — the table from pi's tools to calls (a tool kind and its
    effects, an execute's before its reading), and `subagent.ts`, the strict
-   reading of the subagent tool. Pure, given the locator.
-4. `extension.ts` — the extension: `session_start` composes and starts
+   reading of the subagent tool. Pure, given the locator and the lookup of
+   the runs a resume may name.
+4. `subagent-runs.ts` — pi-subagents' runs as bounded sees them: what a
+   subagent result says of its one run, the finish a completion on pi's
+   event bus reports, and which runs a resume may name (ADR 2026-028).
+5. `extension.ts` — the extension: `session_start` composes and starts
    preparing the shell command reader, `tool_call` translates, reads the
    call's shell commands, decides and answers; every failure, and every
-   deadline missed, blocks. `tool_result` checks the finished call.
-5. `install.ts` and `index.ts` — the loader file a project needs, and
+   deadline missed, blocks. `tool_result` checks the finished call, and
+   pi-subagents' completions are recorded as runs' finishes.
+6. `install.ts` and `index.ts` — the loader file a project needs, and
    `bounded(root)`, the extension it hands the project to.
 
 The tests beside each file show the behaviour. `extension.test.ts` drives
@@ -78,15 +83,29 @@ Read strictly, so nothing it does goes undescribed:
 - An `output` file is a write, located from the call's `cwd` or the task's
   own (this tool honours `cwd`, which must be inside the project). `false`
   writes nothing; `true` refuses, as its file is not named.
-- `action: "status"` and `action: "resume"` are invoked by name
-  (`subagent.status`, `subagent.resume`) with no delegate, so a guard allows
-  or refuses them by name. A run directory (`dir`) they name must be inside
-  the project. Every other action refuses.
-- Every delegate effect is `finishUnreported` unless the call says
-  `async: false` (ADR 2026-019): pi-subagents 0.52.1 runs a call without
-  `async` in the background (`asyncByDefault` defaults to true,
-  `src/extension/config.ts:150-151`), and pi does not report when a
-  background run's agents finish. An `async` that is not true or false
+- `action: "status"` is invoked by name (`subagent.status`), so a guard
+  allows or refuses it by name. A run directory (`dir`) a status or resume
+  names must be inside the project; that is checked first. Every action but
+  status and resume refuses.
+- `action: "resume"` revives an agent's earlier run, so it is judged as a
+  delegation to that agent (ADR 2026-028): a **tied** resume is a delegate
+  effect of the agent, `finishUnreported` (a resumed run never counts), then
+  `invoke subagent.resume`. It is tied only when it names its run by
+  exactly one of `id` and `runId`, as non-empty text, with no `dir` and an
+  `index` that is absent or 0, and bounded saw that run in this pi session:
+  launched by an async call whose completion then named exactly one child,
+  as the agent the call asked for (under the launch's run id or its call
+  id), or run to its end by a synchronous call as the agent it asked for
+  (under its call id). A completion that disagrees removes the tie for good.
+  Any other resume is **refused, whatever the project's rules**: bounded
+  cannot tell which agent it would run. The redirect is "Start a new run of
+  the agent instead: subagent({ agent, task }) with the agent and the task
+  you meant to resume". What ties a run is kept in memory only, so after a
+  pi restart or a reload every resume of an earlier run is refused, even in
+  a project with no delegate rules.
+- No run call's delegate effect is `finishUnreported`: whether its run goes
+  on in the background is read from its result (see "A delegated run's
+  finish"), never from `async`. An `async` that is not true or false
   refuses the call.
 - An `agentScope` other than `"project"` refuses: agents found outside the
   project are not the project's to vouch for. Deferred: when `agentScope` is
@@ -96,7 +115,11 @@ Read strictly, so nothing it does goes undescribed:
 This reading follows the shapes of pi-subagents' schema (single agent,
 tasks, chain with parallel). Version 0.52.1 runs workflows through
 `workflowScript`, which is JavaScript the translation cannot describe, so
-such calls are refused.
+such calls are refused. Its public `subagent` tool refuses `tasks`, `chain`,
+`parallel` and `concurrency` itself and turns `{ agent, task }` into a
+workflow that runs that one agent (`src/extension/public-execution.ts:66-69,107-127`),
+so a call bounded lets through runs exactly one agent; bounded still reads
+`tasks` and `chain` for other versions.
 
 ## How it plugs in
 
@@ -165,18 +188,58 @@ The decide also carries the project's `afterTool` and `refuse`:
   cannot be translated is an
   `invoke` of its tool name; `ok` is `!isError`) and `afterTool` undoes what a
   shell command changed in watched files (see [drift.md](drift.md)). A
-  subagent call's result says, per delegate effect, that its run is not
-  known to have finished (`delegatedAgentRuns`, every entry `finished:
-  false, finishNeverReported: true`; ADR 2026-019), even with `async: false`: pi-subagents'
-  `forceTopLevelAsync` can still run it in the background
-  (`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
-  leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`).
-  So on pi a `bounded/prereqs` requirement cannot be met until the adapter
-  observes pi-subagents' completion. What it
+  subagent call's result says, per delegate effect, what bounded knows of
+  its run (`delegatedAgentRuns`; see "A delegated run's finish"). What it
   undid is appended to the result's content as text and the result is marked
   as an error, so the agent sees it; nothing undone leaves the result alone.
   A check that fails or runs past the deadline is appended the same way, and
   recorded through `refuse`.
+
+The decide also carries the project's `recordAgentRunFinish` (ADR 2026-025),
+which the extension calls with each finish pi-subagents reports.
+
+### A delegated run's finish
+
+pi-subagents (0.52.1) runs a `subagent` call in the background unless it
+says `async: false`. The adapter learns when a run finished from what
+pi-subagents itself reports ([ADR 2026-028](adr/2026-028-pi-agent-run-finish.md)),
+so a `bounded/prereqs` requirement can be met on pi under the same rules as
+on Claude Code. The payloads were derived from pi-subagents' source, not
+captured; the fixtures in `src/hosts/pi/test/fixtures/pi-subagents/` cite
+the lines they follow.
+
+- **Pairing.** A result is paired with a run only when its call has exactly
+  one delegate effect and is not a resume; otherwise every entry is
+  `{ finished: false, finishNeverReported: true }`, and the pack says no
+  run of the agent can meet the requirement.
+- **An async launch** (`details` with an `asyncId`) is
+  `{ finished: false, agentRunId: <asyncId>, finishReportedLater: true }`
+  only when `isError` is not true, `details.mode` is `"workflow"`,
+  `details.toolCallId` is the event's call id, `details.results` is empty,
+  the `asyncId` is a valid run id, and the extension subscribed on pi's
+  event bus. Anything else is `finishNeverReported`.
+- **A synchronous result** is `{ finished: true, resolvedAgent }` (the
+  child's `agent`) when `isError` is not true and `details.results` has one
+  child that exited 0 with none of `interrupted`, `detached`, `timedOut`,
+  `stopped`, `turnBudgetExceeded`; `{ finished: false }` when that child
+  stopped early; and `finishNeverReported` when `details` cannot be read.
+- **The completion.** At load the extension subscribes once to
+  `subagent:async-complete` on `pi.events`, pi's shared event bus (pi
+  removes the subscription on a reload or session replacement). Each
+  payload is read when it arrives, before any await, and sent to
+  `recordAgentRunFinish` as `{ kind: "agent-run-finished", role: null,
+  agent, agentRunId, ranToEnd }`: the agent of its one child, its `runId`
+  (each null when it is not text, which the core records as unreadable),
+  and `ranToEnd` true only when its `state` is `"complete"` and `success`
+  true, and its child's `success` true and `status` `"completed"`, with no
+  flag saying the run or the child stopped early. A completion that does not
+  name exactly one child sends nothing. It is dropped before `session_start`
+  or when composing failed, and a failure to record it is swallowed (pi
+  does not await bus handlers). On a pi without `pi.events`, async launches
+  say `finishNeverReported`, and synchronous results still count.
+- **A resume** is tied or refused as described under the subagent tool; a
+  tied resume's result is `finishNeverReported`, and never ties a later
+  resume.
 
 `end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
 tests inject their own `load`. `piLoader()` is pure: the caller writes the
@@ -191,6 +254,22 @@ loader that differs and leaves one that cannot be read alone, refusing.
 
 ## Trust and residual risks
 
+- **The main trust gap of pi completion: a completion can be forged from a
+  file. Anything running as the user, the guarded agent's own shell
+  included, can write a result file in pi-subagents' results directory under
+  the OS temp directory, and pi-subagents then reports it as a completion.
+  On pi this can count a pending review early.** pi-subagents accepts any
+  result file whose `sessionId` and `completionOwnerId` match the session,
+  both written in the run's `status.json`, and the directory is outside the
+  project, so the protected-paths pack does not guard it. A forged
+  completion must name a run bounded launched and is waiting on, as the
+  required agent, and counts only over files unchanged since that launch.
+  Nothing in pi or pi-subagents authenticates a completion (ADR 2026-028).
+- **An interrupted async run counts.** pi-subagents reports it as a
+  success. Another extension can interrupt a run through pi-subagents' RPC
+  `interrupt` method, and possibly the user can; the guarded agent cannot,
+  as bounded refuses the `interrupt` action. A synchronous result keeps the
+  interrupt, so it does not count.
 - **Discovery.** pi discovers project extensions only in
   `<session cwd>/.pi/extensions`, and only for a trusted project: an
   untrusted project, or `pi -ne` (no extensions), runs without bounded. A

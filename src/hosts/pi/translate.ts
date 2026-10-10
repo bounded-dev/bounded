@@ -1,11 +1,25 @@
 // A pi tool call as a host-neutral call: its tool kind and effects, each
 // checked as the core checks it, an execute's before the extension reads its
 // command (event.ts). Pure, given the locator: all file-system knowledge
-// (rewriting, links, existence) comes through `locate`.
+// (rewriting, links, existence) comes through `locate`, and what bounded saw
+// of pi-subagents' runs through `agentOfRun`.
 import { Command, Effect, type Result } from "bounded/domain";
 import type { PiCall, PiEffectJSON, ToolKind } from "./event.ts";
 import type { Locate, Located } from "./pi-path.ts";
 import { subagentEffects } from "./subagent.ts";
+
+/** Why a pi tool call cannot be translated and, when the extension's general advice would not help, what to do instead. */
+export interface TranslationRefusal {
+  readonly ok: false;
+  readonly error: string;
+  readonly redirect?: string;
+}
+
+/** A translation's outcome: a Result whose refusal may carry its own redirect. */
+export type TranslationResult<T> = { readonly ok: true; readonly value: T } | TranslationRefusal;
+
+/** The agent bounded saw the run pi-subagents names by `runId` launched and finish as, in this pi session; undefined when it tied none (ADR 2026-028). */
+export type AgentOfRun = (runId: string) => string | undefined;
 
 /** What pi's `tool_call` event carries that the translation reads. */
 export interface PiToolCall {
@@ -14,7 +28,7 @@ export interface PiToolCall {
 }
 
 type Input = Readonly<Record<string, unknown>>;
-type Translation = Result<{ tool: ToolKind; effects: PiEffectJSON[] }>;
+type Translation = TranslationResult<{ tool: ToolKind; effects: PiEffectJSON[] }>;
 
 const done = (tool: ToolKind, ...effects: PiEffectJSON[]): Translation => ({ ok: true, value: { tool, effects } });
 
@@ -91,9 +105,9 @@ function builtIn(toolName: string, input: Input, cwd: string, locate: Locate): T
   }
 }
 
-function translateInput(toolName: string, input: Input, cwd: string, locate: Locate): Translation {
+function translateInput(toolName: string, input: Input, cwd: string, locate: Locate, agentOfRun: AgentOfRun | undefined): Translation {
   if (toolName === "subagent") {
-    const effects = subagentEffects(toolName, input, cwd, locate);
+    const effects = subagentEffects(toolName, input, cwd, locate, agentOfRun);
     return effects.ok ? done("subagent", ...effects.value) : effects;
   }
   // A tool the adapter does not know is invoked by name only: its arguments
@@ -108,12 +122,16 @@ function refusalOf(effect: PiEffectJSON, index: number, count: number): string |
   return checked.ok ? undefined : `Effect ${index + 1} of ${count}: ${checked.error}`;
 }
 
-/** The call a pi tool call makes, its effects checked as the core checks them, or why it cannot be translated. Never throws. */
-export function translate(call: PiToolCall, cwd: string, locate: Locate): Result<PiCall> {
+/**
+ * The call a pi tool call makes, its effects checked as the core checks them,
+ * or why it cannot be translated. A subagent resume's agent is looked up in
+ * `agentOfRun`; without it, every resume is refused. Never throws.
+ */
+export function translate(call: PiToolCall, cwd: string, locate: Locate, agentOfRun?: AgentOfRun): TranslationResult<PiCall> {
   try {
     const input = call.input;
     if (typeof input !== "object" || input === null || Array.isArray(input)) return { ok: false, error: `pi's ${call.toolName} call has no input object` };
-    const translated = translateInput(call.toolName, input as Input, cwd, locate);
+    const translated = translateInput(call.toolName, input as Input, cwd, locate, agentOfRun);
     if (!translated.ok) return translated;
     const { tool, effects } = translated.value;
     const refusal = effects.map((effect, index) => refusalOf(effect, index, effects.length)).find((why) => why !== undefined);

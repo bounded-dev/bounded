@@ -197,6 +197,10 @@ least one example in `examples/`, a folder outside the pack's code (below,
   (`composition.requiredPorts()`) must be provided, or the judge refuses
   every event naming the pack, the port and the fix. A pack declares only
   its own ports, checked at compile time and when the pack is made.
+  (Amended by [ADR 2026-026](2026-026-prereqs-status-snapshot.md): a pack
+  may also declare `optionalPorts`, after `ports`, which a host may provide;
+  `requiredPorts()` leaves them out, a pack's checks read them with
+  `Ports.ifProvided`, and each port is declared once, in one section.)
 - A third-party pack with ports works only on hosts whose composition root
   provides them; the refusal names exactly what to provide.
 - **Drift is the path gate's.** The core's `watchedPaths` point, its
@@ -231,8 +235,9 @@ least one example in `examples/`, a folder outside the pack's code (below,
   which binds imported names in definePack's sections, always in the order
   `id`, `dependsOn`, `points` (what other packs contribute to),
   `contributes` (what it contributes to its dependencies' points: guards,
-  and the core's `onProjectOpen`, `beforeTool` and `afterTool`) and `ports`
-  (what a host supplies), typed by `<name>.contract.ts`, with no logic.
+  and the core's `onProjectOpen`, `beforeTool` and `afterTool`), `ports`
+  (what a host supplies) and `optionalPorts` (what a host may supply, ADR
+  2026-026), typed by `<name>.contract.ts`, with no logic.
   The path gate's root holds only `path-gate.pack.ts`, `path-gate.contract.ts`,
   `index.ts` and the overview's test; its guards are
   `application/judge-calls/`, its point declaration and own rules are in

@@ -595,7 +595,7 @@ describe("architecture", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
     expect(foldersUnder("src/core/adapters/out")).toEqual(["bounded-log", "clock", "compose-packs-catalog", "decision-ids", "host-installer-source", "markdown-sections", "pack-modules", "pack-source-api", "package-catalog-files", "project-bounded-logs", "project-config-source", "project-setup-files"]);
     expect(foldersUnder("src/packs/protected-paths/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
-    expect(foldersUnder("src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
+    expect(foldersUnder("src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records", "prerequisite-status-snapshots"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {
@@ -1048,7 +1048,12 @@ describe("architecture", () => {
     const overview = (body: string, more = "") => ({ path, text: `${head}${more}export const gate: Gate = definePack({ ${body} });\n` });
     expect(packOverviewViolations([overview("id: gateId, dependsOn: [corePack], contributes: [contribution(corePack.points.effectGuards.read, [judge])]")])).toEqual([]);
     expect(packOverviewViolations([overview("id: gateId, contributes: [contribution(corePack.points.effectGuards.read, [() => judge])]")])).toEqual([`${path}:5 — an overview binds imported names only: no functions, conditionals, operators or literal text`]);
-    expect(packOverviewViolations([overview("dependsOn: [corePack], id: gateId")])).toEqual([`${path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives dependsOn, id)`]);
+    expect(packOverviewViolations([overview("dependsOn: [corePack], id: gateId")])).toEqual([`${path} — an overview's sections are id, dependsOn, points, contributes, ports, optionalPorts, in that order (it gives dependsOn, id)`]);
+    const ports = 'import { filesPort, notesPort } from "./application/judge/judge.contract.ts";\n';
+    expect(packOverviewViolations([overview("id: gateId, ports: { files: filesPort }, optionalPorts: { notes: notesPort }", ports)])).toEqual([]);
+    expect(packOverviewViolations([overview("id: gateId, optionalPorts: { notes: notesPort }, ports: { files: filesPort }", ports)])).toEqual([
+      `${path} — an overview's sections are id, dependsOn, points, contributes, ports, optionalPorts, in that order (it gives id, optionalPorts, ports)`,
+    ]);
     expect(packOverviewViolations([overview("id: gateId", 'import { files } from "./adapters/out/files/files.ts";\n')])).toEqual([`${path}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/files/files.ts"`]);
     expect(packOverviewViolations([{ path: "src/packs/gate/domain/extra.ts", text: 'import { definePack } from "bounded/domain";\nexport const extra = definePack({ id: x });\n' }])).toEqual(["src/packs/gate/domain/extra.ts:2 — a pack is defined in its overview file, <name>.pack.ts"]);
   });

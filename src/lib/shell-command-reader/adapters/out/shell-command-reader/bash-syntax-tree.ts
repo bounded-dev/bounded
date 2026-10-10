@@ -86,9 +86,20 @@ const named = (node: Node): Node[] => node.namedChildren.filter((child): child i
 const SUBSTITUTIONS = new Set(["command_substitution", "process_substitution"]);
 const GLOB = /(^|[^\\])[*?[]/;
 
+/**
+ * A substitution with nothing but blanks inside, `$()`: bash runs nothing
+ * for it. The grammar recovers from it with an inserted command name
+ * (recorded: `echo $( )` gives (command_substitution (command name:
+ * (command_name (MISSING word))))), which is no command written.
+ */
+const EMPTY_SUBSTITUTION = /^[$<>]\([ \t\n]*\)$/;
+
 /** The commands substituted anywhere inside `node`, each run in a subshell of its own. */
 function substituted(node: Node): ShellNode[] {
-  return deeper(() => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: statements(node) }] : named(node).flatMap(substituted)), []);
+  return deeper(
+    () => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: EMPTY_SUBSTITUTION.test(node.text) ? [] : statements(node) }] : named(node).flatMap(substituted)),
+    [],
+  );
 }
 
 /** How a token tree-sitter inserted to recover from an error (of no text) is named: a reading names every part, and the shell would refuse the command. */
@@ -177,7 +188,20 @@ function redirect(node: Node): ShellRedirect {
 
 const nonNull = (nodes: (Node | null)[]): Node[] => nodes.filter((node): node is Node => node !== null);
 
+/**
+ * A command, and after it each subshell the grammar hangs on it: coproc's
+ * and time's ( … ) body (recorded: `coproc (rm x)` is a command named coproc
+ * with a subshell child), each run in a subshell of its own, in the
+ * background.
+ */
 function command(node: Node, redirects: readonly ShellRedirect[] = []): ShellNode {
+  const simple = simpleCommand(node, redirects);
+  return named(node)
+    .filter((child) => child.type === "subshell")
+    .reduce<ShellNode>((left, child) => ({ kind: "list", left, operator: "&", right: { kind: "subshell", body: statements(child) } }), simple);
+}
+
+function simpleCommand(node: Node, redirects: readonly ShellRedirect[]): ShellNode {
   const name = node.childForFieldName("name");
   const nameWord = name === null ? null : (named(name)[0] ?? name);
   // The name's own expansion runs as the command and its first arguments, as in {cat,.env}.
@@ -223,6 +247,45 @@ function lastRedirected(node: ShellNode, redirects: readonly ShellRedirect[]): S
   return { kind: "group", body: [node], redirects };
 }
 
+const REDIRECTS = new Set(["file_redirect", "heredoc_redirect", "herestring_redirect"]);
+
+/**
+ * A redirected statement's redirections, in order. As recorded with the
+ * repository's tree-sitter-bash: after a loop or an if, a here-string is a
+ * `herestring_redirect` child outside the `redirect` field
+ * (`while …; done <<< 'x'`), so every redirection child is taken; after a
+ * `{ … }` or `( … )`, the grammar recovers from `<<<` as an ERROR `<<` then a
+ * `< 'x'` file redirection (`{ a; } <<< 'x'`): that is read as the
+ * here-string it is, beside the file redirection the grammar gives (every
+ * reading adds); the file redirection's substitutions run once, through it.
+ * Any other ERROR child (recorded: `{ a; } <<<< x` gives an ERROR `<<<`,
+ * `while a; do b; done 0<<< x` an ERROR ` 0`) is text the parser could not
+ * read: unparsed, so code, failing closed. Each child is mapped once.
+ */
+function statementRedirects(node: Node, body: Node | null): { readonly redirects: ShellRedirect[]; readonly unparsed: string[] } {
+  const children = named(node).filter((child) => body === null || child.startIndex !== body.startIndex || child.endIndex !== body.endIndex);
+  const mapped = children.map((child) => (REDIRECTS.has(child.type) ? redirect(child) : undefined));
+  const redirects: ShellRedirect[] = [];
+  const unparsed: string[] = [];
+  for (const [index, child] of children.entries()) {
+    const own = mapped[index];
+    if (own !== undefined) {
+      redirects.push(own);
+      continue;
+    }
+    if (child.type !== "ERROR") continue;
+    const next = children[index + 1];
+    if (child.text === "<<" && next?.type === "file_redirect" && mapped[index + 1]?.operator === "<") {
+      redirects.push({ operator: "<<<", target: { kind: "unresolved", text: `${child.text}${next.text}`, commands: [] } });
+    } else unparsed.push(child.text);
+  }
+  return { redirects, unparsed };
+}
+
+/** `node` followed by each text the parser could not read, as unparsed parts (code). */
+const withUnparsed = (node: ShellNode, unparsed: readonly string[]): ShellNode =>
+  unparsed.reduce<ShellNode>((left, text) => ({ kind: "list", left, operator: ";", right: { kind: "unparsed", text } }), node);
+
 /** Constructs whose insides may or may not run. */
 const CONTROL = new Set(["if_statement", "while_statement", "for_statement", "c_style_for_statement", "case_statement", "function_definition"]);
 /** The parts of those constructs that hold statements. */
@@ -239,13 +302,13 @@ function statementAt(node: Node): ShellNode | undefined {
       return command(node);
     case "redirected_statement": {
       const body = node.childForFieldName("body");
-      const redirects = nonNull(node.childrenForFieldName("redirect")).map(redirect);
-      if (body === null) return { kind: "command", name: null, args: [], redirects, assignments: [] };
-      if (body.type === "command") return command(body, redirects);
+      const { redirects, unparsed } = statementRedirects(node, body);
+      if (body === null) return withUnparsed({ kind: "command", name: null, args: [], redirects, assignments: [] }, unparsed);
+      if (body.type === "command") return withUnparsed(command(body, redirects), unparsed);
       const inner = statement(body);
-      if (inner === undefined) return { kind: "group", body: [], redirects };
+      if (inner === undefined) return withUnparsed({ kind: "group", body: [], redirects }, unparsed);
       // The grammar hangs a redirection after `a && b` (or `a | b`) on the whole list; the shell gives it to the last command, which runs where the list has taken it.
-      return body.type === "list" || body.type === "pipeline" ? lastRedirected(inner, redirects) : { kind: "group", body: [inner], redirects };
+      return withUnparsed(body.type === "list" || body.type === "pipeline" ? lastRedirected(inner, redirects) : { kind: "group", body: [inner], redirects }, unparsed);
     }
     case "list": {
       const [left, right] = named(node).map(statement);

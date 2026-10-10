@@ -147,3 +147,38 @@ describe("keyedPointsOf — a pack's points with the keys it declares them under
     expect(keyed.length).toBe(new Set(keyed.map(({ key }) => key)).size);
   });
 });
+
+describe("Pack — optional ports (ADR 2026-026)", () => {
+  const untypedPack = (spec: object): BasePack => (definePack as unknown as (spec: object) => BasePack)(spec);
+  const gateId = packId("gate");
+  const files = portKeysFor(gateId)<{ read(): string }>("files");
+  const notes = portKeysFor(gateId)<{ write(): void }>("notes");
+  const x = portKeysFor(gateId)<{ read(): string }>("x");
+
+  test("a pack's optional ports are its own and kept apart from its required ones", () => {
+    const gate = definePack({ id: gateId, ports: { files }, optionalPorts: { notes } });
+    expect(gate.optionalPorts).toBeDefined();
+    expect(gate.optionalPorts.notes).toBe(notes);
+    expect(Object.keys(gate.optionalPorts)).toEqual(["notes"]);
+    expect(Object.keys(gate.ports)).toEqual(["files"]);
+    expect(Object.isFrozen(gate.optionalPorts)).toBe(true);
+    expect(gate.problem).toBeUndefined();
+    expect(definePack({ id: packId("plain") }).optionalPorts).toEqual({});
+  });
+
+  test("a port declared both required and optional is refused, whatever its section keys", () => {
+    expect(untypedPack({ id: "test-packs/gate", ports: { a: x }, optionalPorts: { b: x } }).problem).toBe("its port 'x' is declared both required and optional");
+    expect(untypedPack({ id: "test-packs/gate", ports: { x }, optionalPorts: { x } }).problem).toBe("its port 'x' is declared both required and optional");
+  });
+
+  test("one port under two keys of a section is refused", () => {
+    expect(untypedPack({ id: "test-packs/gate", optionalPorts: { a: x, b: x } }).problem).toBe("the port 'x' is declared twice: declare each port once");
+    expect(untypedPack({ id: "test-packs/gate", ports: { a: x, b: x } }).problem).toBe("the port 'x' is declared twice: declare each port once");
+  });
+
+  test("another pack's port, or a key that is not camelCase, in optionalPorts is refused, as in ports", () => {
+    expect(untypedPack({ id: "test-packs/other", optionalPorts: { files } }).problem).toBe("its port 'files' belongs to test-packs/gate: a pack declares only its own ports");
+    expect(untypedPack({ id: "test-packs/gate", optionalPorts: { "a.b": files } }).problem).toBe("its port key 'a.b' must be a camelCase word, such as 'sourceFiles'");
+    expect(untypedPack({ id: "test-packs/gate", optionalPorts: { files: { owner: gateId, name: "files" } } }).problem).toBe("its port 'files' must be declared with portKeysFor(...) by this copy of bounded");
+  });
+});

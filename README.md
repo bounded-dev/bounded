@@ -32,9 +32,11 @@ hosts:
 - **The prerequisites pack** (`bounded/prereqs`, in 3.2.0): an
   action waits until a delegation to a named agent has succeeded over files
   unchanged since; only a run the host says finished counts, as the agent
-  the host resolved, and from 3.3.0 a background run counts at its finish
+  the host resolved, and from 3.3.0 a background run counts at its finish,
+  on Claude Code and on pi
   ([ADR 2026-019](docs/adr/2026-019-prereqs-pack.md),
   [ADR 2026-025](docs/adr/2026-025-agent-run-finish.md),
+  [ADR 2026-028](docs/adr/2026-028-pi-agent-run-finish.md),
   [its README](src/packs/prereqs/README.md)).
 - **The package catalogue**: each package that ships packs ships
   `bounded.catalog.json`, built by `bounded catalog build` from its pack

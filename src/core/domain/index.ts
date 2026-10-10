@@ -12,6 +12,7 @@ export type {
   Contributed,
   Contribution,
   Declarations,
+  DefinedPack,
   ExtensionPoint,
   KeyedPoint,
   Pack,

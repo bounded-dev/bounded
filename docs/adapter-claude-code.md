@@ -117,7 +117,7 @@ after the hook answers); the hook judges the state it sees.
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
 seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] })` (`bounded/open-project`, with every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`) and then
+core's `openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()] })` (`bounded/open-project`, with every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`, its optional status snapshot port included: ADR 2026-026) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated
@@ -199,6 +199,12 @@ the `...FromConfig` ones, which open the project the same way):
   all: `main.ts`'s bootstrap then writes its deny for every event,
   SubagentStop included. Without `recordAgentRunFinish`,
   `SubagentStop` answers nothing.
+- **The status snapshot (ADR 2026-026).** In a project that selects
+  `bounded/prereqs`, every PostToolUse (after the pack records what it
+  observed) and every SubagentStop writes `.bounded/prereqs/status.json`:
+  each rule's requirement and status, for a display to show. It adds up to
+  2.5 s to those hooks, within the 20 s deadline, and never changes what
+  they answer or record. pi does not write it.
 
   The orders Claude Code 2.1.294 was captured sending (payloads pinned,
   scrubbed, in `src/hosts/claude-code/test/fixtures/agent-responses/`, read

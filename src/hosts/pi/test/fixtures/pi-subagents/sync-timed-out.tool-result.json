@@ -1,0 +1,27 @@
+{
+  "_source": "pi-subagents 0.52.1, src/runs/foreground/execution.ts:1097-1119 (timedOut and error set) and :1362-1364 (an error with exit 0 becomes exit 1); src/runs/foreground/subagent-executor.ts:4507-4511 (the failed workflow's result, isError true)",
+  "type": "tool_result",
+  "toolCallId": "call-review-2",
+  "toolName": "subagent",
+  "input": { "agent": "plan-reviewer", "task": "Review plans/plan.md", "async": false },
+  "content": [{ "type": "text", "text": "Workflow failed: subagent plan-reviewer timed out" }],
+  "details": {
+    "mode": "workflow",
+    "runId": "call-review-2",
+    "results": [
+      {
+        "index": 0,
+        "agent": "plan-reviewer",
+        "task": "[prompt redacted]",
+        "exitCode": 1,
+        "timedOut": true,
+        "error": "Subagent plan-reviewer timed out",
+        "usage": { "input": 1200, "output": 300, "cacheRead": 0, "cacheWrite": 0, "cost": 0, "turns": 2 },
+        "finalOutput": "",
+        "outputState": "absent"
+      }
+    ],
+    "chatProgress": { "mode": "off" }
+  },
+  "isError": true
+}

@@ -71,7 +71,8 @@ interface Fields {
   readonly redirect: string;
 }
 
-function beforeOf(raw: unknown): Result<Contract.PrerequisiteBefore> {
+/** A rule's before from its wire form, checked: one delegation, write or execute; or why not. Also how a status snapshot checks a rule's before (ADR 2026-026). */
+export function parseBefore(raw: unknown): Result<Contract.PrerequisiteBefore> {
   if (hasExactly(raw, ["delegate"])) {
     const agent = AgentName.parse(own(raw, "delegate"));
     return agent.ok ? { ok: true, value: Object.freeze({ delegate: agent.value }) } : refuse(`A rule's before.delegate: ${agent.error}`);
@@ -115,7 +116,7 @@ function redirectOf(raw: unknown): Result<string> {
 
 function check(raw: unknown): Result<Fields> {
   if (!hasExactly(raw, ["before", "require", "unchangedSince", "redirect"])) return refuse(FORM);
-  const before = beforeOf(own(raw, "before"));
+  const before = parseBefore(own(raw, "before"));
   if (!before.ok) return before;
   const requirement = requireOf(own(raw, "require"));
   if (!requirement.ok) return requirement;
@@ -219,10 +220,15 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
   }
 
   toJSON(): Contract.PrerequisiteRuleJSON {
-    const given = this.before;
-    const before = given.delegate !== undefined ? { delegate: given.delegate.value } : given.write !== undefined ? { write: given.write } : { execute: given.execute.toJSON() };
-    return { before, require: { delegate: this.requiredAgent().value, succeeded: true }, unchangedSince: this.unchangedSince, redirect: this.redirect };
+    return { before: beforeWireOf(this.before), require: { delegate: this.requiredAgent().value, succeeded: true }, unchangedSince: this.unchangedSince, redirect: this.redirect };
   }
+}
+
+/** A rule's before as its wire form gives it. */
+export function beforeWireOf(before: Contract.PrerequisiteBefore): Contract.PrerequisiteBeforeJSON {
+  if (before.delegate !== undefined) return { delegate: before.delegate.value };
+  if (before.write !== undefined) return { write: before.write };
+  return { execute: before.execute.toJSON() };
 }
 
 export type PrerequisiteRule = Contract.PrerequisiteRule;

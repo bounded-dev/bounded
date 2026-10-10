@@ -6168,6 +6168,87 @@
     "reason": "a shipped pack's root holds its required README and its examples/ folder too (ADR 2026-013's R7, amended by pack-structure), so the case's title and the root-file message name them (final review of pack-structure)"
   },
   {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > a run that passes terraform as an argument is refused while the rule does not hold, as cannot see",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > a run that passes terraform as an argument is refused while the rule does not hold: as running it where the reader now sees the run, as cannot see elsewhere"
+    },
+    "reason": "the reader now reads programs named by their path, trap's code and package runners, so these runs are seen as running terraform (ADR 2026-020, amended by shell-reader-coverage)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > terraform passed inside an argument is found past quotes, separators and unresolved words (final review, B1)",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > terraform passed inside an argument is found past quotes, separators and unresolved words; a shell named by its path, time and coproc are seen to run it"
+    },
+    "reason": "the reader now reads a shell named by its path, time and coproc as the commands they are, so /bin/bash -c '…', /bin/sh -c '…', time terraform apply and coproc terraform apply are seen as running terraform, no longer as cannot see (ADR 2026-020, amended by shell-reader-coverage)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit, until shell-reader-coverage: terraform reached through an expansion inside an argument or input to a program the reader does not interpret is not seen",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > programs the reader does not interpret take what it cannot see as code; sudo and doas shells, sourced files and trap's code are code: refused while a rule does not hold, under execute and write rules"
+    },
+    "reason": "what the reader cannot see reaching a program it does not interpret is code, not a read; sudo/doas shells, sourced files and trap's code are read as code; so bounded/prereqs refuses them while a rule does not hold (ADR 2026-020, amended by shell-reader-coverage; the orchestrator's decisions for the maintainer). Its two forms passing a literal word holding shell syntax (ssh host 'terra``form apply', watch 'terra${x}form apply') are refused too, in the case 'a literal argument holding shell syntax, given to a program the reader does not interpret, is code: refused while a rule does not hold; known programs keep their reads'"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit: a script run through a shell, or sourced, is not seen to run; it is refused only because its name stands as an argument",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit: a script run through a shell is not seen to run; a sourced one is code bounded cannot read"
+    },
+    "reason": "`.` and `source` report their operand as code (ADR 2026-020, amended by shell-reader-coverage), so a sourced script is refused as code bounded cannot read, first under the rule before terraform apply"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit: terraform reached through a literal argument a program the reader does not interpret may run as code is not seen",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > a literal argument holding shell syntax, given to a program the reader does not interpret, is code: refused while a rule does not hold; known programs keep their reads"
+    },
+    "reason": "a literal argument holding '$', a backquote, ';', '&&', '||', '|', a newline or '$(' given to a program the reader does not interpret is also code, since ssh, watch and their kind run it as shell code (ADR 2026-020, amended by shell-reader-coverage; the orchestrator's decision closing this limit), so ssh host 'terra``form apply' and watch 'terra${x}form apply' are refused while a rule does not hold"
+  },
+  {
+    "file": "src/hosts/pi/extension.test.ts",
+    "case": "piExtension — after a tool ran, and refusals the adapter makes > a subagent's tool_result says no delegated run finished, even with async: false",
+    "successor": {
+      "file": "src/hosts/pi/extension.test.ts",
+      "case": "piExtension — a delegated run's finish (ADR 2026-028) > an async launch's result gives its run id, its finish reported later, and its delegation is not finishUnreported"
+    },
+    "reason": "pi-subagents' completion is observed on pi's event bus (ADR 2026-028): an async launch's result gives its run id with its finish reported later, a synchronous result says whether its one run ran to its end, and no delegation is finishUnreported; a result bounded cannot pair with one run still says its finish is never reported"
+  },
+  {
+    "file": "src/hosts/pi/extension.test.ts",
+    "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did, as this host never reports their finish",
+    "successor": {
+      "file": "src/hosts/pi/extension.test.ts",
+      "case": "piExtension — a delegated run's finish (ADR 2026-028) > a result bounded cannot pair with one run, or whose details it cannot read or trust, says the finish is never reported"
+    },
+    "reason": "only a result bounded cannot pair with exactly one run, or whose details it cannot read or trust, says its finish is never reported, and its delegations are no longer finishUnreported: pi reports an async run's finish on its event bus (ADR 2026-028)"
+  },
+  {
+    "file": "src/hosts/pi/translate.test.ts",
+    "case": "translate — pi's tools as host-neutral tool uses > a subagent call with async: true delegates with its finish unreported",
+    "successor": {
+      "file": "src/hosts/pi/translate.test.ts",
+      "case": "translate — pi's tools as host-neutral tool uses > a subagent call's delegations are never finishUnreported, whatever its async says; an async that is not true or false is refused"
+    },
+    "reason": "pi reports an async run's finish through pi-subagents' subagent:async-complete, so a run call's delegations are no longer finishUnreported; background or foreground is read from the result (ADR 2026-028)"
+  },
+  {
+    "file": "src/hosts/pi/translate.test.ts",
+    "case": "translate — pi-subagents' subagent tool, read strictly > status and resume are invoked by name; other actions are refused",
+    "successor": {
+      "file": "src/hosts/pi/translate.test.ts",
+      "case": "translate — pi-subagents' subagent tool, read strictly > status is invoked by name; other actions but resume are refused"
+    },
+    "reason": "a resume revives an agent's run, so it is a delegation to the agent bounded tied to that run, or refused when there is none, never only an invoke (ADR 2026-028); its cases move to the resume case beside it"
+  },
+  {
     "file": "src/core/composition-root/pack-readmes.test.ts",
     "case": "shipped packs' READMEs > each shipped pack's README is titled `# <pack id>: <summary>`",
     "successor": {

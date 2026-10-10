@@ -105,8 +105,8 @@ plan-reviewer rules.
   subcommand a project names.
 
 Each needs the required agent to be a delegation the host reports the
-finish of: Claude Code's subagents do; on pi, a requirement cannot be met
-yet (see "What it observes").
+finish of: Claude Code's subagents and pi-subagents' runs do (see "What it
+observes").
 
 ## What it observes
 
@@ -120,8 +120,9 @@ yet (see "What it observes").
   lower-cased again) and surrounding spaces) has its files
   fingerprinted as it starts. It is refused when it runs isolated (on a
   separate copy of the files, such as a worktree), when the host will not
-  report its finish (a Claude Code teammate, any pi run that does not say
-  `async: false`), or when it has no call id.
+  report its finish (a Claude Code teammate, a pi resume), or when it has
+  no call id. The redirect is "Run <agent> as a new run whose finish the
+  host reports".
 - **A run the host says finished, on its result** (a foreground run): it is
   recorded when it succeeded, the host says it ran the required agent
   exactly, and the files' fingerprint is the one taken at the start.
@@ -147,38 +148,44 @@ captured, so unknown: whether a run interrupted by the user (Esc) or ended by
 an API error fires SubagentStop. If it does, Claude Code does not say how the
 run ended, and the run counts.
 
-**On pi, a requirement cannot be met yet.** pi-subagents 0.52.1 runs a
-`subagent` call in the background unless it says `async: false`
-(`asyncByDefault` defaults to true, `src/extension/config.ts:150-151`), and
-even then its `forceTopLevelAsync` setting can run it in the background
-(`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
-leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`). So
-a delegation without `async: false` is refused, and no pi result is counted
-as finished: the agent is told that the host does not report when the agent
-finishes, so it cannot meet the requirement yet. This holds until the pack observes pi-subagents' completion (ADR 2026-019,
-"Future work").
+**On pi** (pi-subagents 0.52.1, ADR 2026-028), a run counts under the
+same rules. A background run's launch result is a run whose finish is
+reported later, and pi-subagents' completion is its finish: it ran to its
+end only when the completion says the run completed and its one agent
+completed, with nothing stopped, timed out or detached. A foreground run's
+result says whether its one agent ran to its end; a timed-out or
+interrupted one does not count. A result bounded cannot pair with one run,
+or cannot read or trust, never counts, and the agent is told the host does
+not report that run's finish. Three limits:
+
+- **The main trust gap of pi completion: a completion can be forged from a
+  file. Anything running as the user, the guarded agent's own shell
+  included, can write a result file in pi-subagents' results directory
+  under the OS temp directory, and pi-subagents then reports it as a
+  completion. On pi this can count a pending review early.** It must name
+  a run bounded launched and is waiting on, as the required agent, and
+  counts only over files unchanged since that launch.
+- **An interrupted background run counts:** pi-subagents reports it as a
+  success. Another extension, and possibly the user, can interrupt a run;
+  the guarded agent cannot.
+- **A resumed run never counts.** A resume of a run bounded saw launched
+  and finish is judged as a delegation to that agent whose finish goes
+  unreported, so a resume of an agent some rule requires is refused with
+  "Run <agent> as a new run whose finish the host reports"; a resume
+  bounded cannot tie to an agent is refused by bounded's pi adapter itself.
 
 ## What it cannot see
 
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
-- **Expansions inside an argument or input to a program the reader does
-  not interpret, until `shell-reader-coverage`.** Such a program (named by
-  its path, as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`,
-  `watch`, `su -c`, `script -c`, `time`, `coproc`) is given text; the
-  rule's program is found there only where its name is written out. These
-  are allowed while the requirement is unmet: `/bin/bash -c 'terra$()form
-  apply'`, `` ssh host 'terra``form apply' ``, `watch 'terra${x}form
-  apply'`, `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64
-  -d)"`, `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
-  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`.
-  So is code read from standard input by anything but a shell named `sh`,
-  `bash`, `zsh`, `dash` or `ksh` (those report it, `bash - <<< …`
-  included): `sudo -s`/`sudo -i` and `doas -s` with no command,
-  `source /dev/stdin` and `. /dev/stdin`, and `trap 'terra$()form apply'
-  EXIT`. A program named by a variable is refused only where it is the run's own
-  name (`$TF apply`, `sudo $TF apply`).
+- **A glob or brace a program the reader does not interpret expands
+  itself.** A literal argument holding no `$`, backquote, `;`, `&&`, `||`,
+  `|` or newline is read as text, so the rule's program is found there
+  only where its name is written out: `ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'` are allowed while the requirement is unmet (so that
+  `prettier --write 'src/**'` is not refused). One holding those is code,
+  and refused (below, "Over-refusal"). A `<` from a file into such a
+  program is a read (`ssh host < cmds.txt` is allowed).
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
   `make clean deploy` (which builds the deploy target too) does not count.
@@ -189,19 +196,22 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   given only where the rule's program's name stands in one of its
   arguments); aliases and functions from the host's
   shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
-  script run through a shell or sourced, never seen to run (refused as
-  cannot see only when its name is the rule's program, written out as an
-  argument: `bash deploy.sh`; a script the shell names where the shell's
+  script run through a shell, never seen to run (refused as cannot see
+  only when its name is the rule's program, written out as an argument:
+  `bash deploy.sh`; a sourced script, `. deploy.sh`, is code bounded cannot
+  read, refused under any rule; a script the shell names where the shell's
   options are, `bash "$S"`, is refused as code bounded cannot read, since
   `"$S"` may hold `-s`; one named after the options, `bash -- "$S"`, or
   substituted, `bash <(curl -s https://example.com/deploy)`, is allowed);
   PowerShell, read as bash.
-  Until `shell-reader-coverage`, write rules miss in-place edits
-  (`sed -i`), package runners (`npx`, `bunx`), a program named by its path
-  (`/bin/rm`), `time`, `coproc`, other standard-input forms (`sudo -s`),
-  `-execdir`'s directory, `trap` and `alias` values, and git's writing
-  subcommands (`git checkout`, `git restore`). A delegation run from the
-  shell (`claude -p --agent …`) is not seen as one.
+  Write rules miss in-place edits (`sed -i`) and what ADR 2026-020 names
+  as not read (other runners and git subcommands, aliases defined
+  elsewhere). Package runners (`npx`, `pnpm exec`, `uvx` …), a program
+  named by its path (`/bin/rm`, `/usr/bin/env rm`), `time`, `coproc`,
+  `trap`, `alias`, `-execdir` and git's writing subcommands (`git checkout`,
+  `git restore`, `git clone` …) are read (ADR 2026-020, amended by
+  `shell-reader-coverage`). A delegation run from the shell
+  (`claude -p --agent …`) is not seen as one.
 - **Over-refusal, by decision:** while a requirement is missing, commands
   bounded cannot read through are refused under any execute or write rule,
   and under an execute rule so is any run naming its program as an
@@ -214,7 +224,27 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   input), `bash "$S" "$1"` (`"$1"` may be code), `"$W" cd sub && rm x`
   (where `"$W"` may be `builtin`, a `cd` bounded cannot place), and a write
   only the shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
-  `ls | xargs cp -t src`).
+  `ls | xargs cp -t src`). And, since `shell-reader-coverage`: git
+  commands that write `(the working tree)` (`git checkout main`,
+  `git stash pop`, `git reset --hard`, `git apply p.patch`,
+  `git checkout -- .`, `git checkout -f main`) under any write rule;
+  `sudo -s`, `sudo -i`, `doas -s`; a sourced file (`. ./env.sh`);
+  `alias c='…'`; a recursive runner (`pnpm -r exec …`); a `{ … }` coproc;
+  `time cd …`; and a program bounded's reader does not know given a word
+  only the shell can resolve, a here-string or piped input (`mytool "$X"`,
+  `cat a | mytool`, `ssh host "terra$()form apply"`, `su -c "$CMD"`,
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`),
+  or a literal argument holding shell syntax (`$`, `$(`, a backquote, `;`,
+  `&&`, `||`, `|`, a newline), which ssh, watch and their kind run as shell
+  code: `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`,
+  and `mytool '$HOME'`; standard input given to a group or loop, or a `<`
+  from a process substitution (`while read l; do ssh host; done <<< …`,
+  `ssh host < <(echo …)`); and piped input into `sed` (`| sed …`), which
+  bounded's reader does not interpret. `grep '$x' f` and `echo '$HOME'`
+  stay allowed.
+  The common text programs (`cat`, `grep`, `head`, `sort`, `jq` …) are not
+  refused for this: `cat a | grep x`, `jq . f.json`, `git log | head` and
+  `cat "$F"` are allowed.
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
 - **Symbolic links:** a link is never followed. A link to a directory the
@@ -242,6 +272,31 @@ starts with none. The starts of delegations awaiting their result are in
 awaiting their finish are in `.bounded/prereqs/started/runs/`, kept seven
 days. The Bounded log keeps an audit record of each recorded run.
 
+## The status snapshot
+
+When the host provides the pack's optional status snapshot port (ADR
+2026-026), the pack saves the status of every rule after each finished call
+and each agent run's finish, in `.bounded/prereqs/status.json`, for a
+display such as a status band to show. It holds each requirement once, in
+the order the rules name it, with its status (`holds`, `pending`, `stale` or
+`missing`), how many files its patterns match and the run it waits on while
+pending; and each rule in contribution order, with its `before` and whether
+the gate would allow its action now. A reading that cannot be made, or does
+not finish within 2 s, is saved `unread`, saying why. The file also names
+the project's root; an older reading never replaces a newer one, so under
+concurrent hooks it may be one call behind; a failed save removes it.
+
+The snapshot decides nothing: every verdict and every record is the same
+without it. It sits in `.bounded/`, which drift never watches, so a shell
+write the protected-paths pack does not see can forge it; it can only
+mislead a display.
+
+Only the Claude Code hook `bounded` carries provides the port; pi does not,
+and pays nothing. A host that provides it adds up to 2.5 s to each finished
+call and each finish, so it must give its after-call and finish handling a
+budget above its other checks plus 2.5 s (Claude Code's hook deadline is 20
+s).
+
 ## The protection it relies on
 
 The guarantee rests on the protected-paths pack keeping agents off:
@@ -265,6 +320,12 @@ Claude Code and pi that `bounded` carries do.
   files a list of patterns names.
 - `prerequisiteRecords` (`PrerequisiteRecords`): the records, the starts
   kept by call id, and the starts kept by run id until the run's finish.
+
+A host may also provide its optional port, through
+`prereqsStatusSnapshotPortProvisions()`; the Claude Code hook does:
+
+- `prerequisiteStatusSnapshots` (`PrerequisiteStatusSnapshots`): where the
+  status snapshot is saved, and the store's time.
 
 ## Examples
 

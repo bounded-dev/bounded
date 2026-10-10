@@ -214,8 +214,8 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   only `<slug>.config.ts` files, at least one, each a project's
   configuration whose default export's TSDoc gives its title;
   a pack is defined only in an overview, which binds imported names in
-  definePack's sections (id, dependsOn, points, contributes, ports, in that
-  order), typed by its contract, with no logic, and imports only its own
+  definePack's sections (id, dependsOn, points, contributes, ports,
+  optionalPorts, in that order), typed by its contract, with no logic, and imports only its own
   domain/ and application/ (never an adapter). The core's `core.pack.ts`
   follows the same order and no-logic rules. The package catalogue build
   (`bounded catalog build`, ADR 2026-026) applies the same README rules
@@ -297,7 +297,12 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   (ADR 2026-025); they pass the shipped packs' ports to `openProject` (the protected-paths
   pack's ports undo what shell commands change in the files it protects, ADR
   2026-011), and build each execute effect's reading with
-  `bounded/shell-command-reader`.
+  `bounded/shell-command-reader`. A pack's `optionalPorts` are adapters a
+  host may provide (ADR 2026-026): composition never requires them, and its
+  checks read them with `ports.ifProvided(key)`. **An optional port serves
+  only output that never decides a verdict or a record: with or without it,
+  every verdict and every record is the same.** Only Claude Code provides
+  `bounded/prereqs`'s status snapshot port.
 - **An execute effect carries a required reading of its command (ADR
   2026-020)**: the programs it runs, the files it reads, lists and writes,
   and what could not be resolved, or why it could not be read. The host

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlink
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { BoundedLog } from "bounded/application";
-import { Composition, type Decision, Verdict } from "bounded/domain";
+import { Composition, type Decision, packIdsFor, portKeysFor, Ports, Verdict } from "bounded/domain";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { openProject } from "./open-project.ts";
 import { readingOf, UNREAD_SAMPLE } from "./shell-command-reading-samples.test-support.ts";
@@ -256,6 +256,31 @@ export default defineConfig({
     expect((await shell(readingOf("ls"))).kind).toBe("allow");
     const refused = await shell(UNREAD_SAMPLE);
     expect(refused.kind === "refuse" && refused.reason).toBe(`bounded/project refused execute \`ls\`: ${UNREAD_SAMPLE.why}`);
+  });
+
+  test("a pack's optional port the host does not provide does not stop the project opening, and its checks see it absent", async () => {
+    // A pack declaring only an optional port, whose check refuses a call unless the port is absent.
+    const config = `import { contribution, corePack, defineConfig, definePack, packIdsFor, portKeysFor, Verdict } from "bounded/domain";
+const notesId = packIdsFor("test-packs")("notes");
+const notesPort = portKeysFor(notesId)("notes");
+const notesPack = definePack({
+  id: notesId,
+  dependsOn: [corePack],
+  contributes: [contribution(corePack.points.beforeTool, [async (_call, context) => (context.ports.ifProvided(notesPort) === undefined ? Verdict.allow : Verdict.refuse("the notes port is provided", "Open the project without it"))])],
+  optionalPorts: { notes: notesPort },
+});
+export default defineConfig({ packs: [corePack, notesPack] });
+`;
+    const root = realpathSync(project({ "bounded.config.ts": config }));
+    const read = { kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }], callId: "r1" };
+    const without = await openProject(root);
+    expect(without.problem).toBeNull();
+    expect(await without.judge(read)).toEqual(Verdict.allow);
+    const notes = portKeysFor(packIdsFor("test-packs")("notes"))<object>("notes");
+    const withPort = await openProject(root, { ports: [Ports.provide(notes, () => ({}))] });
+    expect(withPort.problem).toBeNull();
+    const refused = await withPort.judge(read);
+    expect(refused.kind === "refuse" && refused.reason).toBe("the notes port is provided");
   });
 
   test("a judge for a root that cannot be opened records nothing for an agent run's finish, and never rejects", async () => {

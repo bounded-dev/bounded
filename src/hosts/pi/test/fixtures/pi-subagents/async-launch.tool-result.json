@@ -1,0 +1,18 @@
+{
+  "_source": "pi-subagents 0.52.1, src/runs/foreground/subagent-executor.ts:4387-4390 (the launch result's details, with no isError), as pi's tool_result event carries it (pi 0.87.1, dist/core/extensions/types.d.ts:791-799,832-835)",
+  "type": "tool_result",
+  "toolCallId": "call-review-1",
+  "toolName": "subagent",
+  "input": { "agent": "plan-reviewer", "task": "Review plans/plan.md" },
+  "content": [{ "type": "text", "text": "Async workflow [5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a] started." }],
+  "details": {
+    "mode": "workflow",
+    "runId": "5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+    "toolCallId": "call-review-1",
+    "asyncId": "5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+    "asyncDir": "/tmp/pi-subagents-user/async-subagent-runs/5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+    "results": [],
+    "chatProgress": { "mode": "off" }
+  },
+  "isError": false
+}

@@ -10,6 +10,14 @@ gone; `require` matches the agent the host resolved, exactly, in both
 orders; `pending` is a status; and the records gain run starts. Amended by
 `prereqs-execute` (3.3.0): `before: { execute }`, and shell writes, judged
 from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading.md)).
+Amended by `shell-reader-coverage` (3.3.0): the reader's new readings
+(ADR 2026-020) close the limits it named for execute and write rules, and
+the over-refusals they bring are stated below.
+Amended by [ADR 2026-028](2026-028-pi-agent-run-finish.md) (3.3.0): on pi,
+pi-subagents' async completion and its synchronous results say when a run
+finished, so a requirement can be met on pi; a resume is a delegation to the
+agent bounded tied to its run, or refused; and the redirect for a delegation
+whose finish goes unreported is reworded host-neutrally.
 
 ## Decision
 
@@ -160,8 +168,8 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
 - **A delegation some rule requires** is refused at the call when it is
   isolated ("Run <agent> without isolation, on the project's own files": a
   worktree branches from the default branch, so the agent would review other
-  files), when its finish goes unreported ("Run <agent> as a run whose
-  finish the host reports (not as a teammate or an asynchronous run)"), or
+  files), when its finish goes unreported ("Run <agent> as a new run whose
+  finish the host reports", reworded host-neutrally by ADR 2026-028), or
   when it has no call id. Otherwise each requirement it can meet has its
   files fingerprinted, and these starts are kept under the call's id.
 - **After the call, only a run the host says finished counts (a positive
@@ -232,6 +240,14 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
   The call cannot say whether its agents run to their end, and the result
   cannot say so either. **So on pi a requirement cannot be met until item
   1c** (`prereqs-pi-async`, observing pi-subagents' completion).
+  *Replaced by ADR 2026-028:* no run call's delegation is
+  `finishUnreported`; an async launch's result gives its run id, its finish
+  reported later through pi-subagents' `subagent:async-complete` on pi's
+  event bus; a synchronous result says whether its one run ran to its end;
+  and a resume is a delegation to the agent bounded tied to its run,
+  `finishUnreported`, or is refused. (The `forceTopLevelAsync` and timed-out
+  child readings above were also corrected there: `forceTopLevelAsync` only
+  guards one foreground call, and a timed-out child exits 1.)
 
 ### Why not refuse background runs
 
@@ -284,7 +300,8 @@ pi-subagents' project agent directory), which give role identity.
   a run whose finish never comes (turn limit, TaskStop) never counts.
 - **On pi, no requirement can be met until item 1c:** no pi run is marked
   finished; every entry says `finishNeverReported` (see "The hosts'
-  mappings").
+  mappings"). *Replaced by ADR 2026-028:* an async or synchronous pi run
+  counts under the same rules as on Claude Code; a resumed run never counts.
 - **Links and special files make the fingerprint fail, naming them.** A
   link is never followed. One to a directory the patterns could reach into
   (classified by `stat`; a link `stat` cannot examine, other than a missing
@@ -307,10 +324,17 @@ pi-subagents' project agent directory), which give role identity.
   `"git push"` rule, as does any alias or subcommand name the program
   itself expands. Not seen: aliases and functions from the host's shell
   snapshot (`tf apply`); git's `!` aliases; a program named `terraform.exe`;
-  a script run through a shell, or sourced, is not seen to run: it is
-  refused as cannot see only when its name is the rule's program and is
-  written out as an argument (`bash deploy.sh`, `. deploy.sh` under
-  `"deploy.sh"`); a script the shell names where its options are
+  a script run through a shell is not seen to run: it is refused as cannot
+  see only when its name is the rule's program and is written out as an
+  argument (`bash deploy.sh` under `"deploy.sh"`); a sourced script
+  (`. deploy.sh`, `source x.sh`) is code bounded cannot read, refused under
+  any rule while it does not hold (*amended by `shell-reader-coverage`*); a
+  literal argument holding no `$`, backquote, `;`, `&&`, `||`, `|` or
+  newline is read as text, so the rule's program is found only where its
+  name is written out, even where a program the reader does not interpret
+  expands a glob or brace in it itself (`ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'`, a named limit, *final review, M1*); one holding those is
+  code (below); a `<` from a file into such a program is a read, never
+  code (`ssh host < cmds.txt`, a named limit); a script the shell names where its options are
   (`bash "$S"`) is refused as code bounded cannot read, `"$S"` possibly
   holding `-s` (*amended by `shell-every-reading`*), while one named after
   them (`bash -- "$S"`) or substituted
@@ -318,41 +342,26 @@ pi-subagents' project agent directory), which give role identity.
   read as bash;
   a range bash 3.2 keeps literal and bash 4 expands may shift a later
   word's position.
-- **Execute rules, until `shell-reader-coverage`: an expansion inside an
-  argument or input to a program the reader does not interpret is not
-  seen.** A program the reader does not interpret (one named by its path
-  such as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`, `watch`,
-  `su -c`, `script -c`, `time`, `coproc`) is given its arguments and input
-  as text; the pack finds the rule's program in that text only where its
-  name is written out. Where only the shell would assemble it, it is not
-  found, and the command is allowed while the requirement is unmet:
-  `/bin/bash -c 'terra$()form apply'`, `` ssh host 'terra``form apply' ``,
-  `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
-  `script -c "$(echo … | base64 -d)"`, `time $TF apply`, `coproc $TF
-  apply`, `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'` and
-  `cat commands.txt | xargs /usr/bin/env`. `shell-reader-coverage` gives
-  such an argument, here-string, piped input or xargs input role `code`,
-  so the pack refuses each as cannot see, and interprets `/bin/bash`,
-  `/bin/sh` and `/usr/bin/env` by their path. Until then the same holds of
-  code read from standard input by a program other than a shell named
-  `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code: given no
-  script, `s` in an option cluster in any shell's reading of its options,
-  a script operand that may be standard input (`-`, under `/dev/` or
-  `/proc/`, with a `..` segment, or naming no project path), or an option
-  bounded does not know; ADR 2026-020): `sudo -s`/`sudo -i` and `doas -s` with no command,
-  `source /dev/stdin` and `. /dev/stdin` (each fed by `<<<` or a heredoc),
-  and `trap 'terra$()form apply' EXIT`.
-- **Write rules, until `shell-reader-coverage`** (named, so they are not
-  mistaken for seen): in-place edits (`sed -i`, `perl -i`); what programs
-  and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
-  `yarn dlx`, `uvx`); a program named by its path (`/bin/rm`,
-  `/usr/bin/env rm`); `time` and `coproc`; the other standard-input forms
-  (an unresolved script operand, `.`/`source` of
-  `/dev/stdin`, `sudo -s`/`-i`, `doas -s`); `-execdir`/`-okdir` read
-  from where `find` runs; `trap`'s code and `alias` values; git's writing
-  subcommands (`checkout`, `restore`, `apply`, `stash`, `reset`, `clone`),
-  read as reads. (In-place edits and programs' own writes remain after it
-  too.)
+- **Write rules** (named, so they are not mistaken for seen): in-place
+  edits (`sed -i`, `perl -i`); what programs and scripts write themselves;
+  what ADR 2026-020 names as not read (other runners and git subcommands,
+  aliases defined elsewhere). *Amended by `shell-reader-coverage`:* package
+  runners, a program named by its path or in another case, `time` and
+  `coproc`, the standard-input forms (`sudo -s`/`-i`, `doas -s`,
+  `.`/`source`), `-execdir`/`-okdir` (also from nowhere known), `trap`'s
+  code and `alias` values, and git's writing subcommands (`checkout`,
+  `switch`, `restore`, `apply`, `stash`, `reset`, `clone`) are read; and,
+  for execute and write rules alike, what reaches a program the reader
+  does not interpret (a word only the shell can resolve, a here-string,
+  piped input, xargs's input) is code, so `ssh host "terra$()form apply"`,
+  `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64 -d)"`,
+  `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`,
+  `sudo -s`, `doas -s`, `source /dev/stdin` and
+  `trap 'terra$()form apply' EXIT` are refused as cannot see while a rule
+  does not hold, and `/usr/bin/env terraform apply`, `npx terraform apply`,
+  `trap 'terraform apply' EXIT` and `time terraform apply` are seen to run
+  `terraform apply`.
 - A delegation made from the shell (`claude -p --agent …`) is not one.
 - **Over-refusal while a requirement is missing:** commands bounded cannot
   read through (awk programs, `python -c`, `eval`, `| sh`, a program whose
@@ -362,8 +371,9 @@ pi-subagents' project agent directory), which give role identity.
   program as an argument (`echo terraform`, `which terraform`, a commit
   message naming it). A program named by a variable is refused only where
   the reading lists it as a run whose name is unresolved; given as an
-  argument to a program the reader does not interpret (`time $TF`,
-  `coproc $TF`, `/usr/bin/env "$TF"`), it is not refused yet (above).
+  argument to a program the reader does not interpret, it is refused as
+  code (*amended by `shell-reader-coverage`*; `time $TF`, `coproc $TF` and
+  `/usr/bin/env "$TF"` now list `$TF` as a run).
   *Amended by `shell-every-reading`* (ADR 2026-020): readings add every
   plausible reading of a word only the shell can resolve, so these are
   refused too while a rule does not hold: `exec "$@"`, `sudo "$@"`,
@@ -372,7 +382,29 @@ pi-subagents' project agent directory), which give role identity.
   (standard input), `bash "$S" "$1"` (`"$1"` as code),
   `"$W" cd sub && rm x` (a `cd` bounded cannot place), and writes only the
   shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
-  `ls | xargs cp -t src`).
+  `ls | xargs cp -t src`). *Amended by `shell-reader-coverage`* (the
+  orchestrator's decisions, for the maintainer): also refused while any
+  rule does not hold, under any write rule for the git forms: git commands
+  that write `(the working tree)` (`git checkout main`, `git switch main`,
+  `git stash`, `git stash pop`, `git reset --hard`, `git apply p.patch`,
+  `git checkout -- .`, `git restore :/src`, `git checkout -f main`,
+  `git switch --discard-changes main`); `sudo -s`, `sudo -i`, `doas -s`;
+  any sourced file (`. ./env.sh`); `alias c='…'`; a recursive runner
+  (`pnpm -r exec …`, its directory not told); a `{ … }` coproc;
+  `time cd …`; and a program the table does not know given a word only the
+  shell can resolve, a here-string or piped input (`mytool "$X"`,
+  `cat a | mytool`), or a literal argument holding shell syntax (`$`, `$(`,
+  a backquote, `;`, `&&`, `||`, `|`, a newline: `mytool '$HOME'`,
+  `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`), which
+  ssh, watch and their kind run as shell code; and standard input given
+  to a group, subshell, loop or `if` (`while read l; do ssh host; done
+  <<< 'terraform apply'`, `{ ssh host; } <<< …`) or a `<` from a process
+  substitution (`ssh host < <(echo terraform apply)`), code as a
+  here-string is (*final review, M2*). `sed` is such a program, so
+  `cat a | sed s/a/b/` is refused too. The common text programs
+  (`cat`, `grep`, `head`, `sort`, `jq` …; ADR 2026-020) are not refused for
+  this: `cat a | grep x`, `jq . f.json`, `git log | head`, `cat "$F"` and
+  `sort -o out.txt in.txt` stay allowed.
 - **ABA:** files edited and restored between the delegation and its result
   compare equal, so the run counts.
 - Records are per project root; teammates and isolated runs of a required
@@ -390,7 +422,12 @@ pi-subagents' project agent directory), which give role identity.
   command's success, a new kind of start and record, and a result-side fact
   the core does not carry.
 - **A status widget** for Claude Code, listing each rule's requirement as
-  holds, stale or missing, derived from the same records.
+  holds, stale or missing, derived from the same records. Its source is done
+  in [ADR 2026-026](2026-026-prereqs-status-snapshot.md): through an optional
+  port only Claude Code provides, the pack saves a status snapshot after
+  every call and every finish, read through the same evaluation the gate
+  uses (`readRuleStatuses`), to `.bounded/prereqs/status.json`. The band
+  that shows it is item B (ADR 2026-027).
 
 ## Consequences
 
