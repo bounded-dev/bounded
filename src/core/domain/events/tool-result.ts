@@ -41,7 +41,7 @@ class ToolResultImpl implements Contract.ToolResult {
   static parse(raw: unknown): Result<ToolResult> {
     return readSafely("A tool result", () => {
       if (ToolResultImpl.made(raw)) return ToolResultImpl.parse(wireFormOf(raw));
-      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A tool result is an object: { role, tool, effects, ok, callId? }" };
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A tool result is an object: { role, tool, effects, ok, callId?, delegatedAgentRuns? }" };
       const kind = own(raw, "kind");
       if (kind !== undefined && kind !== "tool-result") return { ok: false, error: `A tool result has kind 'tool-result', not '${show(kind)}'` };
       const ok = own(raw, "ok");
@@ -68,8 +68,10 @@ class ToolResultImpl implements Contract.ToolResult {
   }
 }
 
-const RUNS = "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect";
-const RUN = "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false";
+/** An entry's form, every field it accepts in its wire order, for RUNS and RUN alike. */
+const ENTRY_FORM = "{ finished, finishNeverReported?, agentRunId?, finishReportedLater?, resolvedAgent? }";
+const RUNS = `A tool result's delegatedAgentRuns is a list of ${ENTRY_FORM} entries, one per delegate effect`;
+const RUN = `A tool result's delegatedAgentRuns entry is ${ENTRY_FORM}, with finished true or false`;
 const NEVER = "A tool result's delegatedAgentRuns entry may say finishNeverReported: true, and only when finished is false";
 const LATER = "A tool result's delegatedAgentRuns entry may say finishReportedLater: true, and only when finished is false, it gives the run's agentRunId and it does not say finishNeverReported";
 /** The keys an entry may have. */

@@ -7,6 +7,11 @@ import { checkFilePattern, fileSetOf } from "../../../domain/file-set.ts";
 
 const sha256 = (bytes: Buffer | string): string => createHash("sha256").update(bytes).digest("hex");
 const text = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
+/** Whether a stat failure says the target does not exist: ENOENT, or ENOTDIR (a component of its path is a file). Any other failure, or one with no code, cannot tell. */
+const targetIsMissing = (failure: unknown): boolean => {
+  const code = typeof failure === "object" && failure !== null && "code" in failure ? failure.code : undefined;
+  return code === "ENOENT" || code === "ENOTDIR";
+};
 
 /**
  * The project's files on disk, fingerprinted: a walk of only the directories
@@ -16,7 +21,9 @@ const text = (thrown: unknown): string => (thrown instanceof Error ? thrown.mess
  * one to a directory the patterns could reach into, or one whose own path the
  * patterns match (a link to a file, or a dangling one), makes the fingerprint
  * fail, naming it, since what it points at cannot be checked; any other link
- * is ignored. So does an entry the patterns match that is neither a file, a
+ * is ignored. A link whose target cannot be examined (a loop, or one behind
+ * a directory it may not read) counts as a directory; a missing target does
+ * not. So does an entry the patterns match that is neither a file, a
  * directory nor a link (a FIFO, a socket, a device), failing closed. The
  * fingerprint is the SHA-256 over each matching file's path, a NUL, the
  * SHA-256 of its bytes and a newline, in path order.
@@ -48,9 +55,10 @@ export class FileSystemFileSetFingerprints implements FileSetFingerprints {
             continue;
           } else if (entry.isSymbolicLink()) {
             // A link to a directory counts wherever the patterns could reach into it; any other only where they match it.
+            // A target stat cannot examine might be a directory (fail closed); only a missing one is not.
             const toDirectory = await stat(join(this.root, path)).then(
               (target) => target.isDirectory(),
-              () => false,
+              (failure: unknown) => !targetIsMissing(failure),
             );
             if (set.matches(path) || (toDirectory && set.mayHold(path))) {
               unfingerprintable = `${path} is a symbolic link, and a link's target is never fingerprinted, so the files it names cannot be checked: replace the link with the files, or leave it out of the patterns`;

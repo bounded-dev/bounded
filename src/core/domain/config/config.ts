@@ -53,8 +53,11 @@ class ConfigImpl implements Contract.Config {
   /**
    * The project contributes only to points of packs it lists, even when a
    * listed pack brings the owner in (ADR 2026-003 rule 1, ADR 2026-018): a
-   * refusal that says to add the owner to packs, or undefined. A project pack
-   * with a problem is left to composition's malformed refusal.
+   * refusal, or undefined. Its fix: for another copy of a listed pack, to
+   * contribute to the listed pack's point; for another copy of a brought-in
+   * pack, to list the selected copy and contribute to its point; otherwise to
+   * add the owner to packs. A project pack with a problem is left to
+   * composition's malformed refusal.
    */
   private contributionToUnlistedPack(selectedPacks: readonly BasePack[]): string | undefined {
     if (this.projectPack.problem !== undefined) return undefined;
@@ -66,7 +69,8 @@ class ConfigImpl implements Contract.Config {
       if (this.listedPacks.some((pack) => packIdText(pack.id) === ownerId)) {
         return `${prefix} a pack with the id '${ownerId}' that is not the one bounded.config.ts lists in packs (another pack with that id, or another copy of it). Contribute to the point of the listed pack, or remove the contribution`;
       }
-      return `${prefix} pack '${ownerId}', which bounded.config.ts does not list in packs${broughtInNote(owner, ownerId, selectedPacks)}. Add '${ownerId}' to packs, or remove the contribution`;
+      const { note, fix } = broughtIn(owner, ownerId, selectedPacks);
+      return `${prefix} pack '${ownerId}', which bounded.config.ts does not list in packs${note}. ${fix}, or remove the contribution`;
     }
     return undefined;
   }
@@ -74,16 +78,23 @@ class ConfigImpl implements Contract.Config {
 
 /**
  * What brings an unlisted owner, or another copy of it, into the selection,
- * for a refusal: the owner itself, brought in by a dependent; a selected pack
- * with its id that is another copy; or nothing when neither is selected.
+ * for a refusal, and the fix: the owner itself, brought in by a dependent
+ * (add it to packs); a selected pack with its id that is another copy (list
+ * that selected copy and contribute to its point: contributing to it unlisted
+ * is refused too, and listing the owner makes two copies); or nothing when
+ * neither is selected (add it to packs).
  */
-function broughtInNote(owner: BasePack, ownerId: string, selectedPacks: readonly BasePack[]): string {
+function broughtIn(owner: BasePack, ownerId: string, selectedPacks: readonly BasePack[]): { note: string; fix: string } {
+  const addOwner = `Add '${ownerId}' to packs`;
   const selectedWithId = selectedPacks.find((pack) => packIdText(pack.id) === ownerId);
   const dependent = selectedWithId === undefined ? undefined : firstDependent(selectedPacks, selectedWithId);
-  if (selectedWithId === undefined || dependent === undefined) return "";
+  if (selectedWithId === undefined || dependent === undefined) return { note: "", fix: addOwner };
   return selectedWithId === owner
-    ? ` (it is selected only because '${packIdText(dependent.id)}' depends on it)`
-    : ` (the selected '${ownerId}' is another copy, brought in by '${packIdText(dependent.id)}')`;
+    ? { note: ` (it is selected only because '${packIdText(dependent.id)}' depends on it)`, fix: addOwner }
+    : {
+        note: ` (the selected '${ownerId}' is another copy, brought in by '${packIdText(dependent.id)}')`,
+        fix: `List the selected '${ownerId}' in packs and contribute to its point`,
+      };
 }
 
 export type Config = Contract.Config;

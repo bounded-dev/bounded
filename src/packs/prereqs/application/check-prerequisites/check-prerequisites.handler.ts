@@ -88,8 +88,8 @@ interface Outcome {
  * one of its effects must hold: a record of its required delegation whose
  * fingerprint equals its files' fingerprint now; while a run that may meet
  * it goes on over those files, it is pending. A delegation that may resolve
- * to an agent some rule requires (its requested name, ignoring case and
- * surrounding spaces) must be one whose finish the host reports, on the
+ * to an agent some rule requires (its requested name, ignoring case
+ * (lower-cased, upper-cased, then lower-cased again) and surrounding spaces) must be one whose finish the host reports, on the
  * project's own files, with a call id; its files are fingerprinted and kept
  * by call id, under the rule's required agent. After it, a run the host says
  * finished, as the required agent exactly, that succeeded, over files whose

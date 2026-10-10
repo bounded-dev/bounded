@@ -48,7 +48,8 @@ export const hostInstaller: HostInstaller = {
     return { ok: true, value: { host: "claude-code", changedPaths: [SETTINGS], skippedBecause: null } };
   },
   /**
-   * Whether .claude/settings.json holds a bounded hook, in any form an install wrote. Settings that exist
+   * Whether .claude/settings.json holds a bounded hook, in any form an install wrote; a hook whose command
+   * only contains the path of bounded's (a backup, a look-alike) is someone else's and is not an install. Settings that exist
    * but cannot be read or parsed count as installed, so a refresh runs install, which refuses and says why,
    * rather than skipping Claude Code in silence.
    */

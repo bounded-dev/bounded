@@ -1,6 +1,6 @@
-// Claude Code's PreToolUse (or PostToolUse, PostToolUseFailure) payload, read and translated into host-neutral
-// effects. Pure: no file system, no process. Paths stay as Claude Code gave
-// them; event.ts resolves them through a port.
+// Claude Code's PreToolUse, PostToolUse and PostToolUseFailure payloads, read and translated into
+// host-neutral effects; SubagentStop's payload is read in hook.ts. Pure: no file system, no process.
+// Paths stay as Claude Code gave them; event.ts resolves them through a port.
 import { isAbsolute, join } from "node:path";
 import { type Change, type DelegatedAgentRunJSON, type Refuse, type Result, type ToolKind, Verdict } from "bounded/domain";
 import picomatch from "picomatch";
@@ -15,8 +15,8 @@ export interface Payload {
   readonly callId?: string;
 }
 
-/** The hook events bounded answers. */
-export type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
+/** The hook events whose tool-call payload readPayload reads (SubagentStop's is read in hook.ts). */
+export type ToolCallHookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
 
 /** An effect with its paths still in the host's words. A Write's change depends on whether the file exists. */
 export type HostEffect =
@@ -35,14 +35,14 @@ export interface HostCall {
 
 const ok = <T>(value: T): Result<T, Refuse> => ({ ok: true, value });
 const NOT_A_CALL = "The hook's input is not a PreToolUse call: an object with tool_name and tool_input";
-const REGISTRATION = "Register bounded's hook for PreToolUse, PostToolUse and PostToolUseFailure, as the install helper does";
+const REGISTRATION = "Register bounded's hook for PreToolUse, PostToolUse, PostToolUseFailure and SubagentStop, as the install helper does";
 const refuse = (tool: string, key: string, problem: string): { ok: false; error: Refuse } => ({
   ok: false,
   error: Verdict.refuse(`Claude Code's ${tool} call ${problem}`, `Retry the call with its ${key} given as text`),
 });
 
 /** The hook's stdin for `expected`, or why it cannot be read. Only the fields the translation needs are kept. */
-export function readPayload(stdin: string, expected: HookEvent = "PreToolUse"): Result<Payload, Refuse> {
+export function readPayload(stdin: string, expected: ToolCallHookEvent = "PreToolUse"): Result<Payload, Refuse> {
   if (stdin.trim() === "") return { ok: false, error: Verdict.refuse("The hook was given no input", REGISTRATION) };
   let raw: unknown;
   try {

@@ -84,6 +84,10 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
   return { ok: true, value: out };
 }
 
+/** The path of bounded's hook, in every form an install wrote, as a whole word of a command (see isBoundedHook). */
+const BOUNDED_HOOK_PATH =
+  /(?<=^|[/'"\s])((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|src\/hosts\/claude-code\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)(?=$|[\s'";|&)<>])/;
+
 /**
  * Whether a settings hook is bounded's own Claude Code hook without a role,
  * wherever it pointed and whatever ran it: a command hook running bounded's
@@ -92,10 +96,15 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
  * earlier installs, the bounded-claude-code package's main.ts or an older
  * checkout's apps/claude-code/src/main.ts, under node or bun. Its path does
  * not count, so a moved or re-cloned project's stale entry is recognised.
+ * The hook's path must be a whole word of the command: it starts after a
+ * '/', a quote, whitespace or the start, and ends at the command's end,
+ * whitespace, a quote or a shell operator character. A command that only
+ * contains it (a backup such as main.ts.bak, a longer name, or a path that
+ * merely ends like it) is someone else's hook.
  */
 export function isBoundedHook(hook: unknown): boolean {
   if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string") return false;
-  return /((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|src\/hosts\/claude-code\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
+  return BOUNDED_HOOK_PATH.test(hook.command) && !/\s--role\s/.test(hook.command);
 }
 
 /**
