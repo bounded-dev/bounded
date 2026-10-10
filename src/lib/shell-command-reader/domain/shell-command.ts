@@ -1,7 +1,7 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, MAX_NESTING, newWorkBudget, STANDARD_INPUT, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
-import type { MeaningChange } from "./command-meanings.contract.ts";
-import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
+import { commandMeaning, FOUND_PATH, MAX_NESTING, mergeMeanings, newWorkBudget, STANDARD_INPUT, shellArgumentsMeaning, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import type { CommandMeaning, MeaningChange } from "./command-meanings.contract.ts";
+import type { PathKind, ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
 // A parsed command line as the programs it runs and the project paths it
 // reads, lists and writes: a translation that decides nothing. Programs are
@@ -12,12 +12,29 @@ import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRed
 // out of a subshell, a substitution or a pipeline stage, and leaves where
 // later commands run unknown when it may or may not have happened, or when
 // its target cannot be resolved. What only the shell can resolve is
-// reported as unresolved, never guessed at.
+// reported as unresolved, never guessed at. Every reading adds: where a word
+// only the shell can resolve could be read more than one way, each reading is
+// walked beside today's, never in its stead, and only a run in the same shell
+// (builtin, command, exec) moves where later commands run (ADR 2026-020).
 
-/** Where commands run: a project directory (its parts), or null when it cannot be known. */
+/**
+ * Where commands run: a project directory (its parts), or null when it
+ * cannot be known, and the characters carrying it costs (each directory's
+ * and one more each), counted once when it is made, so the cost is O(1).
+ */
 interface Scope {
-  at: readonly string[] | null;
+  readonly at: readonly string[] | null;
+  readonly joinedLength: number;
 }
+
+/** The only way to make a scope. */
+const scopeAt = (at: readonly string[] | null): Scope => Object.freeze({ at, joinedLength: at === null ? 0 : at.reduce((characters, directory) => characters + directory.length + 1, 0) });
+
+/** Where a shell runs now: a cd replaces the scope it holds. A copy is a new cell with the same scope, so a cd in it never reaches the original. */
+interface ScopeCell {
+  current: Scope;
+}
+const cellAt = (scope: Scope): ScopeCell => ({ current: scope });
 
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
@@ -27,8 +44,8 @@ const OUT_OF_TIME = "the command is too complex to read within the time bounded 
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
-/** What carrying where a scope runs costs (it is copied, joined and compared): a step per 8 characters of its joined path, so one long directory name costs as many directories do. */
-const joinedPathCost = (scope: Scope): number => (scope.at === null ? 0 : Math.floor(scope.at.reduce((characters, directory) => characters + directory.length + 1, 0) / 8));
+/** What carrying where a scope runs costs (it is copied, joined and compared): a step per 8 characters of its joined path, so one long directory name costs as many directories do; read from the scope, so asking costs nothing more. */
+const joinedPathCost = (scope: Scope): number => Math.floor(scope.joinedLength / 8);
 
 /**
  * The roles an input would have for the command `name` run with `words`,
@@ -46,7 +63,8 @@ function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBu
   const roles: UnresolvedWord["role"][] = [];
   if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
   if (has(meaning.lists)) roles.push("list");
-  if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === input)) roles.push("write");
+  // A moved source is deleted, so it is written too.
+  if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === input || (transfer.moves && has(transfer.sources)))) roles.push("write");
   if (meaning.location?.to === input) roles.push("directory");
   if (has(meaning.scripts) || has(meaning.unresolved)) roles.push("code");
   for (const ran of meaning.runs) {
@@ -100,16 +118,16 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
   };
 
-  /** `text` as a project path from `scope`, or undefined when only the shell could resolve it. */
-  const pathOf = (text: string, scope: Scope): ProjectPath | undefined => {
+  /** `text` as a project path from the directory `at` (its parts; null when it cannot be known), or undefined when only the shell could resolve it. */
+  const pathOf = (text: string, at: readonly string[] | null): ProjectPath | undefined => {
     let parts: string[];
     let rest = text;
     if (text.startsWith("/")) {
       if (text !== place.root && !text.startsWith(`${place.root}/`)) return undefined;
       parts = [];
       rest = text.slice(place.root.length);
-    } else if (scope.at === null) return undefined;
-    else parts = [...scope.at];
+    } else if (at === null) return undefined;
+    else parts = [...at];
     for (const part of rest.split("/")) {
       if (part === "" || part === ".") continue;
       if (part !== "..") parts.push(part);
@@ -123,7 +141,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   const resolve = (word: ShellWord, scope: Scope, role: UnresolvedWord["role"]): ProjectPath | undefined => {
     // Resolving costs a step and one more per 64 characters; once the budget is spent nothing more is kept.
     if (!spend(budget, 1 + (word.text.length >> 6) + joinedPathCost(scope))) return undefined;
-    const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
+    const path = word.kind === "literal" ? pathOf(word.text, scope.at) : undefined;
     if (path === undefined) unresolved.push({ text: word.text, role });
     return path;
   };
@@ -146,7 +164,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   /** The commands substituted in a word run in subshells of their own. */
   const substitutions = (word: ShellWord, scope: Scope): void => {
     if (word.kind === "unresolved") nested(() => {
-      for (const node of word.commands) walk(node, { at: scope.at });
+      for (const node of word.commands) walk(node, cellAt(scope));
     });
   };
 
@@ -178,9 +196,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   const command = (
     name: ShellWord | null,
     args: readonly ShellWord[],
-    scope: Scope,
-    how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord; readonly replacedBy?: ShellWord } = {},
+    cell: ScopeCell,
+    how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord; readonly replacedBy?: ShellWord; readonly written?: boolean } = {},
   ): void => {
+    const scope = cell.current;
     if (name === null || !spend(budget, 1 + args.length + joinedPathCost(scope))) return;
     const replacedBy = how.replacedBy ?? XARGS_INPUT;
     const charged = how.replace !== undefined && spend(budget, 1 + args.length + textCost(args));
@@ -193,7 +212,13 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const roles = inputName === name && !inputArgs.includes(replacedBy) ? [] : inputRoles(inputName, inputArgs, budget, replacedBy);
       for (const role of roles) unresolved.push({ text: replacedBy.text, role });
     }
-    const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args, budget);
+    // Where xargs's input would be a source of a copy or move into a directory, or a path of unknown kind, it is written there too.
+    if (how.input === true && name.kind === "literal") intoDestinations(commandMeaning(name.text, [...args, XARGS_INPUT], budget).transfers, XARGS_INPUT, scope);
+    // A program whose name only the shell can resolve, written in the script (or run from one so written), may be a wrapper or a shell:
+    // its words are also read as a shell's arguments here, and every literal-led suffix of them as a command, below (ADR 2026-020).
+    const variableNamed = how.written === true && how.standIn !== true && name.kind === "unresolved" && name !== XARGS_INPUT && name !== FOUND_PATH;
+    const own = commandMeaning(name.kind === "literal" ? name.text : "", args, budget);
+    const meaning = variableNamed ? mergeMeanings([own, shellArgumentsMeaning(args, budget)], budget) : own;
     for (const word of meaning.reads) {
       const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
@@ -212,10 +237,14 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         const from = resolve(source, scope, "read");
         if (from !== undefined) reads.push(from);
         if (from !== undefined && moves) writes.push({ path: from, change: "delete" });
+        // A moved source only the shell can name is deleted, wherever it goes.
+        if (from === undefined && moves && spend(budget)) unresolved.push({ text: source.text, role: "write" });
         if (to === undefined || !spend(budget)) continue;
-        if (place.kindOfPath(to) !== "directory") write(to, "write");
-        else if (from !== undefined) {
-          const inside = pathOf(from.value.split("/").at(-1) ?? from.value, { at: partsOf(to) });
+        const kind = place.kindOfPath(to);
+        if (kind !== "directory") write(to, "write");
+        if (from === undefined) into(to, kind, source);
+        else if (kind === "directory") {
+          const inside = pathOf(from.value.split("/").at(-1) ?? from.value, partsOf(to));
           if (inside !== undefined) write(inside, "write");
         }
       }
@@ -225,7 +254,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       // The path after <rev>: is from where the command runs when written ./ or ../, else from the repository root, which is the project root only when it holds .git.
       const text = operand.text.slice(operand.text.indexOf(":") + 1);
       const fromHere = text.startsWith("./") || text.startsWith("../");
-      const path = operand.kind === "literal" && (fromHere || repositoryAtRoot()) ? pathOf(text === "" ? "." : text, fromHere ? scope : { at: [] }) : undefined;
+      const path = operand.kind === "literal" && (fromHere || repositoryAtRoot()) ? pathOf(text === "" ? "." : text, fromHere ? scope.at : []) : undefined;
       if (path === undefined) unresolved.push({ text: operand.text, role: "read" });
       else reads.push(path);
     }
@@ -236,7 +265,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const script = word.kind === "literal" ? place.parseScript(word.text) : undefined;
       if (script === undefined || !script.ok) unresolved.push({ text: word.text, role: "code" });
       else {
-        const inside: Scope = { at: scope.at };
+        const inside = cellAt(scope);
         nested(() => {
           for (const node of script.value) walk(node, inside);
         });
@@ -244,72 +273,103 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     // A shell's script naming no project path from here may be its standard input (a link to /dev/stdin): fail closed.
-    const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope) === undefined);
+    const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope.at) === undefined);
     if (outside) unresolved.push({ text: STANDARD_INPUT.text, role: "code" });
+    // xargs's runs are its own readings, never written ones: its every-reading rule already reads them.
+    const runsWritten = how.written === true && !(name.kind === "literal" && name.text === "xargs");
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
       const inherited = ran.replace === undefined && ran.trailing === true;
       const replace = inherited ? how.replace : ran.replace;
       const replacedBy = inherited ? how.replacedBy : ran.replacedBy;
-      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }), ...(replacedBy === undefined ? {} : { replacedBy }) };
-      if (ran.directory === undefined) nested(() => command(ran.name, ran.args, scope, passed));
+      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }), ...(replacedBy === undefined ? {} : { replacedBy }), written: runsWritten };
+      // Only a run in the same shell (builtin, command, exec) moves where later commands run; any other runs in a copy.
+      if (ran.directory === undefined) nested(() => command(ran.name, ran.args, ran.sharesShell === true ? cell : cellAt(cell.current), passed));
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
-        const from = ran.directory === null ? undefined : resolve(ran.directory, scope, "directory");
-        nested(() => command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, passed));
+        const from = ran.directory === null ? undefined : resolve(ran.directory, cell.current, "directory");
+        nested(() => command(ran.name, ran.args, cellAt(scopeAt(from === undefined ? null : partsOf(from))), passed));
+      }
+    }
+    if (variableNamed) {
+      // Each literal-led suffix of its words, as a command of its own, in a copy: the program may be a wrapper (sudo, env …).
+      const suffix = { ...(how.replace === undefined ? {} : { replace: how.replace }), ...(how.replacedBy === undefined ? {} : { replacedBy: how.replacedBy }), written: true };
+      for (let index = 0; index < args.length; index++) {
+        const word = args[index] as ShellWord;
+        if (word.kind !== "literal") continue;
+        if (!spend(budget, 1 + args.length - index)) break;
+        nested(() => command(word, args.slice(index + 1), cellAt(cell.current), suffix));
       }
     }
     if (meaning.location !== undefined) {
-      const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, scope, "directory");
-      scope.at = to === undefined ? null : partsOf(to);
+      const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, cell.current, "directory");
+      cell.current = scopeAt(to === undefined ? null : partsOf(to));
     }
   };
 
-  const walk = (node: ShellNode, scope: Scope): void => {
-    if (!spend(budget, 1 + joinedPathCost(scope))) return;
+  /**
+   * A copy or move of `source`, which only the shell can name, into `to`: a
+   * directory, or a path whose kind cannot be told, may receive it under its
+   * own name, so that write is reported, unresolved (ADR 2026-020).
+   */
+  const into = (to: ProjectPath, kind: PathKind | undefined, source: ShellWord): void => {
+    if ((kind === "directory" || kind === undefined) && spend(budget)) unresolved.push({ text: to.value === "." ? source.text : `${to.value}/${source.text}`, role: "write" });
+  };
+
+  /** The transfers whose sources hold `input` (xargs's), each into its destination when that resolves from `scope`. */
+  const intoDestinations = (transfers: CommandMeaning["transfers"], input: ShellWord, scope: Scope): void => {
+    for (const { sources, destination } of transfers) {
+      if (!sources.includes(input) || !spend(budget, 1 + joinedPathCost(scope))) continue;
+      const to = destination.kind === "literal" ? pathOf(destination.text, scope.at) : undefined;
+      if (to !== undefined) into(to, place.kindOfPath(to), input);
+    }
+  };
+
+  const walk = (node: ShellNode, cell: ScopeCell): void => {
+    if (!spend(budget, 1 + joinedPathCost(cell.current))) return;
     switch (node.kind) {
       case "command": {
-        for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);
-        command(node.name, node.args, scope, { standIn: node.standIn === true });
-        for (const each of node.redirects) redirect(each, scope);
+        for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, cell.current);
+        command(node.name, node.args, cell, { standIn: node.standIn === true, written: true });
+        for (const each of node.redirects) redirect(each, cell.current);
         return;
       }
       case "list": {
         if (node.operator === "&") {
-          walk(node.left, { at: scope.at });
-          walk(node.right, scope);
+          walk(node.left, cellAt(cell.current));
+          walk(node.right, cell);
         } else if (node.operator === "||") {
           // The right side runs only when the left failed, so from where the left started.
-          const before = scope.at;
-          walk(node.left, scope);
-          const right: Scope = { at: before };
+          const before = cell.current;
+          walk(node.left, cell);
+          const right = cellAt(before);
           walk(node.right, right);
-          scope.at = sameAt(scope.at, before) && sameAt(right.at, before) ? before : null;
+          cell.current = sameAt(cell.current.at, before.at) && sameAt(right.current.at, before.at) ? before : scopeAt(null);
         } else {
-          walk(node.left, scope);
-          walk(node.right, scope);
+          walk(node.left, cell);
+          walk(node.right, cell);
         }
         return;
       }
       case "pipeline":
-        for (const stage of node.stages) walk(stage, { at: scope.at });
+        for (const stage of node.stages) walk(stage, cellAt(cell.current));
         return;
       case "subshell": {
-        const inside: Scope = { at: scope.at };
+        const inside = cellAt(cell.current);
         for (const inner of node.body) walk(inner, inside);
         return;
       }
       case "group":
         for (const each of node.redirects) {
-          substitutions(each.target, scope);
-          redirect(each, scope);
+          substitutions(each.target, cell.current);
+          redirect(each, cell.current);
         }
-        for (const inner of node.body) walk(inner, scope);
+        for (const inner of node.body) walk(inner, cell);
         return;
       case "conditional": {
-        const maybe: Scope = { at: scope.at };
+        const maybe = cellAt(cell.current);
         for (const inner of node.body) walk(inner, maybe);
-        if (!sameAt(maybe.at, scope.at)) scope.at = null;
+        if (!sameAt(maybe.current.at, cell.current.at)) cell.current = scopeAt(null);
         return;
       }
       case "unparsed":
@@ -325,7 +385,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     return kind !== undefined && kind !== "absent";
   };
 
-  const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
+  const start = cellAt(scopeAt(place.cwd === null ? [] : partsOf(place.cwd)));
   for (const node of script) walk(node, start);
   // A last look at the time: a reading finished past it is not trusted either.
   if (!budget.exhausted && budget.outOfTime()) {

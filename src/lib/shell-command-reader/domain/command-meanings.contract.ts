@@ -41,6 +41,19 @@ export interface CommandMeaning {
     readonly replacedBy?: ShellWord;
     /** The run's words are the last of the command's (a wrapper's, builtin's or git -C's), so words appended to the command, such as xargs's input, are appended to it. */
     readonly trailing?: true;
+    /**
+     * It runs in the same shell (builtin, command and exec's own reading), so
+     * a cd it makes moves where later commands run. Every other run runs in
+     * a copy of where it was started: a child process's cd never moves the
+     * shell (ADR 2026-020).
+     */
+    readonly sharesShell?: true;
+    /**
+     * A run a plausible reading adds beside today's, where a word only the
+     * shell can resolve could be read more than one way: every reading adds,
+     * and none replaces another (ADR 2026-020).
+     */
+    readonly added?: true;
   }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];

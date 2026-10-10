@@ -96,21 +96,134 @@ function transfer(args: readonly ShellWord[], moves: boolean): CommandMeaning {
   return meaning({ transfers: [{ sources, destination, moves }] });
 }
 
-/** The command a wrapper runs: its words after the wrapper's own options. */
-function runs(args: readonly ShellWord[], optionsWithValues: readonly string[] = []): CommandMeaning {
-  for (let index = 0; index < args.length; index++) {
-    const word = args[index] as ShellWord;
-    const text = literal(word);
-    if (text === "--") return run(args.slice(index + 1));
-    if (text !== undefined && optionsWithValues.includes(text)) index++;
-    else if (!isOption(word)) return run(args.slice(index));
-  }
-  return NONE;
+/** A command a command runs, as its meaning gives it. */
+type Run = CommandMeaning["runs"][number];
+
+/** A word's key: its kind and its text, so a literal never stands for an unresolved word of the same text. */
+const wordKey = (word: ShellWord): string => `${word.kind}:${word.text}`;
+
+/** A run's key: everything that makes it run differently (ADR 2026-020's one dedupe key). */
+function runKey(run: Run): string {
+  const directory = run.directory === undefined ? "absent" : run.directory === null ? null : wordKey(run.directory);
+  return JSON.stringify([
+    wordKey(run.name),
+    run.args.map(wordKey),
+    directory,
+    run.trailing === true,
+    run.input === true,
+    run.replace === undefined ? null : wordKey(run.replace),
+    run.replacedBy === undefined ? null : wordKey(run.replacedBy),
+    run.sharesShell === true,
+  ]);
 }
-const run = (words: readonly ShellWord[]): CommandMeaning => {
-  const [name, ...args] = words;
-  return name === undefined ? NONE : meaning({ runs: [{ name, args, trailing: true }] });
-};
+
+/**
+ * `runs` with every repeat dropped, by the one key, each key charged its
+ * words and their text; where an added run and one that is not share a key,
+ * the one that is not is kept, where the first stood.
+ */
+function withoutRepeatedRuns(runs: readonly Run[], budget: WorkBudget): Run[] {
+  const kept: Run[] = [];
+  const at = new Map<string, number>();
+  for (const run of runs) {
+    const words = [run.name, ...run.args];
+    if (!spend(budget, 1 + words.length + textCost(words))) return kept;
+    const key = runKey(run);
+    const index = at.get(key);
+    if (index === undefined) {
+      at.set(key, kept.length);
+      kept.push(run);
+    } else if (kept[index]?.added === true && run.added !== true) kept[index] = run;
+  }
+  return kept;
+}
+
+/** `words` with every repeat (the same kind and text) dropped, each key charged. */
+function withoutRepeatedWords(words: readonly ShellWord[], budget: WorkBudget): ShellWord[] {
+  const kept: ShellWord[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    if (!spend(budget, 1 + textCost([word]))) return kept;
+    const key = wordKey(word);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(word);
+  }
+  return kept;
+}
+
+/**
+ * The meanings of every plausible reading of one command as one: each part
+ * the union of theirs; runs, scripts, reads and code deduplicated by their
+ * keys, charged (ADR 2026-020). Nothing any reading gives is dropped.
+ */
+export function mergeMeanings(meanings: readonly CommandMeaning[], budget: WorkBudget): CommandMeaning {
+  const standardInputUnlessInProject = meanings.flatMap((each) => each.standardInputUnlessInProject ?? []);
+  const location = meanings.find((each) => each.location !== undefined)?.location;
+  return meaning({
+    reads: withoutRepeatedWords(
+      meanings.flatMap((each) => each.reads),
+      budget,
+    ),
+    lists: meanings.flatMap((each) => each.lists),
+    writes: meanings.flatMap((each) => each.writes),
+    transfers: meanings.flatMap((each) => each.transfers),
+    runs: withoutRepeatedRuns(
+      meanings.flatMap((each) => each.runs),
+      budget,
+    ),
+    scripts: withoutRepeatedWords(
+      meanings.flatMap((each) => each.scripts),
+      budget,
+    ),
+    repositoryReads: meanings.flatMap((each) => each.repositoryReads),
+    unresolved: withoutRepeatedWords(
+      meanings.flatMap((each) => each.unresolved),
+      budget,
+    ),
+    ...(standardInputUnlessInProject.length === 0 ? {} : { standardInputUnlessInProject }),
+    ...(location === undefined ? {} : { location }),
+  });
+}
+
+/**
+ * builtin, command and exec: the command they run, their words after their
+ * own options, in the same shell (sharesShell). A word only the shell can
+ * resolve where their options are is read every way (ADR 2026-020): as the
+ * command (today's reading, the one that shares the shell), as an option
+ * that gives nothing, or as one that takes the next word; each other
+ * reading is added, runs in a copy of the shell's place, and is charged.
+ */
+function runs(args: readonly ShellWord[], budget: WorkBudget, optionsWithValues: readonly string[] = []): CommandMeaning {
+  const ran: Run[] = [];
+  const seen = new Set<number>();
+  const from = (start: number, added: boolean): void => {
+    if (seen.has(start)) return;
+    seen.add(start);
+    if (!spend(budget, 1 + Math.max(args.length - start, 0))) return;
+    const run = (index: number): void => {
+      const [name, ...rest] = args.slice(index);
+      if (name !== undefined) ran.push({ name, args: rest, trailing: true, ...(added ? { added: true as const } : { sharesShell: true as const }) });
+    };
+    for (let index = start; index < args.length; index++) {
+      const word = args[index] as ShellWord;
+      const text = literal(word);
+      if (text === undefined) {
+        run(index);
+        from(index + 1, true);
+        from(index + 2, true);
+        return;
+      }
+      if (text === "--" || !isOption(word)) {
+        run(text === "--" ? index + 1 : index);
+        return;
+      }
+      if (optionsWithValues.includes(text)) index++;
+    }
+  };
+  from(0, false);
+  return meaning({ runs: withoutRepeatedRuns(ran, budget) });
+}
 
 /**
  * A wrapper that runs the rest of its words as a command (sudo, env,
@@ -125,40 +238,129 @@ interface WrapperOptions {
   readonly directory?: readonly string[];
   /** Options whose value is a command line of its own (env -S). */
   readonly script?: readonly string[];
+  /** The wrapper's own name, when a literal script string is also walked through the wrapper itself (env -S). */
+  readonly name?: string;
 }
 
+/** The letters of the short options (-u, -C) among `options`. */
+const lettersOf = (options: readonly string[]): string =>
+  options
+    .filter((option) => /^-[^-]$/.test(option))
+    .map((option) => option.charAt(1))
+    .join("");
+/** The long option among `options` that `text` is, alone or with =value. */
+const longOptionOf = (options: readonly string[], text: string): string | undefined => options.find((option) => option.startsWith("--") && (text === option || text.startsWith(`${option}=`)));
+/** What a script string may hold that splitting it on spaces would read wrongly: quotes, backslashes and ${. */
+const NOT_SPLIT = /['"\\]|\$\{/;
+
+/**
+ * A wrapper's words, read every way they could be (ADR 2026-020). Its own
+ * options are walked as getopt walks them: a short cluster letter by letter,
+ * a letter that takes a value taking the rest of its word, or the next word
+ * when it ends the cluster (sudo -Eu root, env -iu VAR). A word only the
+ * shell can resolve where its options are is read as what today's walk takes
+ * it for (the command, or timeout's duration) and also, each an added
+ * reading, as a word that gives nothing, as an option that takes the next
+ * word and, for a wrapper with a directory option, as that option with its
+ * value attached (from nowhere known) or in the next word. Readings are
+ * memoised by where they start, the directory and the leading operands
+ * left, and each is charged the words left.
+ */
 function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
-  return (args: readonly ShellWord[]): CommandMeaning => {
-    let leading = options.leading ?? 0;
-    let directory: ShellWord | undefined;
-    const ran = (words: readonly ShellWord[]): CommandMeaning => {
-      const [name, ...rest] = words;
-      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, trailing: true, ...(directory === undefined ? {} : { directory }) }] });
-    };
-    for (let index = 0; index < args.length; index++) {
-      const word = args[index] as ShellWord;
-      const text = literal(word);
-      if (text === "--") return ran(args.slice(index + 1));
-      if (text?.startsWith("-") === true && text !== "-") {
-        const scriptOption = (options.script ?? []).find((option) => text === option || attached(text, option) !== undefined);
-        if (scriptOption !== undefined) {
-          // The command is the string; any words after it are handed to it, unresolved here.
-          const value = attached(text, scriptOption);
-          const code = value === undefined ? args[index + 1] : literalWord(value);
-          return code === undefined ? NONE : meaning({ scripts: [code], unresolved: args.slice(index + (value === undefined ? 2 : 1)) });
+  const valueLetters = lettersOf(withValues);
+  const directoryLetters = lettersOf(options.directory ?? []);
+  const scriptLetters = lettersOf(options.script ?? []);
+  return (args: readonly ShellWord[], budget: WorkBudget): CommandMeaning => {
+    const ran: Run[] = [];
+    const scripts: ShellWord[] = [];
+    const unresolved: ShellWord[] = [];
+    const seen = new Set<string>();
+    const from = (start: number, directory: ShellWord | null | undefined, leadingLeft: number, added: boolean): void => {
+      const key = `${start}/${directory === undefined ? "absent" : directory === null ? "null" : wordKey(directory)}/${leadingLeft}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (!spend(budget, 1 + Math.max(args.length - start, 0))) return;
+      let leading = leadingLeft;
+      let at = directory;
+      const marks = () => ({ trailing: true as const, ...(at === undefined ? {} : { directory: at }), ...(added ? { added: true as const } : {}) });
+      const run = (index: number): void => {
+        const [name, ...rest] = args.slice(index);
+        if (name !== undefined) ran.push({ name, args: rest, ...marks() });
+      };
+      /** A script option's value: the string is code, the words after it handed to it, unresolved; added, they run as a command, and a literal string is walked through the wrapper itself. */
+      const script = (code: ShellWord | undefined, after: number): void => {
+        if (code === undefined) return;
+        const trailing = args.slice(after);
+        scripts.push(code);
+        unresolved.push(...trailing);
+        const [name, ...rest] = trailing;
+        if (name !== undefined) ran.push({ name, args: rest, ...marks(), added: true });
+        if (options.name !== undefined && code.kind === "literal" && !NOT_SPLIT.test(code.text)) {
+          const split = code.text
+            .split(/[ \t\n]+/)
+            .filter((each) => each !== "")
+            .map(literalWord);
+          ran.push({ name: literalWord(options.name), args: [...split, ...trailing], ...marks(), added: true });
         }
-        const directoryOption = (options.directory ?? []).find((option) => text === option || attached(text, option) !== undefined);
-        if (directoryOption !== undefined) {
-          const value = attached(text, directoryOption);
-          directory = value === undefined ? args[++index] : literalWord(value);
+      };
+      for (let index = start; index < args.length; index++) {
+        const word = args[index] as ShellWord;
+        const text = literal(word);
+        if (text === undefined) {
+          // Only the shell can resolve it: every way it could be read, today's first.
+          if (leading > 0) from(index + 1, at, leading - 1, added);
+          else run(index);
+          // It gives nothing; or it is the directory option with its value attached, from nowhere known.
+          from(index + 1, at, leading, true);
+          if (options.directory !== undefined) from(index + 1, null, leading, true);
+          // It takes the next word; or it is the directory option, the next word its value.
+          from(index + 2, at, leading, true);
+          const value = args[index + 1];
+          if (options.directory !== undefined && value !== undefined) from(index + 2, value, leading, true);
+          return;
+        }
+        if (text === "--") {
+          run(index + 1);
+          return;
+        }
+        if (text.startsWith("--")) {
+          const scriptOption = longOptionOf(options.script ?? [], text);
+          if (scriptOption !== undefined) {
+            if (text === scriptOption) script(args[index + 1], index + 2);
+            else script(literalWord(text.slice(scriptOption.length + 1)), index + 1);
+            return;
+          }
+          const directoryOption = longOptionOf(options.directory ?? [], text);
+          if (directoryOption !== undefined) at = text === directoryOption ? args[++index] : literalWord(text.slice(directoryOption.length + 1));
+          else if (withValues.includes(text)) index++;
           continue;
         }
-        if (withValues.includes(text)) index++;
-      } else if (options.assignments === true && text !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
-      else if (leading > 0) leading--;
-      else return ran(args.slice(index));
-    }
-    return NONE;
+        if (text.startsWith("-") && text !== "-") {
+          // A short cluster, as getopt reads it.
+          for (let letter = 1; letter < text.length; letter++) {
+            const char = text.charAt(letter);
+            if (!valueLetters.includes(char) && !directoryLetters.includes(char) && !scriptLetters.includes(char)) continue;
+            const rest = text.slice(letter + 1);
+            const value = rest === "" ? args[++index] : literalWord(rest);
+            if (scriptLetters.includes(char)) {
+              script(value, index + 1);
+              return;
+            }
+            if (directoryLetters.includes(char)) at = value;
+            break;
+          }
+          continue;
+        }
+        if (options.assignments === true && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
+        if (leading > 0) leading--;
+        else {
+          run(index);
+          return;
+        }
+      }
+    };
+    from(0, undefined, options.leading ?? 0, false);
+    return meaning({ runs: withoutRepeatedRuns(ran, budget), scripts: withoutRepeatedWords(scripts, budget), unresolved: withoutRepeatedWords(unresolved, budget) });
   };
 }
 
@@ -199,19 +401,50 @@ function find(args: readonly ShellWord[]): CommandMeaning {
  * git: what its subcommand does with its operands. `-C dir` runs the rest
  * from dir, as `cd dir && git …` does (a later -C from the one before), the
  * way env -C runs its command: from nowhere known when dir cannot be resolved.
+ * A word only the shell can resolve where its global options are is read
+ * every way (ADR 2026-020): as the subcommand (today's reading), and, each
+ * added and charged, as an option that gives nothing, one that takes the
+ * next word, -C with its directory attached (from nowhere known) or in the
+ * next word.
  */
-function git(args: readonly ShellWord[]): CommandMeaning {
-  let index = 0;
-  for (; index < args.length; index++) {
-    const text = literal(args[index]);
-    if (text === "-C") {
-      const directory = args[index + 1];
-      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory, trailing: true }] });
+function git(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
+  const readings: CommandMeaning[] = [];
+  const seen = new Set<number>();
+  const gitFrom = (directory: ShellWord | null, rest: readonly ShellWord[], added: boolean): CommandMeaning =>
+    meaning({ runs: [{ name: literalWord("git"), args: rest, directory, trailing: true, ...(added ? { added: true as const } : {}) }] });
+  const from = (start: number, added: boolean): void => {
+    if (seen.has(start)) return;
+    seen.add(start);
+    if (!spend(budget, 1 + Math.max(args.length - start, 0))) return;
+    let index = start;
+    for (; index < args.length; index++) {
+      const text = literal(args[index]);
+      if (text === "-C") {
+        const directory = args[index + 1];
+        if (directory !== undefined) readings.push(gitFrom(directory, args.slice(index + 2), added));
+        return;
+      }
+      if (text === undefined) {
+        readings.push(subcommandMeaning(args, index));
+        from(index + 1, true);
+        from(index + 2, true);
+        readings.push(gitFrom(null, args.slice(index + 1), true));
+        const directory = args[index + 1];
+        if (directory !== undefined) readings.push(gitFrom(directory, args.slice(index + 2), true));
+        return;
+      }
+      // Global options git accepts with their value as the next word (checked against git 2.54).
+      if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace" || text === "--config-env" || text === "--attr-source") index++;
+      else if (!text.startsWith("-")) break;
     }
-    // Global options git accepts with their value as the next word (checked against git 2.54).
-    if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace" || text === "--config-env" || text === "--attr-source") index++;
-    else if (text === undefined || !text.startsWith("-")) break;
-  }
+    readings.push(subcommandMeaning(args, index));
+  };
+  from(0, false);
+  return readings.length === 1 && readings[0] !== undefined ? readings[0] : mergeMeanings(readings, budget);
+}
+
+/** What git's subcommand at `index` does with the words after it. */
+function subcommandMeaning(args: readonly ShellWord[], index: number): CommandMeaning {
   const subcommand = literal(args[index]);
   const rest = args.slice(index + 1);
   // <rev>:<path> names a path in the repository (git show HEAD:.env, git cat-file -p :.env).
@@ -302,7 +535,18 @@ function shell(name: string, args: readonly ShellWord[], budget: WorkBudget): Co
       walk(index + 1 + owed, 0, code, standardInput, 0);
       return;
     }
-    if (index >= args.length || text === undefined || !/^[-+]/.test(text)) done(index);
+    if (text === undefined && index < args.length) {
+      // A word only the shell can resolve where the options are: the script or code (today's reading), and, each charged the words
+      // left, a cluster that may hold c or s, or an option that takes the next word, in every state (ADR 2026-020).
+      done(index);
+      if (!spend(budget, 1 + args.length - index)) return;
+      for (const mayRunCode of [code, true]) {
+        for (const mayReadStandardInput of [standardInput, true]) {
+          walk(index + 1, 0, mayRunCode, mayReadStandardInput, 0);
+          walk(index + 2, 0, mayRunCode, mayReadStandardInput, 0);
+        }
+      }
+    } else if (index >= args.length || text === undefined || !/^[-+]/.test(text)) done(index);
     // '-' before an operand ends the options, the operand being the script; alone, it is the script, standard input.
     else if (text === "-") done(index + 1 < args.length ? index + 1 : index);
     else if (text === "--") done(index + 1);
@@ -328,14 +572,29 @@ function shell(name: string, args: readonly ShellWord[], budget: WorkBudget): Co
   for (const { from, code, standardInput: given } of outcomes.values()) {
     const first = args[from];
     if (code) {
-      if (first !== undefined && !scripts.includes(first)) scripts.push(first);
+      if (first !== undefined) scripts.push(first);
       continue;
     }
     if (first === undefined || given || mayBeStandardInput(literal(first))) standardInput = true;
-    if (first !== undefined && !reads.includes(first)) reads.push(first);
-    if (first !== undefined && !maybeStandardInput.includes(first)) maybeStandardInput.push(first);
+    if (first !== undefined) reads.push(first);
+    if (first !== undefined) maybeStandardInput.push(first);
   }
-  return meaning({ scripts, reads, unresolved: standardInput ? [STANDARD_INPUT] : [], ...(standardInput ? {} : { standardInputUnlessInProject: maybeStandardInput }) });
+  return meaning({
+    scripts: withoutRepeatedWords(scripts, budget),
+    reads: withoutRepeatedWords(reads, budget),
+    unresolved: standardInput ? [STANDARD_INPUT] : [],
+    ...(standardInput ? {} : { standardInputUnlessInProject: withoutRepeatedWords(maybeStandardInput, budget) }),
+  });
+}
+
+/**
+ * A program whose name only the shell can resolve may be a shell ("$SHELL"
+ * -c '…'): its words read as a shell's arguments, every way any shell reads
+ * its options, charged as a command's words are (ADR 2026-020).
+ */
+export function shellArgumentsMeaning(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
+  if (!spend(budget, 1 + args.length + textCost(args))) return NONE;
+  return shell("", args, budget);
 }
 
 /** bash's long options that take a file as their value (the next word, or =value): it reads that file at startup. */
@@ -395,20 +654,15 @@ function curl(args: readonly ShellWord[]): CommandMeaning {
  * operands: the strictest verdict wins, and nothing leaves judgement.
  */
 function xargs(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
-  const ran: { name: ShellWord; args: ShellWord[]; input?: true; replace?: ShellWord }[] = [];
+  const ran: Run[] = [];
   const reads: ShellWord[] = [];
-  const seen = new Set<string>();
   for (const reading of xargsReadings(args, 0, { replace: undefined, argFiles: [] }, budget)) {
     reads.push(...reading.argFiles, ...reading.operands);
     const [name, ...rest] = reading.command;
-    if (name === undefined) continue;
-    if (!spend(budget, 1 + rest.length + textCost(rest))) break;
-    const key = JSON.stringify([name.text, rest.map((word) => word.text), reading.replace?.text ?? null]);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    ran.push({ name, args: rest, ...(reading.replace === undefined ? { input: true as const } : { replace: reading.replace }) });
+    if (name !== undefined) ran.push({ name, args: rest, ...(reading.replace === undefined ? { input: true as const } : { replace: reading.replace }) });
   }
-  return meaning({ runs: ran, reads: [...new Set(reads)] });
+  // The one dedupe key, each key charged (ADR 2026-020).
+  return meaning({ runs: withoutRepeatedRuns(ran, budget), reads: [...new Set(reads)] });
 }
 
 /** The arguments xargs reads from its input, as one word only the run can resolve. */
@@ -605,15 +859,15 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBu
   popd: () => meaning({ location: { to: null } }),
   sudo: wrapper(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"], { assignments: true, directory: ["-D", "--chdir"] }),
   doas: wrapper(["-u", "-C"]),
-  env: wrapper(["-u", "--unset"], { assignments: true, directory: ["-C", "--chdir"], script: ["-S", "--split-string"] }),
+  env: wrapper(["-u", "--unset"], { assignments: true, directory: ["-C", "--chdir"], script: ["-S", "--split-string"], name: "env" }),
   timeout: wrapper(["-s", "--signal", "-k", "--kill-after"], { leading: 1 }),
   nice: wrapper(["-n", "--adjustment"]),
   nohup: wrapper([]),
   stdbuf: wrapper(["-i", "-o", "-e", "--input", "--output", "--error"]),
   ionice: wrapper(["-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"]),
-  builtin: (args) => runs(args),
-  exec: (args) => runs(args, ["-a"]),
-  command: (args) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args)),
+  builtin: (args, budget) => runs(args, budget),
+  exec: (args, budget) => runs(args, budget, ["-a"]),
+  command: (args, budget) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args, budget)),
   xargs,
   eval: (args) => meaning({ unresolved: args }),
   python: inlineCode("c", "WXQm"),
