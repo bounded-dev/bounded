@@ -126,7 +126,7 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
           return Verdict.refuse(`${PREFIX} ${rule} over the project's own files, and this delegation runs ${agent} isolated, on a separate copy of them`, `Run ${agent} without isolation, on the project's own files`);
         }
         if (delegation.finishUnreported === true) {
-          return Verdict.refuse(`${PREFIX} ${rule} to be seen finishing, and the host will not report when this run of ${agent} finishes`, `Run ${agent} as a run whose finish the host reports (not as a teammate or an asynchronous run)`);
+          return Verdict.refuse(`${PREFIX} ${rule} to be seen finishing, and the host will not report when this run of ${agent} finishes`, `Run ${agent} as a new run whose finish the host reports`);
         }
         if (call.callId === undefined) return Verdict.refuse(`${PREFIX} this delegation to ${agent} has no call id, so its result could not be paired with it`, HOST);
       }
