@@ -148,6 +148,13 @@ ports above, and the pack saves `.bounded/prereqs/status.json` after every
 call and finish. `BasePack` gains `optionalPorts`, so a hand-built look-alike
 must give it; packs built with `definePack` are unchanged.
 
+`bounded` also ships the prereqs status band, a Claude Code plugin that
+draws that status above the prompt: each requirement's status and the next
+blocked action, or why there is none to show. It is not installed; load it
+from the project's root with
+`claude --plugin-dir node_modules/bounded/dist/hosts/claude-code/prereqs-status-band`
+(see `docs/adapter-claude-code.md` in the repository).
+
 An execute effect without a reading is refused; one whose command could not
 be read carries why, and the protected-paths pack refuses it. A host with a
 shell of its own may write its own reader of the `ShellCommandReader` port

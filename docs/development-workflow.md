@@ -70,6 +70,17 @@ every role in turn, as long as the red commit and the checks stay mechanical.
 (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Biome's
 linter, and `bun test`, which includes the architecture test and the
 compile-time fixtures that prove an undeclared contribution does not compile.
+
+A change that touches the prereqs status band
+(`src/hosts/claude-code/prereqs-status-band/`, ADR 2026-027) also runs
+`bun run check:prereqs-status-band` before final review, and hands its
+output to the final reviewer: Claude Code validates the band, runs its
+plugin tests and type-checks it against its own declarations. It needs
+`claude` on `PATH`, so it is not part of `bun run check`. The band's plugin
+tests run only under Claude Code, so the red-first check does not see them:
+commit them alone, before the band's code, and keep `claude plugin test`'s
+failing output at that commit for the reviewer.
+
 Mutation testing (StrykerJS, as `bun run mutate`) is planned for a later
 slice; once it exists, run it before final review and give the reviewer the
 surviving mutants.
