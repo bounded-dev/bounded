@@ -109,7 +109,7 @@ describe("bounded-example's catalogue and README", () => {
       expect({ example: examplePath, contributes: contributed.length > 0 }).toEqual({ example: examplePath, contributes: true });
       for (const wire of contributed) expect({ example: examplePath, wire, ...validatesAgainst(catalogue, wire) }).toEqual({ example: examplePath, wire, valid: true, errors: "No errors" });
     }
-    for (const rejected of [{ tool: "x" }, { tool: "x", redirect: "y", extra: 1 }, { redirect: "y" }]) {
+    for (const rejected of [{ tool: "x" }, { tool: "x", redirect: "y", extra: 1 }, { redirect: "y" }, { tool: "WebFetch", redirect: "y" }]) {
       expect({ rejected, valid: validatesAgainst(catalogue, rejected).valid }).toEqual({ rejected, valid: false });
     }
   });

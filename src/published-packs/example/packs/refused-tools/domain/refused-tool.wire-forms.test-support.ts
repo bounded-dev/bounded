@@ -6,7 +6,7 @@
 
 /** Every wire form of a refused tool the concept tests accept. */
 export const refusedToolWireForms: readonly unknown[] = [
-  { tool: "WebFetch", redirect: "Read the docs in docs/ instead" },
+  { tool: "web", redirect: "Read the docs in docs/ instead" },
   { tool: "shell", redirect: "Use the file tools; ask a person to run commands" },
-  { tool: "mcp__browser__open", redirect: "Ask a person to look the page up" },
+  { tool: "subagent", redirect: "Do the work in this session" },
 ];

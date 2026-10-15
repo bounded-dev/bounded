@@ -102,17 +102,17 @@ const CONFIG = [
   'import { refusedToolsPack } from "bounded-example";',
   "export default defineConfig({",
   "  packs: [refusedToolsPack],",
-  '  contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "WebFetch", redirect: "Read docs/ instead" }])],',
+  '  contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "web", redirect: "Read docs/ instead" }])],',
   "});",
   "",
 ].join("\n");
 
-/** What a Node script opening `project` with bounded/open-project prints: the problem, and the verdicts for a WebFetch and a read. */
+/** What a Node script opening `project` with bounded/open-project prints: the problem, and the verdicts for a web tool use and a read. */
 function judgedUnderNode(project: string): { readonly problem: unknown; readonly listed: { kind: string; redirect?: string }; readonly unlisted: { kind: string } } {
   const script = [
     'const { openProject } = await import("bounded/open-project");',
     "const { judge, problem } = await openProject(process.cwd());",
-    'const listed = await judge({ kind: "tool-use", role: null, tool: "WebFetch", effects: [{ kind: "fetch", url: "https://example.com" }] });',
+    'const listed = await judge({ kind: "tool-use", role: null, tool: "web", effects: [{ kind: "fetch", url: "https://example.com" }] });',
     'const unlisted = await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "README.md" }] });',
     "console.log(JSON.stringify({ problem, listed, unlisted }));",
   ].join("\n");
@@ -249,7 +249,7 @@ describe("the published packs, each its own npm package", () => {
   test("a consumer's tsc compiles a configuration selecting the published pack against the packed declarations, and rejects a contribution to its point when the pack is not listed", () => {
     const project = projectWithExample();
     const imports = 'import { contribution, corePack, defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\n';
-    const rule = '[{ tool: "WebFetch", redirect: "Read docs/ instead" }]';
+    const rule = '[{ tool: "web", redirect: "Read docs/ instead" }]';
     writeFileSync(join(project, "accepted.ts"), `${imports}export default defineConfig({ packs: [corePack, refusedToolsPack], contributes: [contribution(refusedToolsPack.points.refusedTools, ${rule})] });\n`);
     writeFileSync(join(project, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(refusedToolsPack.points.refusedTools, ${rule})] });\n`);
     const tsc = (files: string[], options: Record<string, unknown>) => {

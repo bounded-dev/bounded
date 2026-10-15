@@ -70,18 +70,18 @@ describe("bounded-example, a published pack's package, end to end", () => {
       'import { refusedToolsPack } from "bounded-example";',
       "export default defineConfig({",
       "  packs: [refusedToolsPack],",
-      '  contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "WebFetch", redirect: "Read docs/ instead" }])],',
+      '  contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "web", redirect: "Read docs/ instead" }])],',
       "});",
       "",
     ].join("\n");
     const root = projectWithConfig(config);
     const { judge, problem } = await openProject(root);
     expect(problem).toBeNull();
-    const refused = await judge({ kind: "tool-use", role: null, tool: "WebFetch", effects: [{ kind: "fetch", url: "https://example.com" }] });
+    const refused = await judge({ kind: "tool-use", role: null, tool: "web", effects: [{ kind: "fetch", url: "https://example.com" }] });
     expect(refused.kind).toBe("refuse");
     if (refused.kind !== "refuse") return;
     expect(refused.reason).toContain("bounded-example/refused-tools");
-    expect(refused.reason).toContain("WebFetch");
+    expect(refused.reason).toContain("tool kind 'web'");
     expect(refused.redirect).toBe("Read docs/ instead");
     const allowed = await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "README.md" }] });
     expect(allowed.kind).toBe("allow");
