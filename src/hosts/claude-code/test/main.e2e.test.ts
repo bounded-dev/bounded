@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readStatusFile } from "../prereqs-status-band/hooks/prereqs-status-file.ts";
 
 const APP = join(import.meta.dir, "..");
 // Snapshots go to the user's state directory: a temporary one here, which the hook processes inherit.
@@ -214,7 +215,33 @@ export default defineConfig({
     spawnSync("git", ["init", "--quiet"], { cwd: project });
     return project;
   }
+  /** A git project selecting bounded/prereqs: a Bash `terraform apply` needs plan-reviewer, the captured payloads' agent, to have succeeded over the current infra/. */
+  function infraProject(): string {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-infra-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(join(APP, "..", ".."), join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "infra"));
+    writeFileSync(join(project, "infra", "main.tf"), "terraform {}\n");
+    writeFileSync(join(project, ".gitignore"), "node_modules/\n.bounded/\n");
+    writeFileSync(
+      join(project, "bounded.config.ts"),
+      `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { prereqs } from "bounded/prereqs";
+export default defineConfig({
+  packs: [corePack, prereqs],
+  contributes: [contribution(prereqs.points.rules, [{ before: { execute: "terraform apply" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have plan-reviewer review the current infra/ changes" }])],
+});
+`,
+    );
+    spawnSync("git", ["init", "--quiet"], { cwd: project });
+    return project;
+  }
   const writeSrc = (project: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(project, "src", "a.ts"), content: "x" }, cwd: project, tool_use_id: "toolu_write" });
+  /** A Bash PreToolUse running `command` in `project`. */
+  const bash = (project: string, command: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s", tool_use_id: "toolu_bash" });
+  /** A Read of plan.md that finished: a PostToolUse, which makes the hook write the status file afresh. */
+  const readPostToolUse = (project: string): string =>
+    JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: join(project, "plan.md") }, tool_response: { type: "text" }, cwd: project, tool_use_id: "toolu_read" });
   const hookIn = (project: string) => (stdin: string) => run("main.ts", stdin, APP, 10_000, project);
   const reasonOf = (stdout: string): string => (stdout === "" ? "allowed" : JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason);
 
@@ -287,6 +314,91 @@ export default defineConfig({
       const verdict = reasonOf((await hook(writeSrc(project))).stdout);
       expect(verdict).toContain("started at");
       expect(verdict).not.toBe("allowed");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  const NOT_YET_SRC =
+    "bounded/prereqs.rules: bounded/project's rule before write 'src/**' requires a delegation to plan-reviewer that succeeded over the current 'plan.md', and plan-reviewer has not succeeded over them. This call would write (modify) src/a.ts\nHave plan-reviewer review the current plan";
+  const STALE_SRC = NOT_YET_SRC.replace("plan-reviewer has not succeeded over them", "plan-reviewer succeeded over them, but they have changed since");
+
+  test("with bounded/prereqs: a finished review stops counting once plan.md is edited: denied, reviewed, allowed, then denied as changed since", async () => {
+    const project = prereqsProject("plan-reviewer");
+    try {
+      const hook = hookIn(project);
+      expect((await hook(writeSrc(project))).stdout).toBe(deny(NOT_YET_SRC));
+      expect((await hook(captured("background-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("background-post-tool-use.json", project))).stdout).toBe("");
+      const stop = await hook(captured("background-subagent-stop.json", project));
+      expect(stop.stdout).toBe("");
+      expect(stop.exitCode).toBe(0);
+      expect((await hook(writeSrc(project))).stdout).toBe("");
+      writeFileSync(join(project, "plan.md"), "the plan, edited\n");
+      expect((await hook(writeSrc(project))).stdout).toBe(deny(STALE_SRC));
+      const lines = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8")
+        .split("\n")
+        .filter((line) => line !== "");
+      expect(JSON.parse(lines.at(-1) ?? "{}").verdict.kind).toBe("refuse");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("with bounded/prereqs: a Bash terraform apply is allowed once the required review's background run finishes, and denied again when infra/ changes", async () => {
+    const NOT_YET_APPLY =
+      "bounded/prereqs.rules: bounded/project's rule before executing 'terraform apply' requires a delegation to plan-reviewer that succeeded over the current 'infra/**', and plan-reviewer has not succeeded over them. This call would execute `terraform apply` in ., which runs 'terraform apply'\nHave plan-reviewer review the current infra/ changes";
+    const STALE_APPLY = NOT_YET_APPLY.replace("plan-reviewer has not succeeded over them", "plan-reviewer succeeded over them, but they have changed since");
+    const project = infraProject();
+    try {
+      const hook = hookIn(project);
+      expect((await hook(bash(project, "terraform apply"))).stdout).toBe(deny(NOT_YET_APPLY));
+      expect((await hook(captured("background-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("background-post-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("background-subagent-stop.json", project))).stdout).toBe("");
+      const allowed = await hook(bash(project, "terraform apply"));
+      expect(allowed.stdout).toBe("");
+      expect(allowed.exitCode).toBe(0);
+      writeFileSync(join(project, "infra", "main.tf"), 'terraform { required_version = ">= 1.0" }\n');
+      expect((await hook(bash(project, "terraform apply"))).stdout).toBe(deny(STALE_APPLY));
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("with bounded/prereqs: real hook runs write .bounded/prereqs/status.json, and the prereqs status band's reader reads each one: pending at launch, holds at the finish, stale after plan.md changes", async () => {
+    const project = prereqsProject("plan-reviewer");
+    /** The status file the last hook run wrote, as the band's reader reads it. */
+    const band = () => {
+      const reading = readStatusFile(readFileSync(join(project, ".bounded", "prereqs", "status.json"), "utf8"));
+      expect({ ok: reading.ok, outcome: reading.ok ? reading.value.outcome : reading.why }).toEqual({ ok: true, outcome: "read" });
+      if (!reading.ok || reading.value.outcome !== "read") throw new Error(`the band could not use the status file: ${JSON.stringify(reading)}`);
+      return reading.value;
+    };
+    try {
+      const hook = hookIn(project);
+      expect((await hook(captured("background-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("background-post-tool-use.json", project))).stdout).toBe("");
+      const launched = band();
+      expect(launched.projectRoot).toBe(project);
+      expect(launched.requirements.map(({ requiredAgent, unchangedSince, status }) => ({ requiredAgent, unchangedSince, status }))).toEqual([
+        { requiredAgent: "plan-reviewer", unchangedSince: ["plan.md"], status: "pending" },
+      ]);
+      expect(launched.requirements[0]?.pendingRun?.agentRunId).toBe("a6eef1505a0b443a2");
+      const requirementKey = launched.requirements[0]?.key;
+      expect(launched.rules).toEqual([{ contributedBy: "bounded/project", before: { write: "src/**" }, requirementKey: requirementKey ?? "", allows: false }]);
+
+      expect((await hook(captured("background-subagent-stop.json", project))).stdout).toBe("");
+      const finished = band();
+      expect(finished.requirements[0]?.status).toBe("holds");
+      expect(finished.requirements[0]?.pendingRun).toBeNull();
+      expect(finished.rules[0]?.allows).toBe(true);
+
+      writeFileSync(join(project, "plan.md"), "the plan, edited\n");
+      expect((await hook(readPostToolUse(project))).stdout).toBe("");
+      const edited = band();
+      expect(edited.requirements[0]?.status).toBe("stale");
+      expect(edited.rules[0]?.allows).toBe(false);
     } finally {
       rmSync(project, { recursive: true, force: true });
     }

@@ -98,12 +98,12 @@ const write = (path: string, change: "create" | "modify" | "delete") => ({ kind:
 /** One tool use reading `path`. */
 const read = (path: string) => ({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path }] });
 /** One tool use listing `root`, filtered to `filter` (null: no filter). */
-const list = (root: string, filter: string | null) => ({ kind: "tool-use", role: null, tool: "list", effects: [{ kind: "list", root, filter }] });
+const list = (root: string, filter: string | null) => ({ kind: "tool-use", role: null, tool: "search", effects: [{ kind: "list", root, filter }] });
 /** One content search of `root` filtered to `filter`: a list effect and a read effect over the same root, as a host makes for a search. */
 const search = (root: string, filter: string) => ({
   kind: "tool-use",
   role: null,
-  tool: "grep",
+  tool: "search",
   effects: [
     { kind: "list", root, filter },
     { kind: "read", path: root },
@@ -111,19 +111,125 @@ const search = (root: string, filter: string) => ({
 });
 /** One tool use delegating to `agent`, with the call id `callId`. */
 const delegate = (agent: string, callId: string) => ({ kind: "tool-use", role: null, tool: "subagent", effects: [{ kind: "delegate", agent }], callId });
-/** One tool use executing `command`, read as running `program` with `args` from the project root. */
-const execute = (command: string, program: string, ...args: string[]) => ({
+/** One tool use executing `command` with the call id `callId`, read as running `program` with `args` from the project root. */
+const execute = (callId: string, command: string, program: string, ...args: string[]) => ({
   kind: "tool-use",
   role: null,
-  tool: "bash",
+  tool: "shell",
   effects: [{ kind: "execute", command, cwd: null, reading: readingOf(program, ...args) }],
+  callId,
 });
+/** `agent` reviews in `project`: the delegation (call `callId`) is allowed, and its finished run is recorded with no message. */
+async function reviewedBy(project: Awaited<ReturnType<typeof opened>>, agent: string, callId: string): Promise<void> {
+  expect((await project.judge(delegate(agent, callId))).kind).toBe("allow");
+  const finished = { ...delegate(agent, callId), kind: "tool-result", ok: true, delegatedAgentRuns: [{ finished: true, resolvedAgent: agent }] };
+  expect((await project.afterTool(finished)).message).toBeNull();
+}
 /** The refusal's reason, or "allowed". */
 const reasonOf = (verdict: { kind: string; reason?: string }): string => (verdict.kind === "refuse" ? (verdict.reason ?? "") : "allowed");
 /** The refusal's redirect, or "allowed". */
 const redirectOf = (verdict: { kind: string; redirect?: string }): string => (verdict.kind === "refuse" ? (verdict.redirect ?? "") : "allowed");
 
 describe("every shipped pack's example, its rules exercised", () => {
+  test("the examples exercised below are every shipped pack's examples", () => {
+    expect(examplePaths).toEqual([
+      "packs/prereqs/examples/review-infra-before-apply.config.ts",
+      "packs/prereqs/examples/review-plan-before-building.config.ts",
+      "packs/prereqs/examples/review-spec-before-tests.config.ts",
+      "packs/protected-paths/examples/guard-the-guardrails.config.ts",
+      "packs/protected-paths/examples/keep-secrets-out.config.ts",
+    ]);
+  });
+
+  test("review-plan-before-building: a write under src/ and a delegation to builder are refused, allowed once plan-reviewer succeeds, and refused again when the plan changes; .bounded/ and .claude/agents/ are protected", async () => {
+    const project = await opened("packs/prereqs/examples/review-plan-before-building.config.ts", {
+      ".agent-state/item/plan.md": "the plan\n",
+      "src/a.ts": "export const a = 1;\n",
+    });
+    const { root, judge } = project;
+    const refusedWrite = await judge(write("src/a.ts", "modify"));
+    expect(reasonOf(refusedWrite)).toContain("plan-reviewer has not succeeded over them");
+    expect(redirectOf(refusedWrite)).toBe("Have plan-reviewer review the current plan before editing src/");
+    expect(redirectOf(await judge(delegate("builder", "b1")))).toBe("Have plan-reviewer review the current plan");
+
+    await reviewedBy(project, "plan-reviewer", "r1");
+    expect(reasonOf(await judge(write("src/a.ts", "modify")))).toBe("allowed");
+    expect(reasonOf(await judge(delegate("builder", "b2")))).toBe("allowed");
+
+    writeFileSync(join(root, ".agent-state", "item", "plan.md"), "the plan, edited\n");
+    expect(reasonOf(await judge(write("src/a.ts", "modify")))).toContain("plan-reviewer succeeded over them, but they have changed since");
+    expect(reasonOf(await judge(delegate("builder", "b3")))).toContain("plan-reviewer succeeded over them, but they have changed since");
+
+    expect(redirectOf(await judge(write(".bounded/prereqs/records.jsonl", "modify")))).toBe("Leave .bounded/ to Bounded");
+    expect(redirectOf(await judge(write(".claude/agents/plan-reviewer.md", "create")))).toBe("Ask a person to change an agent's definition");
+  });
+
+  test("review-spec-before-tests: a delegation to test-writer is refused, allowed once spec-reviewer succeeds, and refused again when a contract or the spec changes", async () => {
+    const project = await opened("packs/prereqs/examples/review-spec-before-tests.config.ts", {
+      "spec.md": "the spec\n",
+      "src/a.contract.ts": "export interface A {}\n",
+    });
+    const { root, judge } = project;
+    const refused = await judge(delegate("test-writer", "t1"));
+    expect(reasonOf(refused)).toContain("spec-reviewer has not succeeded over them");
+    expect(redirectOf(refused)).toBe("Have spec-reviewer review the current spec and contracts");
+    expect(reasonOf(await judge(write("src/a.ts", "create")))).toBe("allowed");
+
+    await reviewedBy(project, "spec-reviewer", "r1");
+    expect(reasonOf(await judge(delegate("test-writer", "t2")))).toBe("allowed");
+    writeFileSync(join(root, "src", "a.contract.ts"), "export interface A { readonly a: number }\n");
+    expect(reasonOf(await judge(delegate("test-writer", "t3")))).toContain("spec-reviewer succeeded over them, but they have changed since");
+
+    await reviewedBy(project, "spec-reviewer", "r2");
+    expect(reasonOf(await judge(delegate("test-writer", "t4")))).toBe("allowed");
+    writeFileSync(join(root, "spec.md"), "the spec, edited\n");
+    expect(reasonOf(await judge(delegate("test-writer", "t5")))).toContain("spec-reviewer succeeded over them, but they have changed since");
+
+    expect(redirectOf(await judge(write(".claude/agents/spec-reviewer.md", "modify")))).toBe("Ask a person to change an agent's definition");
+  });
+
+  test("review-infra-before-apply: terraform apply is refused, allowed once infra-reviewer succeeds, and refused again when infra/ changes; terraform plan is always allowed", async () => {
+    const project = await opened("packs/prereqs/examples/review-infra-before-apply.config.ts", { "infra/main.tf": "terraform {}\n" });
+    const { root, judge } = project;
+    const apply = (callId: string) => execute(callId, "terraform apply", "terraform", "apply");
+    const plan = (callId: string) => execute(callId, "terraform plan", "terraform", "plan");
+    const refused = await judge(apply("a1"));
+    expect(reasonOf(refused)).toContain("before executing 'terraform apply'");
+    expect(reasonOf(refused)).toContain("infra-reviewer has not succeeded over them");
+    expect(redirectOf(refused)).toBe("Have infra-reviewer review the current infra/ changes");
+    expect(reasonOf(await judge(plan("p1")))).toBe("allowed");
+
+    await reviewedBy(project, "infra-reviewer", "r1");
+    expect(reasonOf(await judge(apply("a2")))).toBe("allowed");
+
+    writeFileSync(join(root, "infra", "main.tf"), 'terraform { required_version = ">= 1.0" }\n');
+    expect(reasonOf(await judge(apply("a3")))).toContain("infra-reviewer succeeded over them, but they have changed since");
+    expect(reasonOf(await judge(plan("p2")))).toBe("allowed");
+  });
+
+  test("keep-secrets-out: environment files, private keys and secrets/ are neither read nor written; .env.example and a filtered search that cannot reach secrets/ stay allowed", async () => {
+    const { judge } = await opened("packs/protected-paths/examples/keep-secrets-out.config.ts", {
+      ".env": "TOKEN=1\n",
+      ".env.example": "TOKEN=\n",
+      "app/.env": "TOKEN=2\n",
+      "certs/server.pem": "-----BEGIN PRIVATE KEY-----\n",
+      "secrets/db.txt": "password\n",
+      "src/a.ts": "export const a = 1;\n",
+    });
+    const ENV_REDIRECT = "Ask a maintainer for the value you need; .env.example names every variable";
+    expect(redirectOf(await judge(read(".env")))).toBe(ENV_REDIRECT);
+    expect(redirectOf(await judge(read("app/.env")))).toBe(ENV_REDIRECT);
+    expect(redirectOf(await judge(write(".env.local", "create")))).toBe(ENV_REDIRECT);
+    expect(redirectOf(await judge(read("certs/server.pem")))).toBe("Ask a maintainer to run the step that needs the key");
+    expect(redirectOf(await judge(read("secrets/db.txt")))).toBe("Ask a maintainer for the value you need");
+    expect(redirectOf(await judge(list("secrets", null)))).toBe("List a root outside 'secrets' — Ask a maintainer for the value you need");
+    expect(reasonOf(await judge(search(".", "*.ts")))).toContain("the rule 'secrets' from bounded/project");
+
+    expect(reasonOf(await judge(read(".env.example")))).toBe("allowed");
+    expect(reasonOf(await judge(read("src/a.ts")))).toBe("allowed");
+    expect(reasonOf(await judge(search("src", "*.ts")))).toBe("allowed");
+  });
+
   test("guard-the-guardrails: every path bounded init's defaults protect, generated code and applied migrations are protected; their carve-outs are not", async () => {
     const { judge } = await opened("packs/protected-paths/examples/guard-the-guardrails.config.ts", {
       "generated/api.ts": "export const api = 1;\n",
