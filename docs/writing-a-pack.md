@@ -84,7 +84,11 @@ export default defineConfig({
   2026-009).
 - `src/core/composition-root/pack-examples.test.ts` opens each example as a
   project's `bounded.config.ts`, with the shipped packs' ports, and wants no
-  problem: an example that drifts from the API fails the build.
+  problem: an example that drifts from the API fails the build. The same
+  file runs each example's rules: the refusal, the prerequisite met, the
+  call allowed, and stale again where the example has a prerequisite. A new
+  example needs its own case there, because a completeness case lists every
+  example path.
 - Examples ship in the package, and the package catalogue embeds each
   verbatim; no declarations are emitted for them.
 
