@@ -5,11 +5,14 @@ import { sameWire, wireFormOf } from "../shared/wire.ts";
 import { AgentName } from "./agent-name.ts";
 import { AgentRunId } from "./agent-run-id.ts";
 import type { CallId } from "./call-id.contract.ts";
-import type { Effect } from "./effect.contract.ts";
+import { Effect } from "./effect.ts";
 import type { Role } from "./role.contract.ts";
 import type * as Contract from "./tool-result.contract.ts";
 import type { ToolKind } from "./tool-use.contract.ts";
 import { type Call, callOf } from "./tool-use.ts";
+
+/** Why a tool result is refused when it does not say whether the tool succeeded: what an example's scenario's tool result is refused with too (ADR 2026-031). */
+export const TOOL_RESULT_SAYS_OK = "A tool result says whether the tool succeeded: ok is true or false";
 
 class ToolResultImpl implements Contract.ToolResult {
   declare readonly __brand: "ToolResult";
@@ -45,9 +48,9 @@ class ToolResultImpl implements Contract.ToolResult {
       const kind = own(raw, "kind");
       if (kind !== undefined && kind !== "tool-result") return { ok: false, error: `A tool result has kind 'tool-result', not '${show(kind)}'` };
       const ok = own(raw, "ok");
-      if (typeof ok !== "boolean") return { ok: false, error: "A tool result says whether the tool succeeded: ok is true or false" };
+      if (typeof ok !== "boolean") return { ok: false, error: TOOL_RESULT_SAYS_OK };
       // The rest is a tool use's, checked the same way: its execute effects carry their reading too (ADR 2026-020).
-      const call = callOf(raw, "A tool use");
+      const call = callOf(raw, "A tool use", Effect.parse);
       if (!call.ok) return call;
       const runs = delegatedAgentRunsOf(own(raw, "delegatedAgentRuns"), call.value.effects.filter((effect) => effect.kind === "delegate").length);
       return runs.ok ? { ok: true, value: new ToolResultImpl(call.value, ok, runs.value) } : runs;
@@ -63,7 +66,7 @@ class ToolResultImpl implements Contract.ToolResult {
     return {
       ...json,
       ...(this.callId === undefined ? {} : { callId: this.callId.value }),
-      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(runJSON) }),
+      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(delegatedAgentRunJSON) }),
     };
   }
 }
@@ -79,7 +82,7 @@ const ENTRY_KEYS: readonly string[] = ["finished", "finishNeverReported", "agent
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
 /** An entry's wire form: each optional field only when given. */
-function runJSON(run: Contract.DelegatedAgentRun): Contract.DelegatedAgentRunJSON {
+export function delegatedAgentRunJSON(run: Contract.DelegatedAgentRun): Contract.DelegatedAgentRunJSON {
   return {
     finished: run.finished,
     ...(run.finishNeverReported === true ? { finishNeverReported: true as const } : {}),
@@ -118,7 +121,7 @@ function delegatedAgentRunOf(entry: unknown): Result<Contract.DelegatedAgentRun>
 }
 
 /** What the host says of each delegated run, checked against the number of delegate effects; undefined when it says nothing. */
-function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly Contract.DelegatedAgentRun[] | undefined> {
+export function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly Contract.DelegatedAgentRun[] | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (delegates === 0) return { ok: false, error: "A tool result without a delegate effect has no delegatedAgentRuns" };
   if (!Array.isArray(raw)) return { ok: false, error: RUNS };

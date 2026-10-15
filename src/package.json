@@ -29,7 +29,8 @@
     "lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.contract.ts",
     "lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.shell-command-reader.test-support.ts",
     "!{core,packs}/**/*.test.ts",
-    "!core/{adapters,composition-root,domain}/**/*.test-support.ts",
+    "!core/{adapters,domain}/**/*.test-support.ts",
+    "!core/composition-root/shell-command-reading-samples.test-support.ts",
     "!packs/**/*.test-support.ts",
     "!core/application/{catalog,composition,lifecycle,project-config}/**/*.test-support.ts",
     "!core/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
@@ -52,6 +53,10 @@
       "bun": "./core/application/index.ts",
       "types": "./dist/types/core/application/index.d.ts",
       "default": "./dist/core/application/index.js"
+    },
+    "./testing/example-scenarios": {
+      "bun": "./core/composition-root/run-example-scenarios.test-support.ts",
+      "types": "./core/composition-root/run-example-scenarios.test-support.ts"
     },
     "./testing/host-installer-conformance": {
       "bun": "./core/application/project-setup/init-project/init-project.host-installer.test-support.ts",

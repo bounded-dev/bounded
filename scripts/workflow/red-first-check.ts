@@ -135,14 +135,33 @@ export function isTestPath(path: string): boolean {
   return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path) || EXAMPLE_SCENARIOS.test(path) || path === SUPERSESSIONS;
 }
 
-/** Fixture directories whose files are exercised by a test elsewhere: a change to them runs that test too. */
-export const FIXTURE_RUNNERS: readonly { readonly fixtures: string; readonly test: string }[] = [
-  { fixtures: "/fixtures/compile-time/", test: "src/test/compile-time.test.ts" },
+/** Files exercised by a test elsewhere, by repository path, and that test: a path, or the path for a given file. */
+export interface FixtureRunner {
+  readonly fixtures: RegExp;
+  readonly test: string | ((fixture: string) => string);
+}
+
+/**
+ * Fixtures whose files are exercised by a test elsewhere: a change to them
+ * runs that test too. A pack's example scenarios (ADR 2026-031) are run by
+ * the test that runs its package's scenarios: src/test/example-scenarios.test.ts
+ * for a shipped pack's, and its own package's test/example-scenarios.test.ts
+ * for a published pack's; a catalogue fixture's scenarios are run by no test.
+ */
+export const FIXTURE_RUNNERS: readonly FixtureRunner[] = [
+  { fixtures: /\/fixtures\/compile-time\//, test: "src/test/compile-time.test.ts" },
+  { fixtures: /^src\/packs\/[^/]+\/examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/, test: "src/test/example-scenarios.test.ts" },
+  {
+    fixtures: /^src\/published-packs\/[^/]+\/packs\/[^/]+\/examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/,
+    test: (fixture) => `${fixture.split("/").slice(0, 3).join("/")}/test/example-scenarios.test.ts`,
+  },
+  { fixtures: /\/fixtures\/example-scenarios\//, test: "src/core/composition-root/run-example-scenarios.test.ts" },
 ];
 
-/** The tests that exercise fixtures among `paths`. */
+/** The tests that exercise fixtures among `paths`, each once. */
 export function fixtureRunners(paths: readonly string[]): string[] {
-  return FIXTURE_RUNNERS.filter((runner) => paths.some((path) => path.includes(runner.fixtures))).map((runner) => runner.test);
+  const tests = FIXTURE_RUNNERS.flatMap((runner) => paths.filter((path) => runner.fixtures.test(path)).map((path) => (typeof runner.test === "string" ? runner.test : runner.test(path))));
+  return [...new Set(tests)];
 }
 
 // ---------------------------------------------------------------------------

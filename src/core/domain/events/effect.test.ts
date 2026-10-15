@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { wireOf } from "../shared/value-object.laws.test-support.ts";
-import { describeEffect, Effect } from "./effect.ts";
+import { commandToReadOf, describeEffect, describeExecute, Effect } from "./effect.ts";
 
 const read = { kind: "read", path: "src/a.ts" };
 const list = { kind: "list", root: "src", filter: "*.ts" };
@@ -146,5 +146,47 @@ describe("describeEffect — how a message names an effect", () => {
     expect(named(fetch)).toBe("fetch https://example.com/a");
     expect(named(delegate)).toBe("delegate to explore");
     expect(named(invoke)).toBe("invoke mcp__docs__search");
+  });
+});
+
+describe("an execute effect's command, before it is read (ADR 2026-031)", () => {
+  /** The command to read, or why it is refused. */
+  const toRead = (command: unknown, cwd: unknown) => {
+    const result = commandToReadOf(command, cwd);
+    if (!result.ok) throw new Error(result.error);
+    return result.value;
+  };
+  const effectError = (raw: object): string => {
+    const result = Effect.parse(raw);
+    return result.ok ? "accepted" : result.error;
+  };
+
+  test("describeExecute words a command as describeEffect words its execute effect", () => {
+    for (const cwd of [null, "apps/web"]) {
+      const effect = Effect.parse({ ...execute, cwd });
+      if (!effect.ok) throw new Error(effect.error);
+      const { command, cwd: directory } = toRead("make build", cwd);
+      expect({ cwd, worded: describeExecute(command, directory) }).toEqual({ cwd, worded: describeEffect(effect.value) });
+    }
+    const { command, cwd } = toRead("make build", "apps/web");
+    expect(describeExecute(command, cwd)).toBe("execute `make build` in apps/web");
+  });
+
+  test("commandToReadOf refuses a command and a cwd with the execute effect's own messages", () => {
+    expect(toRead("make build", undefined).command.value).toBe("make build");
+    expect(toRead("make build", undefined).cwd).toBeNull();
+    expect(toRead("make build", "./apps//web").cwd?.value).toBe("apps/web");
+    for (const [command, cwd] of [
+      ["", null],
+      ["a\0b", null],
+      [42, null],
+      ["make build", "../x"],
+      ["make build", "/etc"],
+    ] as const) {
+      const refused = commandToReadOf(command, cwd);
+      const expected = effectError({ kind: "execute", command, cwd, reading: READ });
+      expect(expected).not.toBe("accepted");
+      expect({ command, cwd, error: refused.ok ? "accepted" : refused.error }).toEqual({ command, cwd, error: expected });
+    }
   });
 });

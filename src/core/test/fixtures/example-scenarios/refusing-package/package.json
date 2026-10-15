@@ -1,0 +1,12 @@
+{
+  "name": "refusing-package",
+  "version": "1.0.0",
+  "description": "A package of one pack that refuses every write, for the example scenarios runner's tests",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./refusing": {
+      "bun": "./packs/refusing/index.ts"
+    }
+  }
+}

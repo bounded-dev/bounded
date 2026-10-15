@@ -162,7 +162,10 @@ const packLayerOf = (file: string): string | undefined => {
   if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
-const NOTHING_IMPORTS_AN_EXAMPLE = "nothing imports a pack's example: open it as a project's configuration";
+const NOTHING_IMPORTS_AN_EXAMPLE = "nothing imports a pack's example or its scenarios: open the example as a project's configuration, and run its scenarios with bounded/testing/example-scenarios";
+/** A pack's example's scenarios (ADR 2026-031): data, which imports only the core's domain export path. */
+const SCENARIOS_IMPORT_ONLY_THE_DOMAIN = "a scenarios file imports only bounded/domain: its scenarios are data, made with defineExampleScenarios";
+const isScenariosFile = (path: string): boolean => packLayerOf(path) === "examples" && path.endsWith(".scenarios.ts");
 /**
  * Any file's imports of a shipped pack's example, by relative path (an
  * example has no export path): every file of the repository, its tests and
@@ -197,6 +200,10 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     const into = packDir(file);
     if (into !== undefined && packLayerOf(file ?? "") === "examples") {
       out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+      continue;
+    }
+    if (isScenariosFile(path)) {
+      if (spec !== `${context.name}/domain`) out.push(`${at} — ${SCENARIOS_IMPORT_ONLY_THE_DOMAIN}`);
       continue;
     }
     if (packLayerOf(path) === "examples") {
@@ -266,6 +273,10 @@ function publishedPackViolations(path: string, imports: readonly { spec: string;
       out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
       continue;
     }
+    if (isScenariosFile(path)) {
+      if (spec !== `${CORE}/domain`) out.push(`${at} — ${SCENARIOS_IMPORT_ONLY_THE_DOMAIN}`);
+      continue;
+    }
     if (packLayerOf(path) === "examples") {
       if (relative || !(isPackage(core, spec) || isPackage(context, spec))) out.push(`${at} — an example imports only ${CORE}'s and ${context.name}'s export paths, as a project's configuration does`);
       else if (spec !== `${CORE}/domain` && !isPackIndex(file)) {
@@ -291,6 +302,31 @@ function publishedPackViolations(path: string, imports: readonly { spec: string;
 }
 
 const NOTHING_IMPORTS_A_PUBLISHED_PACK = "nothing outside a published pack's package imports it: bounded never depends on a published pack";
+
+/** The test of a published pack's package that runs its examples' scenarios (ADR 2026-031). */
+const PUBLISHED_SCENARIOS_RUNNER = "test/example-scenarios.test.ts";
+/**
+ * Every published pack's package runs its examples' scenarios (ADR
+ * 2026-031): its test/example-scenarios.test.ts imports the runner from
+ * bounded/testing/example-scenarios, the route a package outside this
+ * repository takes. `textOf` gives a file's text, or undefined when there is
+ * no such file.
+ */
+function publishedScenariosRunnerViolations(packageDirs: readonly string[], textOf: (path: string) => string | undefined): string[] {
+  const out: string[] = [];
+  for (const dir of packageDirs) {
+    const path = `${dir}/${PUBLISHED_SCENARIOS_RUNNER}`;
+    const text = textOf(path);
+    if (text === undefined) {
+      out.push(`${dir} — a published pack's package runs its examples' scenarios: add ${PUBLISHED_SCENARIOS_RUNNER}, running each with runExampleScenarios from bounded/testing/example-scenarios`);
+      continue;
+    }
+    if (!importsOf(path, text).some(({ spec }) => spec === "bounded/testing/example-scenarios")) {
+      out.push(`${path} — it runs its package's example scenarios with bounded/testing/example-scenarios: import runExampleScenarios from there`);
+    }
+  }
+  return out;
+}
 /**
  * Any file's imports of a published pack's package (ADR 2026-030), by name
  * (`bounded-<name>`, `bounded-<name>/…`) or by relative path into
@@ -776,7 +812,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("src");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./prereqs", "./prereqs/adapters", "./protected-paths", "./protected-paths/adapters", "./shell-command-reader", "./testing/host-installer-conformance", "./testing/shell-command-reader-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./prereqs", "./prereqs/adapters", "./protected-paths", "./protected-paths/adapters", "./shell-command-reader", "./testing/example-scenarios", "./testing/host-installer-conformance", "./testing/shell-command-reader-conformance"]);
   });
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
@@ -983,7 +1019,7 @@ describe("architecture", () => {
     const core = byName.get("bounded");
     if (core === undefined) throw new Error("no core context");
     const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
-    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example: open it as a project's configuration`];
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example or its scenarios: open the example as a project's configuration, and run its scenarios with bounded/testing/example-scenarios`];
     expect(shippedPackViolations("src/packs/gate/index.ts", imports("./examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/index.ts", "./examples/x.config.ts"));
     expect(shippedPackViolations("src/packs/gate/domain/x.ts", imports("../examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/domain/x.ts", "../examples/x.config.ts"));
     expect(shippedPackViolations("src/core/composition-root/x.test.ts", imports("../../packs/gate/examples/x.config.ts"), core)).toEqual(refused("src/core/composition-root/x.test.ts", "../../packs/gate/examples/x.config.ts"));
@@ -1002,10 +1038,43 @@ describe("architecture", () => {
 
   test("nothing imports a pack's example from a repository test or a unit's test/ either", () => {
     const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
-    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example: open it as a project's configuration`];
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example or its scenarios: open the example as a project's configuration, and run its scenarios with bounded/testing/example-scenarios`];
     expect(exampleImportViolations("src/test/x.test.ts", imports("../packs/gate/examples/x.config.ts"))).toEqual(refused("src/test/x.test.ts", "../packs/gate/examples/x.config.ts"));
     expect(exampleImportViolations("src/hosts/pi/test/x.test.ts", imports("../../../packs/gate/examples/x.config.ts"))).toEqual(refused("src/hosts/pi/test/x.test.ts", "../../../packs/gate/examples/x.config.ts"));
     expect(exampleImportViolations("src/core/test/x.test.ts", imports("../../packs/gate/index.ts", "bounded/prereqs"))).toEqual([]);
+  });
+
+  test("nothing imports a pack's example or its scenarios, from production code or a test", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const message = "nothing imports a pack's example or its scenarios: open the example as a project's configuration, and run its scenarios with bounded/testing/example-scenarios";
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — ${message}`];
+    expect(shippedPackViolations("src/packs/gate/index.ts", imports("./examples/x.scenarios.ts"), core)).toEqual(refused("src/packs/gate/index.ts", "./examples/x.scenarios.ts"));
+    expect(shippedPackViolations("src/packs/gate/examples/x.config.ts", imports("./x.scenarios.ts"), core)).toEqual(refused("src/packs/gate/examples/x.config.ts", "./x.scenarios.ts"));
+    expect(exampleImportViolations("src/test/x.test.ts", imports("../packs/gate/examples/x.scenarios.ts"))).toEqual(refused("src/test/x.test.ts", "../packs/gate/examples/x.scenarios.ts"));
+    expect(exampleImportViolations("src/core/composition-root/x.test.ts", imports("../../packs/gate/examples/x.scenarios.ts"))).toEqual(refused("src/core/composition-root/x.test.ts", "../../packs/gate/examples/x.scenarios.ts"));
+    const publishedTest = "src/published-packs/example/test/x.test.ts";
+    expect(exampleImportViolations(publishedTest, imports("../packs/refused-tools/examples/refuse-a-tool.scenarios.ts"))).toEqual(refused(publishedTest, "../packs/refused-tools/examples/refuse-a-tool.scenarios.ts"));
+  });
+
+  test("a scenarios file imports only bounded/domain, in a shipped and a published pack", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const only = "a scenarios file imports only bounded/domain: its scenarios are data, made with defineExampleScenarios";
+    const shipped = "src/packs/gate/examples/basic.scenarios.ts";
+    expect(shippedPackViolations(shipped, imports("bounded/domain"), core)).toEqual([]);
+    for (const spec of ["bounded/prereqs", "bounded/testing/example-scenarios", "../domain/rule.ts", "node:fs"]) {
+      expect(shippedPackViolations(shipped, imports(spec), core)).toEqual([`${shipped}:1 imports "${spec}" — ${only}`]);
+    }
+    const published = "src/published-packs/example/packs/refused-tools/examples/basic.scenarios.ts";
+    const example = byName.get("bounded-example");
+    if (example === undefined) throw new Error("no bounded-example context");
+    expect(shippedPackViolations(published, imports("bounded/domain"), example)).toEqual([]);
+    for (const spec of ["bounded-example", "bounded/protected-paths", "../domain/refused-tool.ts"]) {
+      expect(shippedPackViolations(published, imports(spec), example)).toEqual([`${published}:1 imports "${spec}" — ${only}`]);
+    }
   });
 
   test("R7 reads a shipped pack's tracked files only: an untracked or ignored file in its directory is not the pack's", () => {
@@ -1204,7 +1273,18 @@ describe("architecture", () => {
 
   test("R7: a shipped pack's directory holds its overview, contract, index, their test and its README at its root, and only domain/, application/, adapters/ and examples/", () => {
     const dir = "src/packs/gate";
-    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/basic.config.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
+    const tidy = [
+      `${dir}/gate.pack.ts`,
+      `${dir}/gate.contract.ts`,
+      `${dir}/gate.pack.test.ts`,
+      `${dir}/index.ts`,
+      `${dir}/README.md`,
+      `${dir}/examples/basic.config.ts`,
+      `${dir}/examples/basic.scenarios.ts`,
+      `${dir}/domain/rule.ts`,
+      `${dir}/application/judge/judge.ts`,
+      `${dir}/adapters/out/files/files.ts`,
+    ];
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations([...tidy, `${dir}/helpers.ts`, `${dir}/lib/x.ts`])).toEqual([
       `${dir}/helpers.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
@@ -1220,14 +1300,42 @@ describe("architecture", () => {
 
   test("R7: a shipped pack has a README and at least one example, examples/<slug>.config.ts, one level deep", () => {
     const dir = "src/packs/gate";
-    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/keep-secrets-out.config.ts`];
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/keep-secrets-out.config.ts`, `${dir}/examples/keep-secrets-out.scenarios.ts`];
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations(tidy.filter((path) => !path.endsWith("README.md")))).toEqual([`${dir} — a shipped pack has README.md`]);
     expect(packLayoutViolations(tidy.filter((path) => !path.includes("/examples/")))).toEqual([`${dir} — a shipped pack has at least one example, examples/<name>.config.ts`]);
     expect(packLayoutViolations([...tidy, `${dir}/examples/helpers.ts`, `${dir}/examples/nested/x.config.ts`])).toEqual([
-      `${dir}/examples/helpers.ts — a pack's examples are examples/<name>.config.ts files`,
-      `${dir}/examples/nested/x.config.ts — a pack's examples are examples/<name>.config.ts files`,
+      `${dir}/examples/helpers.ts — a pack's examples/ holds examples/<name>.config.ts files, each with its examples/<name>.scenarios.ts`,
+      `${dir}/examples/nested/x.config.ts — a pack's examples/ holds examples/<name>.config.ts files, each with its examples/<name>.scenarios.ts`,
     ]);
+  });
+
+  test("R7: examples/ holds each <slug>.config.ts with its <slug>.scenarios.ts, and nothing else", () => {
+    for (const dir of ["src/packs/gate", "src/published-packs/example/packs/refused-tools"]) {
+      const name = dir.split("/").at(-1) ?? "";
+      const root = [`${dir}/${name}.pack.ts`, `${dir}/${name}.contract.ts`, `${dir}/index.ts`, `${dir}/README.md`];
+      const examples = [`${dir}/examples/a.config.ts`, `${dir}/examples/a.scenarios.ts`, `${dir}/examples/b-c.config.ts`, `${dir}/examples/b-c.scenarios.ts`];
+      expect({ dir, violations: packLayoutViolations([...root, ...examples]) }).toEqual({ dir, violations: [] });
+      expect({ dir, violations: packLayoutViolations([...root, ...examples.filter((path) => !path.endsWith("b-c.scenarios.ts"))]) }).toEqual({
+        dir,
+        violations: [`${dir}/examples/b-c.config.ts — an example has its scenarios beside it: add examples/b-c.scenarios.ts`],
+      });
+      expect({ dir, violations: packLayoutViolations([...root, ...examples, `${dir}/examples/d.scenarios.ts`]) }).toEqual({
+        dir,
+        violations: [`${dir}/examples/d.scenarios.ts — scenarios sit beside their example: add examples/d.config.ts`],
+      });
+      expect({ dir, violations: packLayoutViolations([...root, `${dir}/examples/a.scenarios.ts`]) }).toEqual({
+        dir,
+        violations: [`${dir}/examples/a.scenarios.ts — scenarios sit beside their example: add examples/a.config.ts`, `${dir} — ${dir.startsWith("src/published-packs/") ? "a published pack" : "a shipped pack"} has at least one example, examples/<name>.config.ts`],
+      });
+      expect({ dir, violations: packLayoutViolations([...root, ...examples, `${dir}/examples/nested/e.scenarios.ts`, `${dir}/examples/E.scenarios.ts`]) }).toEqual({
+        dir,
+        violations: [
+          `${dir}/examples/nested/e.scenarios.ts — a pack's examples/ holds examples/<name>.config.ts files, each with its examples/<name>.scenarios.ts`,
+          `${dir}/examples/E.scenarios.ts — a pack's examples/ holds examples/<name>.config.ts files, each with its examples/<name>.scenarios.ts`,
+        ],
+      });
+    }
   });
 
   test("R7: an overview binds imported names in definePack's sections, in order, typed by its contract", () => {
@@ -1568,7 +1676,7 @@ describe("architecture", () => {
   });
 
   test("R7, R3 and R6 hold in a published pack as in a shipped one", () => {
-    const tidy = ["refused-tools.pack.ts", "refused-tools.contract.ts", "refused-tools.pack.test.ts", "index.ts", "README.md", "examples/basic.config.ts", "domain/rule.ts", "application/judge/judge.ts", "adapters/out/files/files.ts"].map((file) => `${EXAMPLE_PUBLISHED_PACK_DIR}/${file}`);
+    const tidy = ["refused-tools.pack.ts", "refused-tools.contract.ts", "refused-tools.pack.test.ts", "index.ts", "README.md", "examples/basic.config.ts", "examples/basic.scenarios.ts", "domain/rule.ts", "application/judge/judge.ts", "adapters/out/files/files.ts"].map((file) => `${EXAMPLE_PUBLISHED_PACK_DIR}/${file}`);
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations([...tidy, `${EXAMPLE_PUBLISHED_PACK_DIR}/helpers.ts`])).toEqual([
       `${EXAMPLE_PUBLISHED_PACK_DIR}/helpers.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
@@ -1640,6 +1748,28 @@ describe("architecture", () => {
     const paths = packLayoutPaths();
     expect(paths).toContain(`${EXAMPLE_PUBLISHED_PACK_DIR}/README.md`);
     expect(packLayoutViolations(paths)).toEqual([]);
+  });
+
+  test("every published package runs its examples' scenarios: test/example-scenarios.test.ts importing bounded/testing/example-scenarios", async () => {
+    const runner = 'import { runExampleScenarios } from "bounded/testing/example-scenarios";\n';
+    const texts = new Map<string, string>([
+      ["src/published-packs/a/test/example-scenarios.test.ts", runner],
+      ["src/published-packs/b/test/example-scenarios.test.ts", 'import { openProject } from "bounded/open-project";\n'],
+    ]);
+    const textOf = (path: string): string | undefined => texts.get(path);
+    expect(publishedScenariosRunnerViolations(["src/published-packs/a"], textOf)).toEqual([]);
+    expect(publishedScenariosRunnerViolations(["src/published-packs/b", "src/published-packs/c"], textOf)).toEqual([
+      "src/published-packs/b/test/example-scenarios.test.ts — it runs its package's example scenarios with bounded/testing/example-scenarios: import runExampleScenarios from there",
+      "src/published-packs/c — a published pack's package runs its examples' scenarios: add test/example-scenarios.test.ts, running each with runExampleScenarios from bounded/testing/example-scenarios",
+    ]);
+    expect(publishedPackages.length).toBeGreaterThan(0);
+    const repositoryTexts = new Map<string, string>();
+    for (const pkg of publishedPackages) {
+      const path = `${pkg.dir}/test/example-scenarios.test.ts`;
+      const file = Bun.file(`${ROOT}/${path}`);
+      if (await file.exists()) repositoryTexts.set(path, await file.text());
+    }
+    expect(publishedScenariosRunnerViolations(publishedPackages.map((pkg) => pkg.dir), (path) => repositoryTexts.get(path))).toEqual([]);
   });
 });
 

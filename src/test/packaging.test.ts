@@ -17,7 +17,9 @@ const VERSION = "3.3.0";
 const CONFORMANCE = "core/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** The conformance suites bounded publishes for other packages' tests (bounded/testing/*): the only test support in its tarball. */
 const READER_FEATURE = "lib/shell-command-reader/application/shell-commands/read-shell-command";
-const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, `${READER_FEATURE}/read-shell-command.shell-command-reader.test-support.ts`];
+/** The example scenarios runner bounded publishes (bounded/testing/example-scenarios, ADR 2026-031): framework-free test support. */
+const EXAMPLE_SCENARIOS_RUNNER = "core/composition-root/run-example-scenarios.test-support.ts";
+const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, `${READER_FEATURE}/read-shell-command.shell-command-reader.test-support.ts`, EXAMPLE_SCENARIOS_RUNNER];
 /** What bounded ships of its libraries' sources: the reader's published conformance suite and the contract it imports its port from. */
 const PUBLISHED_LIBRARY_SOURCES = [`${READER_FEATURE}/read-shell-command.contract.ts`, `${READER_FEATURE}/read-shell-command.shell-command-reader.test-support.ts`];
 /** The private apps bounded's dist carries. */
@@ -156,6 +158,16 @@ describe("bounded, the one published package", () => {
     expect(topLevel.filter((entry) => !allowed.includes(entry))).toEqual([]);
     expect(topLevel).toEqual(allowed);
     expect(packed.filter((file) => file.startsWith("lib/")).sort()).toEqual([...PUBLISHED_LIBRARY_SOURCES].sort());
+  });
+
+  test("its tarball holds every shipped example's scenarios beside the example", () => {
+    const examples = packed.filter((file) => /^packs\/[^/]+\/examples\/[^/]+\.config\.ts$/.test(file));
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      const scenarios = example.replace(/\.config\.ts$/, ".scenarios.ts");
+      expect({ example, scenarios: packed.includes(scenarios) }).toEqual({ example, scenarios: true });
+    }
+    expect(packed.filter((file) => file.endsWith(".scenarios.ts")).length).toBe(examples.length);
   });
 
   test("its tarball holds nothing of the published packs (src/published-packs/)", () => {
@@ -384,7 +396,7 @@ describe("bounded, the one published package", () => {
     const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest & { peerDependencies?: Record<string, string> };
     expect(inTarball.peerDependencies).toBeUndefined();
     expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
-  });
+  }, 120_000);
 
   test("dist carries the prereqs status band as a plugin folder: its manifest at bounded's version, hooks.json and its hooks modules, its state contract, no tests, importing only its own files", () => {
     const band = "dist/hosts/claude-code/prereqs-status-band/";

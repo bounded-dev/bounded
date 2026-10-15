@@ -47,8 +47,11 @@ None: the pack needs no adapter from the host.
 
 ## Examples
 
-Each is a complete `bounded.config.ts`, in `examples/`, opened as a
-project's configuration by the package's tests.
+Each example is a complete `bounded.config.ts`, in `examples/`, with its
+scenarios beside it: the calls it judges and the verdict each gets, in
+full. The package's tests open each example as a project's configuration
+and check every step (`test/example-scenarios.test.ts`), and the package's
+catalogue (`bounded.catalog.json`) shows them.
 
-- `refuse-a-tool.config.ts`: an offline session, every web tool refused with
-  a pointer to the project's docs.
+- `refuse-a-tool.config.ts`, with `refuse-a-tool.scenarios.ts`: an offline
+  session, pointed at the project's own docs.

@@ -30,7 +30,10 @@ const readmeSchema = z.object({
   examples: filled("readme.examples"),
   otherSections: z.array(z.object({ heading: filled("a section's heading"), markdown: text })),
 });
-const exampleSchema = z.object({ path: filled("an example's path"), title: filled("an example's title"), description: text, source: filled("an example's source") });
+// A scenario is kept as the build wrote it (ADR 2026-031): only its list of steps is checked here.
+const scenarioSchema = z.looseObject({ steps: z.array(z.unknown()).min(1, { message: "a scenario has at least one step" }) });
+// Scenarios left out read as none, which the pack's check below refuses, naming the pack and the example.
+const exampleSchema = z.object({ path: filled("an example's path"), title: filled("an example's title"), description: text, source: filled("an example's source"), scenarios: z.array(scenarioSchema).default([]) });
 const packSchema = z.object({
   id: filled("a pack's id"),
   importPath: filled("a pack's importPath"),
@@ -94,6 +97,8 @@ class PackageCatalogImpl implements Contract.PackageCatalog {
         const twice = (pack.optionalPorts ?? []).find((optional) => pack.ports.some((port) => port.key === optional.key));
         if (twice !== undefined) return { ok: false, error: `A package catalogue lists the port ${twice.key} of ${pack.id} both in ports and in optionalPorts: a port is required or optional` };
         if (!pack.id.startsWith(`${name}/`)) return { ok: false, error: `A package catalogue of ${name} lists the pack ${pack.id}, whose id is not rooted at the package's name: build its id with packIdsFor("${name}")` };
+        const unscenarioed = pack.examples.find((example) => example.scenarios.length === 0);
+        if (unscenarioed !== undefined) return { ok: false, error: `A package catalogue lists the example ${unscenarioed.path} of ${pack.id} with no scenarios: every example carries at least one, from its <slug>.scenarios.ts` };
       }
       // zod's output is a new object, never the input: freezing it freezes nothing the caller holds.
       const data = frozen(parsed.data);

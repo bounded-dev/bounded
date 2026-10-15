@@ -15,6 +15,7 @@ const sections = (): SectionInput[] =>
   REQUIRED.map((heading) => {
     if (heading === "Rule shape") return section(heading, "Contribute notes to `notes`.", ["notes"]);
     if (heading === "Ports") return section(heading, "`noteStore` (`NoteStore`): where notes are kept.", ["noteStore", "NoteStore"]);
+    if (heading === "Examples") return section(heading, "- `a.config.ts`, with `a.scenarios.ts`: the project keeps a note.", ["a.config.ts", "a.scenarios.ts"]);
     return section(heading);
   });
 const input = (overrides: Record<string, unknown> = {}) => ({
@@ -25,8 +26,16 @@ const input = (overrides: Record<string, unknown> = {}) => ({
   sections: sections(),
   pointKeys: ["notes"],
   portKeys: ["noteStore"],
+  exampleFileNames: ["a.config.ts", "a.scenarios.ts"],
   ...overrides,
 });
+/** The sections, with Examples naming `codeSpans` and another section, Rule shape, naming `ruleShapeSpans` beside its point key. */
+const examplesNaming = (codeSpans: readonly string[], ruleShapeSpans: readonly string[] = []): SectionInput[] =>
+  sections().map((given) => {
+    if (given.heading === "Examples") return section(given.heading, `- ${codeSpans.map((span) => `\`${span}\``).join(", ")}: the project keeps a note.`, codeSpans);
+    if (given.heading === "Rule shape") return section(given.heading, given.markdown, [...given.codeSpans, ...ruleShapeSpans]);
+    return given;
+  });
 const refusal = (raw: Record<string, unknown>): string => {
   const parsed = PackReadme.parse(input(raw));
   return parsed.ok ? "accepted" : parsed.error;
@@ -82,6 +91,43 @@ describe("PackReadme — a shipped pack's README, by the required sections (ADR 
     const portError = refusal({ sections: plainPort });
     expect(portError).toContain("noteStore");
     expect(portError).toContain("## Ports");
+  });
+
+  test("refuses an Examples section that does not name both files of each example, naming the missing one", () => {
+    const noScenarios = refusal({ sections: examplesNaming(["a.config.ts"]) });
+    expect(noScenarios).toContain(PATH);
+    expect(noScenarios).toContain("'a.scenarios.ts'");
+    expect(noScenarios).toContain("## Examples");
+    const noConfiguration = refusal({ sections: examplesNaming(["a.scenarios.ts"]) });
+    expect(noConfiguration).toContain("'a.config.ts'");
+    expect(noConfiguration).toContain("## Examples");
+    expect(noConfiguration).not.toContain("'a.scenarios.ts'");
+  });
+
+  test("refuses a scenarios file in the Examples section that is not in examples/", () => {
+    const error = refusal({ sections: examplesNaming(["a.config.ts", "a.scenarios.ts", "b.scenarios.ts"]) });
+    expect(error).toContain(PATH);
+    expect(error).toContain("'b.scenarios.ts'");
+    expect(error).toContain("examples/");
+  });
+
+  test("refuses a scenarios file named outside the Examples section", () => {
+    const error = refusal({ sections: examplesNaming(["a.config.ts", "a.scenarios.ts"], ["a.scenarios.ts"]) });
+    expect(error).toContain(PATH);
+    expect(error).toContain("'a.scenarios.ts'");
+    expect(error).toContain("## Rule shape");
+    expect(refusal({ introduction: { markdown: "See `a.scenarios.ts`.", codeSpans: ["a.scenarios.ts"], codeBlocks: [] } })).toContain("'a.scenarios.ts'");
+  });
+
+  test("counts file names only: a path to an example names no file", () => {
+    const error = refusal({ sections: examplesNaming(["examples/a.scenarios.ts", "a.config.ts"]) });
+    expect(error).toContain("'a.scenarios.ts'");
+    expect(error).toContain("'examples/a.scenarios.ts'");
+  });
+
+  test("other configuration names are not policed", () => {
+    const parsed = PackReadme.parse(input({ sections: examplesNaming(["a.config.ts", "a.scenarios.ts", "bounded.config.ts"], ["bounded.config.ts"]) }));
+    expect(parsed.ok ? "accepted" : parsed.error).toBe("accepted");
   });
 
   test("a README holds no project configuration: a code block calling defineConfig is refused, pointing to the examples", () => {

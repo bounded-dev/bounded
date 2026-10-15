@@ -8,7 +8,8 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { PackageCatalog } from "bounded/domain";
+import { NodePackModules } from "bounded/adapters";
+import { ExampleScenarios, PackageCatalog } from "bounded/domain";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../..");
 const BOUNDED_DIR = join(REPOSITORY_ROOT, "src");
@@ -18,6 +19,8 @@ const DEMO_PACKAGE = join(BOUNDED_DIR, "core", "test", "fixtures", "catalog", "d
 const ALPHA_PACK = join(BOUNDED_DIR, "core", "test", "fixtures", "catalog", "alpha-pack");
 const LIBRARIES = ["typescript", "ts-json-schema-generator", "marked"];
 const EXAMPLE = "packs/demo/examples/basic.config.ts";
+/** The demonstration example's scenarios, beside it. */
+const SCENARIOS = "packs/demo/examples/basic.scenarios.ts";
 
 interface DemoOptions {
   readonly files?: Readonly<Record<string, string>>;
@@ -72,7 +75,16 @@ interface DemoEntry {
   readonly points: readonly { id: string; key: string; description: string; documentation: string; valueType: string; wire: { type: string; schema: Record<string, unknown> } | null }[];
   readonly ports: readonly { id: string; key: string; adapterType: string; documentation: string; declaration: string }[];
   readonly readme: Record<string, unknown>;
-  readonly examples: readonly { path: string; title: string; description: string; source: string }[];
+  readonly examples: readonly { path: string; title: string; description: string; source: string; scenarios?: unknown }[];
+}
+
+/** The scenarios file at `path` in `packageDir`, loaded as the build loads it, in their normal form. */
+async function normalScenariosIn(packageDir: string, path: string): Promise<unknown> {
+  const loaded = await new NodePackModules().loadDefaultExport(packageDir, path);
+  if (!loaded.ok) throw new Error(loaded.error);
+  const parsed = ExampleScenarios.parse(loaded.value);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value.toJSON().scenarios;
 }
 const demoEntryIn = (packageDir: string): DemoEntry => (catalogueIn(packageDir).packs as DemoEntry[])[0] as DemoEntry;
 
@@ -117,7 +129,9 @@ describe("bounded catalog build", () => {
 
   test("joins the README and embeds the example verbatim", async () => {
     const packageDir = await demoPackage();
-    expect(bounded(["catalog", "build"], packageDir).status).toBe(0);
+    const ran = bounded(["catalog", "build"], packageDir);
+    expect(ran.stderr).toBe("");
+    expect(ran.status).toBe(0);
     const entry = demoEntryIn(packageDir);
     expect(entry.summary).toBe("a demonstration pack");
     expect(entry.readme).toMatchObject({
@@ -128,7 +142,61 @@ describe("bounded catalog build", () => {
       ports: "- `noteStore` (`NoteStore`): where notes are kept.",
       otherSections: [{ heading: "Records", markdown: "None are kept." }],
     });
-    expect(entry.examples).toEqual([{ path: EXAMPLE, title: "Keep a note", description: "The project keeps one note for its agents: where plans live.", source: readFileSync(join(packageDir, EXAMPLE), "utf8") }]);
+    expect(entry.examples).toEqual([
+      {
+        path: EXAMPLE,
+        title: "Keep a note",
+        description: "The project keeps one note for its agents: where plans live.",
+        source: readFileSync(join(packageDir, EXAMPLE), "utf8"),
+        scenarios: await normalScenariosIn(packageDir, SCENARIOS),
+      },
+    ]);
+  });
+
+  test("refuses an example with no scenarios file, naming the example and the file to add", async () => {
+    const packageDir = await demoPackage({ remove: [SCENARIOS] });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran);
+    expect(ran.stderr).toBe(
+      `bounded: demo-package/demo: ${EXAMPLE} has no scenarios: add ${SCENARIOS}, \`export default defineExampleScenarios({ scenarios: [...] })\` from bounded/domain, whose steps the package's tests run\n`,
+    );
+  });
+
+  test("refuses a scenarios file with no example beside it", async () => {
+    const orphan = "packs/demo/examples/other.scenarios.ts";
+    const packageDir = await demoPackage({ files: { [orphan]: readFileSync(join(DEMO_PACKAGE, SCENARIOS), "utf8") } });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran);
+    expect(ran.stderr).toBe(`bounded: demo-package/demo: ${orphan} has no example beside it: scenarios sit beside their example, packs/demo/examples/other.config.ts\n`);
+  });
+
+  test("refuses scenarios that do not parse, naming the file and the step", async () => {
+    const noVerdict = 'import { defineExampleScenarios } from "bounded/domain";\nexport default { scenarios: [{ title: "Unfinished", steps: [{ toolUse: { tool: "read", effects: [{ kind: "read", path: "a" }] } }] }] };\n';
+    const packageDir = await demoPackage({ files: { [SCENARIOS]: noVerdict } });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran, SCENARIOS, "Scenario 1 ('Unfinished'), step 1", "verdict");
+    expect(ran.stderr).toStartWith("bounded: demo-package/demo: ");
+    const notLoaded = await demoPackage({ files: { [SCENARIOS]: "export const scenarios = [];\n" } });
+    expectRefused(notLoaded, bounded(["catalog", "build"], notLoaded), SCENARIOS, "default export");
+  });
+
+  test("refuses an example whose TSDoc runs past its title and one paragraph", async () => {
+    const longer = readFileSync(join(DEMO_PACKAGE, EXAMPLE), "utf8").replace(
+      " * The project keeps one note for its agents: where plans live.\n",
+      " * The project keeps one note for its agents: where plans live.\n *\n * Every tool call is allowed, and the note is shown.\n",
+    );
+    expect(longer).toContain("Every tool call is allowed");
+    const packageDir = await demoPackage({ files: { [EXAMPLE]: longer } });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expectRefused(packageDir, ran);
+    expect(ran.stderr).toBe(`bounded: demo-package/demo: ${EXAMPLE}'s TSDoc gives a title and one paragraph of purpose; put what it does in basic.scenarios.ts\n`);
+  });
+
+  test("refuses a README whose Examples section does not name both files of each example", async () => {
+    const readme = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "README.md"), "utf8").replace("- `basic.config.ts`, with `basic.scenarios.ts`: ", "- `basic.config.ts`: ");
+    expect(readme).not.toContain("basic.scenarios.ts");
+    const packageDir = await demoPackage({ files: { "packs/demo/README.md": readme } });
+    expectRefused(packageDir, bounded(["catalog", "build"], packageDir), "demo-package/demo", "packs/demo/README.md", "'basic.scenarios.ts'", "## Examples");
   });
 
   test("parses as a PackageCatalog, holds no absolute path, and is the same bytes twice", async () => {

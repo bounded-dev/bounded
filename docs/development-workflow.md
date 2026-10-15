@@ -121,8 +121,16 @@ tree.
   recorded case is exempt from the two checks above; its successor must
   exist, run and pass at the head, and each record is printed as a note for
   the reviewer to judge. A red commit may delete a test file only when every
-  case in it is recorded. A red commit that changes the compile-time
-  fixtures also runs `src/test/compile-time.test.ts`, which must fail at the red commit.
+  case in it is recorded. A red commit that changes fixtures some test
+  elsewhere exercises also runs that test, which must fail at the red
+  commit: the compile-time fixtures run `src/test/compile-time.test.ts`; a
+  shipped pack's example scenarios run `src/test/example-scenarios.test.ts`;
+  a published pack's run its package's `test/example-scenarios.test.ts`
+  (only when that test exists at the red commit: a published package
+  without it is refused at the head by the architecture test); the example
+  scenarios runner's own fixture package runs
+  `src/core/composition-root/run-example-scenarios.test.ts` (ADR 2026-031).
+  A catalogue fixture's scenarios run no test.
   A record is refused when its case still exists at the head, when a case
   names itself as its successor, when the successor is a computed title (a
   table of cases generated in a loop), when the successor makes fewer

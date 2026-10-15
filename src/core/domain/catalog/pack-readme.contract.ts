@@ -31,6 +31,8 @@ export interface PackReadmeInput {
   readonly pointKeys: readonly string[];
   /** The pack's port keys, which Ports names as inline code. */
   readonly portKeys: readonly string[];
+  /** The file names in the pack's examples/: each example's `<slug>.config.ts` and `<slug>.scenarios.ts`, which Examples names as inline code (ADR 2026-031). */
+  readonly exampleFileNames: readonly string[];
 }
 
 /** The required sections, by heading, each with the catalogue field it fills and what it says. */
@@ -41,7 +43,10 @@ export type RequiredReadmeField = "whatItIsFor" | "ruleShape" | "workflowsItFits
  * titled `# <pack id>: <summary>`, with the seven required `##` sections
  * (What it is for, Rule shape, Workflows it fits, What it observes, What it
  * cannot see, Ports, Examples) once each, with a body; Rule shape names
- * every point key and Ports every port key as inline code; no code block
+ * every point key and Ports every port key as inline code; Examples names
+ * both files of each example (`<slug>.config.ts` and `<slug>.scenarios.ts`)
+ * as inline code, by file name, and no scenarios file outside examples/,
+ * while no other part names a scenarios file (ADR 2026-031); no code block
  * holds a project configuration, which the pack's examples are.
  */
 export interface PackReadme {

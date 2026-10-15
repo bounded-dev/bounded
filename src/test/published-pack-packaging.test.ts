@@ -193,7 +193,7 @@ describe("the published packs, each its own npm package", () => {
       }
       expect({ dir, tests: files.filter((file) => file.endsWith(".test.ts") || file.endsWith(".test-support.ts") || file.split("/").includes("fixtures") || file.startsWith("test/")) }).toEqual({ dir, tests: [] });
       // Two patterns: bun's Glob matches no brace alternative holding a '/'.
-      const sources = ["packs/*/README.md", "packs/*/examples/*.config.ts"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: join(ROOT, dir) })]).sort();
+      const sources = ["packs/*/README.md", "packs/*/examples/*.config.ts", "packs/*/examples/*.scenarios.ts"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: join(ROOT, dir) })]).sort();
       expect({ dir, sources: sources.length > 0 }).toEqual({ dir, sources: true });
       for (const source of sources) expect({ dir, source, packed: files.includes(source) }).toEqual({ dir, source, packed: true });
     }
@@ -231,11 +231,14 @@ describe("the published packs, each its own npm package", () => {
     const catalogue = JSON.parse(Bun.spawnSync(["tar", "-xzOf", tarball, "package/bounded.catalog.json"]).stdout.toString()) as {
       catalogVersion?: number;
       package?: { name?: string };
-      packs?: { id?: string; importPath?: string; exportName?: string }[];
+      packs?: { id?: string; importPath?: string; exportName?: string; examples?: { path?: string; scenarios?: unknown }[] }[];
     };
     expect(catalogue.catalogVersion).toBe(1);
     expect(catalogue.package?.name).toBe("bounded-example");
     expect((catalogue.packs ?? []).map(({ id, importPath, exportName }) => ({ id, importPath, exportName }))).toEqual([{ id: "bounded-example/refused-tools", importPath: "bounded-example", exportName: "refusedToolsPack" }]);
+    const examples = (catalogue.packs ?? []).flatMap((pack) => pack.examples ?? []);
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) expect({ path: example.path, scenarios: Array.isArray(example.scenarios) && example.scenarios.length > 0 }).toEqual({ path: example.path, scenarios: true });
   });
 
   test("installed beside bounded, under node, a project selecting the published pack judges with it", () => {

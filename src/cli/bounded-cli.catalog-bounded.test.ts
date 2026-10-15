@@ -11,6 +11,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Glob } from "bun";
+import { NodePackModules } from "bounded/adapters";
+import { ExampleScenarios } from "bounded/domain";
 
 const BOUNDED_DIR = resolve(import.meta.dir, "..");
 
@@ -20,7 +22,7 @@ interface Entry {
   readonly contributesTo: readonly string[];
   readonly points: readonly { readonly key: string; readonly wire: { readonly type: string } | null }[];
   readonly ports: readonly { readonly key: string; readonly declaration: string }[];
-  readonly examples: readonly { readonly path: string; readonly source: string }[];
+  readonly examples: readonly { readonly path: string; readonly source: string; readonly scenarios?: unknown }[];
 }
 
 /** bounded's catalogue, rebuilt now. */
@@ -76,5 +78,21 @@ describe("bounded's own catalogue", () => {
     const embedded = (built.catalogue.packs ?? []).flatMap((pack) => pack.examples);
     expect(embedded.map(({ path }) => path).sort()).toEqual(examplePaths);
     for (const example of embedded) expect({ path: example.path, verbatim: example.source === readFileSync(join(BOUNDED_DIR, example.path), "utf8") }).toEqual({ path: example.path, verbatim: true });
+  });
+
+  test("every example's scenarios are in the catalogue, in their normal form", async () => {
+    const embedded = (built.catalogue.packs ?? []).flatMap((pack) => pack.examples);
+    expect(embedded.length).toBeGreaterThan(0);
+    for (const example of embedded) {
+      const scenariosPath = example.path.replace(/\.config\.ts$/, ".scenarios.ts");
+      const loaded = await new NodePackModules().loadDefaultExport(BOUNDED_DIR, scenariosPath);
+      const fromFile = loaded.ok ? ExampleScenarios.parse(loaded.value) : loaded;
+      expect({ path: scenariosPath, parsed: fromFile.ok ? "parsed" : fromFile.error }).toEqual({ path: scenariosPath, parsed: "parsed" });
+      if (!fromFile.ok) continue;
+      expect({ path: example.path, scenarios: example.scenarios }).toEqual({ path: example.path, scenarios: fromFile.value.toJSON().scenarios });
+      const catalogued = ExampleScenarios.parse({ scenarios: example.scenarios });
+      expect<unknown>({ path: example.path, normal: catalogued.ok ? catalogued.value.toJSON().scenarios : catalogued.error }).toEqual({ path: example.path, normal: example.scenarios });
+      expect({ path: example.path, scenarios: Array.isArray(example.scenarios) && example.scenarios.length > 0 }).toEqual({ path: example.path, scenarios: true });
+    }
   });
 });

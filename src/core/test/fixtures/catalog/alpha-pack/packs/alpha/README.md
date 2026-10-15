@@ -28,4 +28,4 @@ It has no ports.
 
 ## Examples
 
-- `minimal.config.ts`: the project selects it.
+- `minimal.config.ts`, with `minimal.scenarios.ts`: the project selects it.

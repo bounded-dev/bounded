@@ -41,14 +41,11 @@ Projects contribute rules to the pack's one point, `rules`. A rule is
   refuses while the rule does not hold**, saying it cannot see and why, and
   how to let it see. What it does not know it cannot see is listed under
   "What it cannot see" below. A command that certainly does what the rule comes before is refused
-  for that instead. For example, under the rule
-  `{ before: { execute: "terraform apply" }, … }` of
-  `review-infra-before-apply.config.ts`:
-  - `$TF apply`: "This call would execute `$TF apply`, and bounded cannot
-    see whether it runs 'terraform apply': it runs a program whose name
-    only the shell can resolve ('$TF')", redirect the rule's, then " (or,
-    if this command does not run 'terraform apply', write it so that
-    bounded can read it: …)";
+  for that instead. For example, under a rule
+  `{ before: { execute: "terraform apply" }, … }` (Examples gives one,
+  with the full refusals):
+  - `$TF apply`: a program whose name only the shell can resolve; the
+    redirect adds how to write the command so that bounded can read it;
   - `terraform $CMD`, `echo apply | xargs terraform`: an argument only the
     shell can resolve stands before 'apply' could be found;
   - `eval …`, `python3 -c …`, `… | sh`, `bash <<EOF`: code bounded cannot
@@ -89,9 +86,8 @@ Projects contribute rules to the pack's one point, `rules`. A rule is
   `.git/**` comes before writes there. One inside `.bounded` is refused.
 - `redirect` is what the agent is told to do instead.
 
-Rules with the same requirement (agent and patterns) share records: in
-`review-plan-before-building.config.ts`, one review of the plan meets both
-plan-reviewer rules.
+Rules with the same requirement (agent and patterns) share records: one
+delegation that meets the requirement meets every rule that has it.
 
 ## Workflows it fits
 
@@ -346,17 +342,21 @@ A host may also provide its optional port, through
 
 ## Examples
 
-Each is a complete `bounded.config.ts`, in `examples/`, opened as a
-project's configuration by the package's tests. Each also selects
+Each example is a complete `bounded.config.ts`, in `examples/`, with its
+scenarios beside it: the calls it judges, step by step, and the verdict or
+message each gets, in full. The package's tests open each example as a
+project's configuration and check every step, and the package's catalogue
+(`bounded.catalog.json`) shows them. Each example also selects
 `bounded/protected-paths` and keeps agents off `.bounded/**` and
 `.claude/agents/**` (see "The protection it relies on").
 
-- `review-plan-before-building.config.ts`: before a delegation to
-  builder, and before a write under `src/`, plan-reviewer must have
-  succeeded over the current plan; one review meets both rules.
-- `review-spec-before-tests.config.ts`: before a delegation to
-  test-writer, spec-reviewer must have succeeded over the current spec and
-  contracts.
-- `review-infra-before-apply.config.ts`: before a shell command runs
-  `terraform apply`, infra-reviewer must have succeeded over the current
-  `infra/` files.
+- `review-plan-before-building.config.ts`, with
+  `review-plan-before-building.scenarios.ts`: a plan, review, build
+  workflow, plan-reviewer approving the current plan.
+- `review-spec-before-tests.config.ts`, with
+  `review-spec-before-tests.scenarios.ts`: a spec-first workflow,
+  spec-reviewer approving the current spec and contracts.
+- `review-infra-before-apply.config.ts`, with
+  `review-infra-before-apply.scenarios.ts`: reviewed infrastructure,
+  infra-reviewer approving the current `infra/` files before
+  `terraform apply`.

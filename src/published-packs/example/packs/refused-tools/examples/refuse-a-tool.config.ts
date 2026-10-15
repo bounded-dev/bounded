@@ -4,8 +4,8 @@ import { refusedToolsPack } from "bounded-example";
 /**
  * Keep a session offline
  *
- * Every web tool use (fetching a page, searching the web) is refused, with
- * a pointer to the documentation the project keeps in its repository.
+ * For a session that must stay offline: no web tool is used, and agents
+ * are pointed at the documentation the project keeps in its repository.
  */
 export default defineConfig({
   packs: [refusedToolsPack],

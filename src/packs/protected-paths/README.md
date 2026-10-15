@@ -123,14 +123,16 @@ hooks for Claude Code and pi that `bounded` carries do.
 
 ## Examples
 
-Each is a complete `bounded.config.ts`, in `examples/`, opened as a
-project's configuration by the package's tests.
+Each example is a complete `bounded.config.ts`, in `examples/`, with its
+scenarios beside it: the calls it judges, step by step, and the verdict
+each gets, in full. The package's tests open each example as a project's
+configuration and check every step, and the package's catalogue
+(`bounded.catalog.json`) shows them.
 
-- `keep-secrets-out.config.ts`: environment files, private keys and
-  `secrets/` that agents may neither read nor write, with file rules so a
-  filtered search outside `secrets/` still works.
-- `guard-the-guardrails.config.ts`: every path `bounded init`'s defaults
-  protect (the configuration, Bounded's state and installed code, Claude
-  Code's settings and pi's loader, git's hooks and config), generated code
-  changed only through its generator, and migrations that may be added but
-  never changed.
+- `keep-secrets-out.config.ts`, with `keep-secrets-out.scenarios.ts`:
+  credentials kept out of the agent's reach: environment files, private
+  keys and `secrets/`.
+- `guard-the-guardrails.config.ts`, with
+  `guard-the-guardrails.scenarios.ts`: what keeps Bounded in place (every
+  path `bounded init`'s defaults protect), generated code and applied
+  migrations kept from agents.

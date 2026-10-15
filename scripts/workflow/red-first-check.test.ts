@@ -23,7 +23,28 @@ describe("red-first-check paths", () => {
   test("every fixture runner's test exists in the repository", () => {
     const repoRoot = join(import.meta.dir, "..", "..");
     expect(FIXTURE_RUNNERS.length).toBeGreaterThan(0);
-    for (const runner of FIXTURE_RUNNERS) expect([runner.test, existsSync(join(repoRoot, runner.test))]).toEqual([runner.test, true]);
+    const tracked = spawnSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" }).stdout.split("\n").filter((line) => line !== "");
+    for (const runner of FIXTURE_RUNNERS) {
+      if (typeof runner.test === "string") {
+        expect([runner.test, existsSync(join(repoRoot, runner.test))]).toEqual([runner.test, true]);
+        continue;
+      }
+      // A runner named by the fixture's path: the test it names for each fixture in the repository exists.
+      const runs = runner.test;
+      const fixtures = tracked.filter((path) => runner.fixtures.test(path));
+      expect([String(runner.fixtures), fixtures.length > 0]).toEqual([String(runner.fixtures), true]);
+      for (const fixture of fixtures) expect([fixture, runs(fixture), existsSync(join(repoRoot, runs(fixture)))]).toEqual([fixture, runs(fixture), true]);
+    }
+  });
+
+  test("a change to a pack's example scenarios also runs the test that runs them; a catalogue fixture's does not", () => {
+    expect(fixtureRunners(["src/packs/prereqs/examples/review-plan-before-building.scenarios.ts"])).toEqual(["src/test/example-scenarios.test.ts"]);
+    expect(fixtureRunners(["src/published-packs/example/packs/refused-tools/examples/refuse-a-tool.scenarios.ts"])).toEqual(["src/published-packs/example/test/example-scenarios.test.ts"]);
+    expect(fixtureRunners(["src/published-packs/other/packs/a/examples/b.scenarios.ts", "src/published-packs/other/packs/c/examples/d.scenarios.ts"])).toEqual(["src/published-packs/other/test/example-scenarios.test.ts"]);
+    expect(fixtureRunners(["src/core/test/fixtures/catalog/demo-package/packs/demo/examples/basic.scenarios.ts"])).toEqual([]);
+    expect(fixtureRunners(["src/packs/prereqs/examples/review-plan-before-building.config.ts"])).toEqual([]);
+    expect(fixtureRunners(["src/core/test/fixtures/example-scenarios/refusing-package/packs/refusing/examples/refuse-writes.scenarios.ts"])).toEqual(["src/core/composition-root/run-example-scenarios.test.ts"]);
+    expect(fixtureRunners(["src/packs/prereqs/examples/a.scenarios.ts", "src/test/fixtures/compile-time/rejected.ts"]).sort()).toEqual(["src/test/compile-time.test.ts", "src/test/example-scenarios.test.ts"]);
   });
 
   test("a shipped pack's example scenarios may be in a red commit; its example and other scenarios files may not", () => {

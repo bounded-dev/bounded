@@ -5,12 +5,8 @@ import { protectedPathsPack } from "bounded/protected-paths";
 /**
  * Review the plan before building it
  *
- * Neither a delegation to the builder agent nor a write under `src/` is
- * allowed until plan-reviewer has succeeded over the current plan. Both
- * rules share one requirement, so one review meets both, and editing the
- * plan afterwards makes the review stale. The protected-paths pack keeps
- * agents off the records in `.bounded/` and off the agent definitions that
- * say who plan-reviewer is.
+ * For a plan, review, build workflow: the builder agent runs, and `src/`
+ * is edited, only once a reviewer agent has approved the current plan.
  */
 export default defineConfig({
   packs: [protectedPathsPack, prereqs],

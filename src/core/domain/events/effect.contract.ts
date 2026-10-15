@@ -53,6 +53,17 @@ export interface ExecuteEffect extends EffectOf<"execute", ExecuteEffectJSON> {
   readonly reading: ShellCommandReading;
 }
 
+/**
+ * An execute effect's command before it is read: the command and the project
+ * directory it runs in (null: the project root), checked as an execute
+ * effect's are. What an example's scenarios give for a shell command, which
+ * bounded's reader reads when the scenario runs (ADR 2026-031).
+ */
+export interface CommandToRead {
+  readonly command: Command;
+  readonly cwd: ProjectPath | null;
+}
+
 /** Reaches the network. */
 export interface FetchEffect extends EffectOf<"fetch", FetchEffectJSON> {
   readonly url: Url;

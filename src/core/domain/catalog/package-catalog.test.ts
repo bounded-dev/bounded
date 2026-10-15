@@ -35,10 +35,18 @@ const sample = {
         whatItObserves: "Nothing.",
         whatItCannotSee: "Everything.",
         ports: "`noteStore`",
-        examples: "`basic.config.ts`",
+        examples: "`basic.config.ts`, `basic.scenarios.ts`",
         otherSections: [{ heading: "Records", markdown: "None are kept." }],
       },
-      examples: [{ path: "packs/demo/examples/basic.config.ts", title: "Keep a note", description: "The project keeps one note.", source: "export default 1;\n" }],
+      examples: [
+        {
+          path: "packs/demo/examples/basic.config.ts",
+          title: "Keep a note",
+          description: "The project keeps one note.",
+          source: "export default 1;\n",
+          scenarios: [{ title: "A read is allowed", projectFiles: {}, steps: [{ toolUse: { role: null, tool: "read", effects: [{ kind: "read", path: "README.md" }] }, verdict: { kind: "allow" } }] }],
+        },
+      ],
     },
   ],
 } as const;
@@ -91,6 +99,25 @@ describe("PackageCatalog — a package's catalogue of its packs (ADR 2026-029)",
 
   test("a pack with no examples is refused", () => {
     expect(refusal(withPack((pack) => ({ ...pack, examples: [] })))).toContain("example");
+  });
+
+  test("keeps each example's scenarios", () => {
+    const parsed = PackageCatalog.parse(sample);
+    expect(parsed.ok ? parsed.value.packs[0]?.examples[0]?.scenarios : parsed.error).toEqual(sample.packs[0].examples[0].scenarios);
+    const asGiven = [{ title: "Kept as given", steps: [{ anything: "the build checked it" }], extra: 1 }];
+    const kept = PackageCatalog.parse(withPack((pack) => ({ ...pack, examples: [{ ...sample.packs[0].examples[0], scenarios: asGiven }] })));
+    expect(kept.ok ? kept.value.packs[0]?.examples[0]?.scenarios : kept.error).toEqual(asGiven);
+  });
+
+  test("refuses an example without scenarios, or with an empty list, naming the pack and the example", () => {
+    const { scenarios: _scenarios, ...withoutScenarios } = sample.packs[0].examples[0];
+    for (const example of [withoutScenarios, { ...withoutScenarios, scenarios: [] }]) {
+      const error = refusal(withPack((pack) => ({ ...pack, examples: [example] })));
+      expect({ example, names: [error.includes("demo-package/demo"), error.includes("packs/demo/examples/basic.config.ts"), error.includes("scenarios")] }).toEqual({ example, names: [true, true, true] });
+    }
+    for (const scenarios of [[{ title: "No steps", steps: [] }], [{ title: "No steps" }], ["a scenario"]]) {
+      expect({ scenarios, error: refusal(withPack((pack) => ({ ...pack, examples: [{ ...withoutScenarios, scenarios }] }))) }).toEqual({ scenarios, error: expect.stringContaining("scenarios") });
+    }
   });
 
   test("unknown fields are ignored: readers of version 1 take what they know", () => {

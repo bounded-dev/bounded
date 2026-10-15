@@ -62,6 +62,30 @@ export function packModulesConformance(name: string, fixture: (demoExport?: unkn
       expect(!loaded.ok && loaded.error).toContain(ADD_A_DEFAULT_CONDITION);
     });
 
+    test("loads the default export of a package's module by its package-relative path", async () => {
+      const given = await fixture();
+      const loaded = await given.modules.loadDefaultExport(given.packageDir, "packs/demo/examples/basic.scenarios.ts");
+      expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+      expect(loaded.ok && loaded.value).toMatchObject({ scenarios: [expect.objectContaining({ title: expect.any(String), steps: expect.any(Array) })] });
+    });
+
+    test("refuses a path outside the package, naming it", async () => {
+      const given = await fixture();
+      for (const path of ["../outside.scenarios.ts", "/tmp/outside.scenarios.ts"]) {
+        const loaded = await given.modules.loadDefaultExport(given.packageDir, path);
+        expect({ path, ok: loaded.ok }).toEqual({ path, ok: false });
+        expect(!loaded.ok && loaded.error).toContain(path);
+      }
+    });
+
+    test("refuses a module with no default export, naming it", async () => {
+      const given = await fixture();
+      const loaded = await given.modules.loadDefaultExport(given.packageDir, "packs/demo/index.ts");
+      expect(loaded.ok).toBe(false);
+      expect(!loaded.ok && loaded.error).toContain("packs/demo/index.ts");
+      expect(!loaded.ok && loaded.error).toContain("default export");
+    });
+
     test("accepts a nested { node: { default } } entry", async () => {
       const given = await fixture({ node: { default: "./dist/demo/index.js" } });
       const loaded = await given.modules.load(given.packageDir, "./demo");

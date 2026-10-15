@@ -14,6 +14,32 @@ const REQUIRED: readonly { readonly heading: string; readonly field: Contract.Re
   { heading: "Examples", field: "examples", says: "the pack's examples, in examples/" },
 ];
 
+/** A code span naming a scenarios file: a name, or a path, ending `.scenarios.ts`. */
+const SCENARIOS_FILE = /\.scenarios\.ts$/;
+const quoted = (names: readonly string[]): string => names.map((name) => `'${name}'`).join(", ");
+
+/**
+ * Why the README does not name its examples as the rule wants, or undefined
+ * when it does (ADR 2026-031): Examples names both files of each example as
+ * inline code, by file name, and names no scenarios file that is not in
+ * examples/; no other part names a scenarios file. Every problem is said.
+ */
+function examplesNotNamed(which: string, input: Contract.PackReadmeInput): string | undefined {
+  const examples = input.sections.find((section) => section.heading === "Examples");
+  const spans = examples?.codeSpans ?? [];
+  const problems: string[] = [];
+  const missing = input.exampleFileNames.filter((name) => !spans.includes(name));
+  if (missing.length > 0) problems.push(`does not name ${quoted(missing)} as inline code in \`## Examples\`: name each example's \`<slug>.config.ts\` and \`<slug>.scenarios.ts\` there, by file name`);
+  const unknown = [...new Set(spans.filter((span) => SCENARIOS_FILE.test(span) && !input.exampleFileNames.includes(span)))];
+  if (unknown.length > 0) problems.push(`names ${quoted(unknown)} in \`## Examples\`, which is no file in the pack's examples/: name only its files, by file name`);
+  const elsewhere = [{ heading: "the introduction", codeSpans: input.introduction.codeSpans }, ...input.sections.filter((section) => section !== examples).map((section) => ({ heading: `\`## ${section.heading}\``, codeSpans: section.codeSpans }))];
+  for (const part of elsewhere) {
+    const scenarios = [...new Set(part.codeSpans.filter((span) => SCENARIOS_FILE.test(span)))];
+    if (scenarios.length > 0) problems.push(`names ${quoted(scenarios)} in ${part.heading}: a scenarios file is named only in \`## Examples\``);
+  }
+  return problems.length === 0 ? undefined : `${which} ${problems.join("; and ")}`;
+}
+
 class PackReadmeImpl implements Contract.PackReadme {
   declare readonly __brand: "PackReadme";
   declare readonly [packReadmeBrand]: true;
@@ -62,7 +88,7 @@ class PackReadmeImpl implements Contract.PackReadme {
       const unnamedKeys = keys.filter((key) => !spans.includes(key));
       return unnamedKeys.length === 0 ? undefined : `${which} does not name the ${what} ${unnamedKeys.map((key) => `'${key}'`).join(", ")} as inline code in \`## ${heading}\`: write each as \`${unnamedKeys[0]}\` there`;
     };
-    const unnamed = named("Rule shape", input.pointKeys, "point key") ?? named("Ports", input.portKeys, "port key");
+    const unnamed = named("Rule shape", input.pointKeys, "point key") ?? named("Ports", input.portKeys, "port key") ?? examplesNotNamed(which, input);
     if (unnamed !== undefined) return { ok: false, error: unnamed };
     const readme: CataloguedReadmeJSON = Object.freeze({
       path,

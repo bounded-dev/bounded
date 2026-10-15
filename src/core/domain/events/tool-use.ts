@@ -13,25 +13,30 @@ const EFFECTS = "A tool use's effects must be a non-empty list of what the call 
 
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
-/** What a tool use and a tool result share: who acts, the tool kind, its effects and call id, read and checked. */
-export interface Call {
+/**
+ * What a tool use and a tool result share: who acts, the tool kind, its
+ * effects and call id, read and checked. Generic in its effects (ADRs
+ * 2026-002, 2026-003, 2026-031): an event's are effects, and an example's
+ * scenario's are effects whose execute effects are commands still to be read.
+ */
+export interface Call<E = Effect> {
   readonly role: Role | null;
   readonly tool: Contract.ToolKind;
-  readonly effects: readonly [Effect, ...Effect[]];
+  readonly effects: readonly [E, ...E[]];
   readonly callId: CallId | undefined;
 }
 
-/** Reads a call's own fields, each once: role, tool, effects and the optional call id. */
-export function callOf(raw: object, name: string): Result<Call> {
+/** Reads a call's own fields, each once: role, tool, effects (each with `readEffect`: Effect.parse for an event) and the optional call id. */
+export function callOf<E>(raw: object, name: string, readEffect: (raw: unknown) => Result<E>): Result<Call<E>> {
   const role = roleOf(raw, name);
   if (!role.ok) return role;
   const [tool, rawEffects] = [own(raw, "tool"), own(raw, "effects")];
   const known = TOOL_KINDS.find((kind) => kind === tool);
   if (known === undefined) return refuse(`Tool kind '${show(tool)}' is not one of: ${TOOL_KINDS.join(", ")}`);
   if (!Array.isArray(rawEffects) || rawEffects.length === 0) return refuse(EFFECTS);
-  const effects: Effect[] = [];
+  const effects: E[] = [];
   for (const [i, rawEffect] of rawEffects.entries()) {
-    const effect = Effect.parse(rawEffect);
+    const effect = readEffect(rawEffect);
     if (!effect.ok) return refuse(`Effect ${i + 1} of ${rawEffects.length}: ${effect.error}`);
     effects.push(effect.value);
   }
@@ -72,7 +77,7 @@ class ToolUseImpl implements Contract.ToolUse {
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse("A tool use is an object: { role, tool, effects }");
       const kind = own(raw, "kind");
       if (kind !== undefined && kind !== "tool-use") return refuse(`A tool use has kind 'tool-use', not '${show(kind)}'`);
-      const call = callOf(raw, "A tool use");
+      const call = callOf(raw, "A tool use", Effect.parse);
       return call.ok ? { ok: true, value: new ToolUseImpl(call.value) } : call;
     });
   }
