@@ -12,7 +12,7 @@ is this band).
 The mod API is cited as `CC:<line>` for Claude Code 2.1.294's
 plugin-authoring declarations (`types/claude-code.d.ts`) and `RM:<line>`
 for their `reference.md`. The band was verified with the Claude Code then
-installed, 2.1.296; the band's own check type-checks against the
+installed, 2.1.296 for its step-0 checks and 2.1.300 for its last check; the band's own check type-checks against the
 declarations the running build lays, and refuses another build's.
 
 ## Context
