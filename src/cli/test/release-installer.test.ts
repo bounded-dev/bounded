@@ -257,7 +257,7 @@ test("Unix installer refuses a control character in the persisted bin path", asy
   try {
     const result = run(f.script, { ...f.env, XDG_BIN_HOME: `${f.root}/bin\nnext-command` });
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toMatch(/bin directory.*control/i);
+    expect(result.stderr?.toString()).toMatch(/bin directory.*control/i);
     expect(existsSync(join(f.root, "data", "bounded", "active"))).toBe(false);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
@@ -274,7 +274,7 @@ test("Unix installer verifies every file of an already installed release before 
     writeFileSync(join(release, "share", "types", "index.d.ts"), "tampered\n");
     const result = run(f.script, f.env);
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toMatch(/release.*match|verification/i);
+    expect(result.stderr?.toString()).toMatch(/release.*match|verification/i);
     expect(readFileSync(pointer, "utf8")).toBe("1.2.3\n");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
