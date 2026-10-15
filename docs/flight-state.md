@@ -98,8 +98,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `src/core/composition-root/pack-readmes.test.ts`, and at least one
   example, `examples/<slug>.config.ts`, a project's configuration that
   `src/core/composition-root/pack-examples.test.ts` opens as a project's
-  `bounded.config.ts` and exercises its rules, one case per example (a new
-  example needs one). Examples ship in the package, without declarations.
+  `bounded.config.ts` and judges calls against its rules before the tool
+  runs, one case per example (a new example needs one): every rule refuses
+  a call it covers, carve-outs are allowed, and a prerequisite is refused,
+  met, allowed and stale. The infra example's `sudo`, `env`, `bash -c` and
+  `$TF apply` forms are covered with the real shell reader in
+  `src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts`;
+  drift is not exercised for examples. Examples ship in the package, without declarations.
 - **The package catalogue** (issue #68, step 1 (B);
   [ADR 2026-029](adr/2026-029-package-catalogue.md),
   [writing a pack](writing-a-pack.md)): `bounded catalog build` writes a

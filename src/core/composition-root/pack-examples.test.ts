@@ -3,10 +3,10 @@
 // imports an example: each is read as text and opened as a project's
 // bounded.config.ts, as a project would open it, so an example cannot drift
 // from the API.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
@@ -18,7 +18,8 @@ import { readingOf } from "./shell-command-reading-samples.test-support.ts";
 /** bounded's directory, src/: what a project's node_modules/bounded links to. */
 const BOUNDED = resolve(import.meta.dir, "../..");
 const PACKS = join(BOUNDED, "packs");
-process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-state-"));
+const STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-state-"));
+process.env.XDG_STATE_HOME = STATE_HOME;
 
 /** Every shipped pack's directory name under src/packs/. */
 const shippedPackNames = readdirSync(PACKS, { withFileTypes: true })
@@ -28,12 +29,19 @@ const shippedPackNames = readdirSync(PACKS, { withFileTypes: true })
 /** Every example of a shipped pack, from src/: packs/<name>/examples/<slug>.config.ts. */
 const examplePaths = [...new Glob("packs/*/examples/*.config.ts").scanSync({ cwd: BOUNDED })].sort();
 
+/** Every temporary project this file made, and its state directory: removed after the tests (the link to src/ is removed, never followed). */
+const temporaryDirectories: string[] = [STATE_HOME];
+afterAll(() => {
+  for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+});
+
 /**
  * A git project whose bounded.config.ts is `config`, with bounded installed as a link to src/,
  * and `files` (project-relative path -> text) written with their directories.
  */
 function projectWithConfig(config: string, files: Record<string, string> = {}): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-example-")));
+  temporaryDirectories.push(root);
   mkdirSync(join(root, "node_modules"));
   symlinkSync(BOUNDED, join(root, "node_modules", "bounded"), "dir");
   writeFileSync(join(root, ".gitignore"), "node_modules/\n.bounded/\n");
@@ -130,6 +138,13 @@ const reasonOf = (verdict: { kind: string; reason?: string }): string => (verdic
 /** The refusal's redirect, or "allowed". */
 const redirectOf = (verdict: { kind: string; redirect?: string }): string => (verdict.kind === "refuse" ? (verdict.redirect ?? "") : "allowed");
 
+/** The prereqs examples' refusal of a write (modify) to their records, by their `.bounded/**` rule. */
+const RECORDS_WRITE_REFUSED =
+  "bounded/protected-paths refused write (modify) .bounded/prereqs/records.jsonl: the rule '.bounded/**' from bounded/project denies modify of '.bounded/prereqs/records.jsonl' (Bounded's own state, where prereqs keeps its records)";
+/** The prereqs examples' refusal of a write (`change`) to `agent`'s definition, by their `.claude/agents/**` rule. */
+const definitionWriteRefused = (agent: string, change: "create" | "modify") =>
+  `bounded/protected-paths refused write (${change}) .claude/agents/${agent}.md: the rule '.claude/agents/**' from bounded/project denies ${change} of '.claude/agents/${agent}.md' (the agent definitions say who each agent is)`;
+
 describe("every shipped pack's example, its rules exercised", () => {
   test("the examples exercised below are every shipped pack's examples", () => {
     expect(examplePaths).toEqual([
@@ -162,6 +177,8 @@ describe("every shipped pack's example, its rules exercised", () => {
 
     expect(redirectOf(await judge(write(".bounded/prereqs/records.jsonl", "modify")))).toBe("Leave .bounded/ to Bounded");
     expect(redirectOf(await judge(write(".claude/agents/plan-reviewer.md", "create")))).toBe("Ask a person to change an agent's definition");
+    expect(reasonOf(await judge(write(".bounded/prereqs/records.jsonl", "modify")))).toBe(RECORDS_WRITE_REFUSED);
+    expect(reasonOf(await judge(write(".claude/agents/plan-reviewer.md", "create")))).toBe(definitionWriteRefused("plan-reviewer", "create"));
   });
 
   test("review-spec-before-tests: a delegation to test-writer is refused, allowed once spec-reviewer succeeds, and refused again when a contract or the spec changes", async () => {
@@ -186,6 +203,10 @@ describe("every shipped pack's example, its rules exercised", () => {
     expect(reasonOf(await judge(delegate("test-writer", "t5")))).toContain("spec-reviewer succeeded over them, but they have changed since");
 
     expect(redirectOf(await judge(write(".claude/agents/spec-reviewer.md", "modify")))).toBe("Ask a person to change an agent's definition");
+    expect(reasonOf(await judge(write(".claude/agents/spec-reviewer.md", "modify")))).toBe(definitionWriteRefused("spec-reviewer", "modify"));
+    const refusedState = await judge(write(".bounded/prereqs/records.jsonl", "modify"));
+    expect(reasonOf(refusedState)).toBe(RECORDS_WRITE_REFUSED);
+    expect(redirectOf(refusedState)).toBe("Leave .bounded/ to Bounded");
   });
 
   test("review-infra-before-apply: terraform apply is refused, allowed once infra-reviewer succeeds, and refused again when infra/ changes; terraform plan is always allowed", async () => {
@@ -205,6 +226,13 @@ describe("every shipped pack's example, its rules exercised", () => {
     writeFileSync(join(root, "infra", "main.tf"), 'terraform { required_version = ">= 1.0" }\n');
     expect(reasonOf(await judge(apply("a3")))).toContain("infra-reviewer succeeded over them, but they have changed since");
     expect(reasonOf(await judge(plan("p2")))).toBe("allowed");
+
+    const refusedState = await judge(write(".bounded/prereqs/records.jsonl", "modify"));
+    expect(reasonOf(refusedState)).toBe(RECORDS_WRITE_REFUSED);
+    expect(redirectOf(refusedState)).toBe("Leave .bounded/ to Bounded");
+    const refusedDefinition = await judge(write(".claude/agents/infra-reviewer.md", "create"));
+    expect(reasonOf(refusedDefinition)).toBe(definitionWriteRefused("infra-reviewer", "create"));
+    expect(redirectOf(refusedDefinition)).toBe("Ask a person to change an agent's definition");
   });
 
   test("keep-secrets-out: environment files, private keys and secrets/ are neither read nor written; .env.example and a filtered search that cannot reach secrets/ stay allowed", async () => {

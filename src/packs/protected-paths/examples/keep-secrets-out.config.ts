@@ -8,8 +8,8 @@ import { protectedPathsPack } from "bounded/protected-paths";
  * files and private keys, nor anything under `secrets/`. A file rule
  * (`file: true`) covers the named file alone, so a search filtered to other
  * names (`*.ts`) is still allowed where it cannot reach `secrets/`, such as
- * under `src/`. The example file that
- * lists the variables' names stays readable.
+ * under `src/`. The example file that lists the variables' names stays
+ * readable.
  */
 export default defineConfig({
   packs: [protectedPathsPack],
