@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Result } from "bounded/domain";
+import { readReleaseArchive, safeReleasePath } from "./release-archive.ts";
 
 export interface ReleaseFile {
   readonly path: string;
@@ -38,11 +39,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isVersion = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(value);
 const isDigest = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const isSize = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-const validRelativePath = (value: unknown): value is string => {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.startsWith("/") || value.includes("\0")) return false;
-  return value.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.includes(":"));
-};
-const validFile = (value: unknown): value is ReleaseFile => isRecord(value) && validRelativePath(value.path) && isSize(value.size) && isDigest(value.sha256);
+const validFile = (value: unknown): value is ReleaseFile => isRecord(value) && safeReleasePath(value.path) && isSize(value.size) && isDigest(value.sha256);
+const REQUIRED_FILES = [
+  "LICENSE",
+  "release.json",
+  "share/types/index.d.ts",
+  "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json",
+  "share/claude-code/prereqs-status-band/hooks/engine-subset.ts",
+  "share/claude-code/prereqs-status-band/hooks/hooks.json",
+  "share/claude-code/prereqs-status-band/hooks/prereqs-status-band-lines.ts",
+  "share/claude-code/prereqs-status-band/hooks/prereqs-status-file.ts",
+  "share/claude-code/prereqs-status-band/hooks/project-config-names.ts",
+  "share/claude-code/prereqs-status-band/hooks/register.ts",
+  "share/claude-code/prereqs-status-band/types/index.d.ts",
+] as const;
 const targetIds = new Set([
   "darwin-x64", "darwin-arm64", "linux-x64-gnu", "linux-arm64-gnu",
   "linux-x64-musl", "linux-arm64-musl", "windows-x64", "windows-arm64",
@@ -65,20 +75,23 @@ function parseReleaseManifest(value: unknown, pinnedVersion: string): Result<Rel
     if (!isRecord(rawArchive) || rawArchive.name !== expectedArchiveName || !isSize(rawArchive.size) || !isDigest(rawArchive.sha256)) {
       return { ok: false, error: `release target ${targetId} has an invalid archive` };
     }
-    if (!validFile(rawTarget.executable) || rawTarget.executable.path !== (targetId.startsWith("windows-") ? "bin/bounded.exe" : "bin/bounded")) {
+    const executable = rawTarget.executable;
+    if (!validFile(executable) || executable.path !== (targetId.startsWith("windows-") ? "bin/bounded.exe" : "bin/bounded")) {
       return { ok: false, error: `release target ${targetId} has an invalid executable` };
     }
     if (!Array.isArray(rawTarget.files) || !rawTarget.files.every(validFile)) return { ok: false, error: `release target ${targetId} has an invalid file list` };
     const files: ReleaseFile[] = rawTarget.files;
     const filePaths = files.map((file) => file.path);
-    if (filePaths.join("\0") !== [...filePaths].sort().join("\0") || new Set(filePaths).size !== filePaths.length || filePaths.includes(rawTarget.executable.path)) {
+    if (filePaths.join("\0") !== [...filePaths].sort().join("\0") || new Set(filePaths.map((path) => path.toLowerCase())).size !== filePaths.length || filePaths.some((path) => path.toLowerCase() === executable.path.toLowerCase())) {
       return { ok: false, error: `release target ${targetId} has duplicate or unsorted file paths` };
     }
-    if (!filePaths.includes("release.json")) return { ok: false, error: `release target ${targetId} lacks release.json` };
+    for (const requiredPath of REQUIRED_FILES) {
+      if (!filePaths.includes(requiredPath)) return { ok: false, error: `release target ${targetId} lacks ${requiredPath}` };
+    }
     targets[targetId] = {
       minimumOS: rawTarget.minimumOS,
       archive: { name: rawArchive.name, size: rawArchive.size, sha256: rawArchive.sha256 },
-      executable: rawTarget.executable,
+      executable,
       files,
     };
   }
@@ -105,18 +118,14 @@ export function selectReleaseTarget(manifest: ReleaseManifest, host: { readonly 
 }
 
 /** Checks the compressed bytes and the exhaustive extracted regular-file map before installation. */
-export function verifyReleaseArchive(manifest: ReleaseManifest, targetId: string, archiveBytes: Uint8Array, entries: Readonly<Record<string, Uint8Array>>): Result<void> {
+export async function verifyReleaseArchive(manifest: ReleaseManifest, targetId: string, archiveBytes: Uint8Array): Promise<Result<Readonly<Record<string, Uint8Array>>>> {
   const target = manifest.targets[targetId];
   if (target === undefined) return { ok: false, error: `release ${manifest.version} does not declare target ${targetId}` };
   if (archiveBytes.byteLength !== target.archive.size || sha256(archiveBytes) !== target.archive.sha256) return { ok: false, error: `release archive ${target.archive.name} fails size or SHA-256 verification` };
   const expectedFiles = [target.executable, ...target.files];
-  const expectedPaths = new Set(expectedFiles.map((file) => file.path));
-  if (Object.keys(entries).length !== expectedPaths.size || Object.keys(entries).some((path) => !expectedPaths.has(path))) return { ok: false, error: `release archive ${target.archive.name} has missing or unexpected entries` };
-  for (const file of expectedFiles) {
-    const contents = entries[file.path];
-    if (contents === undefined || contents.byteLength !== file.size || sha256(contents) !== file.sha256) return { ok: false, error: `release archive file ${file.path} fails size or SHA-256 verification` };
-  }
-  const releaseJson = entries["release.json"];
+  const parsed = await readReleaseArchive(archiveBytes, target.archive.name, manifest.version, expectedFiles);
+  if (!parsed.ok) return parsed;
+  const releaseJson = parsed.value["release.json"];
   if (releaseJson === undefined) return { ok: false, error: "release archive lacks release.json" };
   try {
     const identity: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(releaseJson));
@@ -126,7 +135,17 @@ export function verifyReleaseArchive(manifest: ReleaseManifest, targetId: string
   } catch {
     return { ok: false, error: "release.json is not valid UTF-8 JSON" };
   }
-  return { ok: true, value: undefined };
+  const pluginManifestBytes = parsed.value["share/claude-code/prereqs-status-band/.claude-plugin/plugin.json"];
+  if (pluginManifestBytes === undefined) return { ok: false, error: "release archive lacks the Claude plugin manifest" };
+  try {
+    const pluginManifest: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(pluginManifestBytes));
+    if (!isRecord(pluginManifest) || pluginManifest.name !== "bounded-prereqs-status-band" || pluginManifest.version !== manifest.version || pluginManifest.types !== "./types/index.d.ts") {
+      return { ok: false, error: "Claude plugin manifest does not match the release" };
+    }
+  } catch {
+    return { ok: false, error: "Claude plugin manifest is not valid UTF-8 JSON" };
+  }
+  return parsed;
 }
 
 /** Constructs URLs only for the script's exact pinned release. */

@@ -8,7 +8,9 @@
     "bounded": "./main.ts"
   },
   "dependencies": {
-    "bounded": "workspace:*"
+    "bounded": "workspace:*",
+    "tar-stream": "^3.2.2",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "bounded-shell-command-reader": "workspace:*"
