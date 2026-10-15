@@ -615,14 +615,17 @@ const packFileOf = (path: string): { readonly dir: string; readonly name: string
 
 /** A shipped pack's example: `examples/<slug>.config.ts`, one level deep, its slug in kebab case. */
 const EXAMPLE = /^examples\/[a-z0-9]+(-[a-z0-9]+)*\.config\.ts$/;
+/** An example's scenarios, beside it: `examples/<slug>.scenarios.ts` (ADR 2026-031). */
+const EXAMPLE_SCENARIOS = /^examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/;
 
 /**
  * R7, layout: a shipped or published pack's directory holds exactly its overview
  * (`<name>.pack.ts`), its contract (`<name>.contract.ts`), its index, the
  * overview's test and its README, and only the folders `domain/`,
  * `application/`, `adapters/` and `examples/`; `examples/` holds only
- * `<slug>.config.ts` files, at least one. `paths` lists every file, the
- * README included.
+ * `<slug>.config.ts` files, at least one, each with its `<slug>.scenarios.ts`
+ * beside it, and no scenarios without their example (ADR 2026-031). `paths`
+ * lists every file, the README included.
  */
 export function packLayoutViolations(paths: readonly string[]): string[] {
   const out: string[] = [];
@@ -633,7 +636,12 @@ export function packLayoutViolations(paths: readonly string[]): string[] {
     const { dir, name, rest } = packFile;
     dirs.set(dir, name);
     if (rest.startsWith("examples/")) {
-      if (!EXAMPLE.test(rest)) out.push(`${path} — a pack's examples are examples/<name>.config.ts files`);
+      const slug = rest.slice("examples/".length).replace(/\.(config|scenarios)\.ts$/, "");
+      if (EXAMPLE.test(rest)) {
+        if (!paths.includes(`${dir}/examples/${slug}.scenarios.ts`)) out.push(`${path} — an example has its scenarios beside it: add examples/${slug}.scenarios.ts`);
+      } else if (EXAMPLE_SCENARIOS.test(rest)) {
+        if (!paths.includes(`${dir}/examples/${slug}.config.ts`)) out.push(`${path} — scenarios sit beside their example: add examples/${slug}.config.ts`);
+      } else out.push(`${path} — a pack's examples/ holds examples/<name>.config.ts files, each with its examples/<name>.scenarios.ts`);
       continue;
     }
     const allowed = rest.includes("/") ? ["domain", "application", "adapters"].includes(rest.split("/")[0] ?? "") : [`${name}.pack.ts`, `${name}.contract.ts`, `${name}.pack.test.ts`, "index.ts", "README.md"].includes(rest);

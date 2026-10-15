@@ -162,7 +162,10 @@ const packLayerOf = (file: string): string | undefined => {
   if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
-const NOTHING_IMPORTS_AN_EXAMPLE = "nothing imports a pack's example: open it as a project's configuration";
+const NOTHING_IMPORTS_AN_EXAMPLE = "nothing imports a pack's example or its scenarios: open the example as a project's configuration, and run its scenarios with bounded/testing/example-scenarios";
+/** A pack's example's scenarios (ADR 2026-031): data, which imports only the core's domain export path. */
+const SCENARIOS_IMPORT_ONLY_THE_DOMAIN = "a scenarios file imports only bounded/domain: its scenarios are data, made with defineExampleScenarios";
+const isScenariosFile = (path: string): boolean => packLayerOf(path) === "examples" && path.endsWith(".scenarios.ts");
 /**
  * Any file's imports of a shipped pack's example, by relative path (an
  * example has no export path): every file of the repository, its tests and
@@ -197,6 +200,10 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     const into = packDir(file);
     if (into !== undefined && packLayerOf(file ?? "") === "examples") {
       out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+      continue;
+    }
+    if (isScenariosFile(path)) {
+      if (spec !== `${context.name}/domain`) out.push(`${at} — ${SCENARIOS_IMPORT_ONLY_THE_DOMAIN}`);
       continue;
     }
     if (packLayerOf(path) === "examples") {
@@ -266,6 +273,10 @@ function publishedPackViolations(path: string, imports: readonly { spec: string;
       out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
       continue;
     }
+    if (isScenariosFile(path)) {
+      if (spec !== `${CORE}/domain`) out.push(`${at} — ${SCENARIOS_IMPORT_ONLY_THE_DOMAIN}`);
+      continue;
+    }
     if (packLayerOf(path) === "examples") {
       if (relative || !(isPackage(core, spec) || isPackage(context, spec))) out.push(`${at} — an example imports only ${CORE}'s and ${context.name}'s export paths, as a project's configuration does`);
       else if (spec !== `${CORE}/domain` && !isPackIndex(file)) {
@@ -291,6 +302,31 @@ function publishedPackViolations(path: string, imports: readonly { spec: string;
 }
 
 const NOTHING_IMPORTS_A_PUBLISHED_PACK = "nothing outside a published pack's package imports it: bounded never depends on a published pack";
+
+/** The test of a published pack's package that runs its examples' scenarios (ADR 2026-031). */
+const PUBLISHED_SCENARIOS_RUNNER = "test/example-scenarios.test.ts";
+/**
+ * Every published pack's package runs its examples' scenarios (ADR
+ * 2026-031): its test/example-scenarios.test.ts imports the runner from
+ * bounded/testing/example-scenarios, the route a package outside this
+ * repository takes. `textOf` gives a file's text, or undefined when there is
+ * no such file.
+ */
+function publishedScenariosRunnerViolations(packageDirs: readonly string[], textOf: (path: string) => string | undefined): string[] {
+  const out: string[] = [];
+  for (const dir of packageDirs) {
+    const path = `${dir}/${PUBLISHED_SCENARIOS_RUNNER}`;
+    const text = textOf(path);
+    if (text === undefined) {
+      out.push(`${dir} — a published pack's package runs its examples' scenarios: add ${PUBLISHED_SCENARIOS_RUNNER}, running each with runExampleScenarios from bounded/testing/example-scenarios`);
+      continue;
+    }
+    if (!importsOf(path, text).some(({ spec }) => spec === "bounded/testing/example-scenarios")) {
+      out.push(`${path} — it runs its package's example scenarios with bounded/testing/example-scenarios: import runExampleScenarios from there`);
+    }
+  }
+  return out;
+}
 /**
  * Any file's imports of a published pack's package (ADR 2026-030), by name
  * (`bounded-<name>`, `bounded-<name>/…`) or by relative path into
