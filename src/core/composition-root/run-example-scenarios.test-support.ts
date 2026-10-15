@@ -9,9 +9,9 @@
 // does, and runs the steps in order, reporting what each judged step was
 // expected to get and what it got. The project is removed after, its links
 // with it, never what they point at.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type ExampleScenarioJSON,
   type ExampleScenarioStepJSON,
@@ -77,7 +77,9 @@ export interface ExampleScenariosReport {
   readonly scenarios: readonly ExampleScenarioReport[];
 }
 
-const NO_READER = "this scenario runs a shell command: pass shellCommandReading";
+/** An npm package's name, `name` or `@scope/name`: each part lowercase letters, digits and `.`, `_`, `~`, `-`, never starting with `.` or `_`, so never a `.` or `..` segment. */
+const PACKAGE_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/;
+const NO_READER ="this scenario runs a shell command: pass shellCommandReading";
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 
 /** Whether a scenario runs a shell command: an execute effect in any call. */
@@ -93,19 +95,51 @@ const writtenPaths = (scenario: ExampleScenarioJSON): string[] => [
   ...scenario.steps.flatMap((step) => ("changeFiles" in step ? Object.keys(step.changeFiles) : [])),
 ];
 
-/** Writes `text` at a project path, with its directories, or deletes the file when `text` is null. */
-function writeProjectFile(projectRoot: string, path: string, text: string | null): void {
+/** The real path `path` leads to: its nearest existing ancestor (itself, when it exists) resolved through every link, then the rest of it. */
+function realPathOf(path: string): string {
+  const rest: string[] = [];
+  let existing = path;
+  while (!existsSync(existing) && dirname(existing) !== existing) {
+    rest.unshift(basename(existing));
+    existing = dirname(existing);
+  }
+  return join(realpathSync(existing), ...rest);
+}
+
+/** Whether `target` is strictly inside the directory `root` (both real paths). */
+const isInside = (root: string, target: string): boolean => {
+  const within = relative(root, target);
+  return within !== "" && within.split(sep)[0] !== ".." && !isAbsolute(within);
+};
+
+/**
+ * Writes `text` at a project path, with its directories, or deletes the
+ * file when `text` is null, only inside the project: the real path it leads
+ * to (its parent's, resolved through every link, and a link's target when a
+ * link is written through) must be inside the project root's real path.
+ * A link is deleted, never its target. The scenario's problem when it leads
+ * outside, naming the path; null when done.
+ */
+export function writeProjectFile(projectRoot: string, path: string, text: string | null): string | null {
   const file = join(projectRoot, path);
+  const isLink = lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  const entry = join(realPathOf(dirname(file)), basename(file));
+  const leadsTo = isLink && text !== null ? realPathOf(resolve(dirname(file), readlinkSync(file))) : entry;
+  if (!isInside(realpathSync(projectRoot), leadsTo) || !isInside(realpathSync(projectRoot), entry)) {
+    return `this scenario writes '${path}', which leads outside its project, to ${leadsTo}: a scenario writes only inside its project`;
+  }
   if (text === null) {
-    rmSync(file, { force: true });
-    return;
+    if (isLink) unlinkSync(file);
+    else rmSync(file, { force: true });
+    return null;
   }
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, text);
+  return null;
 }
 
-/** A temporary project: the example as its bounded.config.ts, bounded and the linked packages in its node_modules, and the scenario's project files. */
-function projectFor(exampleText: string, linkedPackages: Readonly<Record<string, string>>, scenario: ExampleScenarioJSON): string {
+/** A temporary project: the example as its bounded.config.ts, bounded and the linked packages in its node_modules, and the scenario's project files; with the problem a project file gives, if any. */
+function projectFor(exampleText: string, linkedPackages: Readonly<Record<string, string>>, scenario: ExampleScenarioJSON): { readonly projectRoot: string; readonly problem: string | null } {
   const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "bounded-example-scenario-")));
   mkdirSync(join(projectRoot, "node_modules"));
   symlinkSync(BOUNDED_ROOT, join(projectRoot, "node_modules", "bounded"), "dir");
@@ -115,8 +149,11 @@ function projectFor(exampleText: string, linkedPackages: Readonly<Record<string,
     symlinkSync(resolve(directory), link, "dir");
   }
   writeFileSync(join(projectRoot, "bounded.config.ts"), exampleText);
-  for (const [path, text] of Object.entries(scenario.projectFiles ?? {})) writeProjectFile(projectRoot, path, text);
-  return projectRoot;
+  for (const [path, text] of Object.entries(scenario.projectFiles ?? {})) {
+    const problem = writeProjectFile(projectRoot, path, text);
+    if (problem !== null) return { projectRoot, problem };
+  }
+  return { projectRoot, problem: null };
 }
 
 /** A call's wire form for the judge: each execute effect's command read in the project now, with the reader. */
@@ -155,13 +192,16 @@ async function runScenario(
     return { title: scenario.title, problem: `this scenario writes '${intoPackages}', under node_modules/, where the runner installs bounded and the linked packages: write no file there`, steps: [] };
   }
   if (reader === undefined && runsShellCommand(scenario)) return { title: scenario.title, problem: NO_READER, steps: [] };
-  const projectRoot = projectFor(exampleText, linkedPackages, scenario);
+  const { projectRoot, problem } = projectFor(exampleText, linkedPackages, scenario);
   try {
+    if (problem !== null) return { title: scenario.title, problem, steps: [] };
     const project = await openProject(projectRoot, { ports: options.ports === undefined ? [] : options.ports({ stateHome }) });
     if (project.problem !== null) return { title: scenario.title, problem: project.problem, steps: [] };
     const steps: ExampleScenarioStepReport[] = [];
     for (const [index, step] of scenario.steps.entries()) {
       const report = await runStep(step, index + 1, projectRoot, project, reader);
+      // A change of files that leads outside the project ends the scenario there.
+      if (typeof report === "string") return { title: scenario.title, problem: report, steps };
       if (report !== undefined) steps.push(report);
     }
     return { title: scenario.title, problem: null, steps };
@@ -177,7 +217,7 @@ async function runStep(
   projectRoot: string,
   project: Awaited<ReturnType<typeof openProject>>,
   reader: ExampleScenarioShellCommandReading | undefined,
-): Promise<ExampleScenarioStepReport | undefined> {
+): Promise<ExampleScenarioStepReport | string | undefined> {
   if ("toolUse" in step) {
     const verdict = await project.judge(await callEvent("tool-use", step.toolUse, projectRoot, reader));
     return { number, expected: { verdict: step.verdict }, actual: { verdict: verdict.toJSON() } };
@@ -186,7 +226,10 @@ async function runStep(
     const after = await project.afterTool(await callEvent("tool-result", step.toolResult, projectRoot, reader));
     return { number, expected: { afterToolMessage: step.afterToolMessage }, actual: { afterToolMessage: after.message } };
   }
-  for (const [path, text] of Object.entries(step.changeFiles)) writeProjectFile(projectRoot, path, text);
+  for (const [path, text] of Object.entries(step.changeFiles)) {
+    const problem = writeProjectFile(projectRoot, path, text);
+    if (problem !== null) return problem;
+  }
   return undefined;
 }
 
@@ -202,6 +245,8 @@ export async function runExampleScenarios(options: ExampleScenariosRunOptions): 
   const parsed = ExampleScenarios.parse(options.scenarios);
   if (!parsed.ok) return unusable(parsed.error);
   const linkedPackages = options.linkedPackages ?? {};
+  const unnamed = Object.keys(linkedPackages).find((name) => !PACKAGE_NAME.test(name));
+  if (unnamed !== undefined) return unusable(`linkedPackages names '${unnamed}', which is not a package's name (name or @scope/name): link each package under its own name`);
   if (Object.hasOwn(linkedPackages, "bounded")) return unusable("linkedPackages names bounded, which the runner links itself, to the bounded it ships in: leave bounded out");
   let exampleText: string;
   try {
