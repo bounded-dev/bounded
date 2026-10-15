@@ -48,6 +48,20 @@ export function packageCatalogFilesConformance(name: string, fixture: (files: Re
       expect(await given.files.listExamples(given.packageDir, "packs/plain")).toEqual({ ok: true, value: [] });
     });
 
+    test("lists a pack's example scenarios, sorted, and none without examples/", async () => {
+      const given = await fixture({
+        "packs/demo/examples/b.scenarios.ts": "export default 1;\n",
+        "packs/demo/examples/a.scenarios.ts": "export default 1;\n",
+        "packs/demo/examples/a.config.ts": "export default 1;\n",
+        "packs/demo/examples/notes.md": "notes\n",
+        "packs/demo/examples/nested/c.scenarios.ts": "export default 1;\n",
+        "packs/demo/d.scenarios.ts": "export default 1;\n",
+        "packs/plain/index.ts": "export {};\n",
+      });
+      expect(await given.files.listExampleScenarios(given.packageDir, "packs/demo")).toEqual({ ok: true, value: ["packs/demo/examples/a.scenarios.ts", "packs/demo/examples/b.scenarios.ts"] });
+      expect(await given.files.listExampleScenarios(given.packageDir, "packs/plain")).toEqual({ ok: true, value: [] });
+    });
+
     test("writes a file inside the package, naming it, and refuses to write outside the package", async () => {
       const given = await fixture({ "package.json": "{}" });
       expect(await given.files.write(given.packageDir, "bounded.catalog.json", "{}\n")).toEqual({ ok: true, value: "bounded.catalog.json" });

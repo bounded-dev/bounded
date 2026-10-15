@@ -6436,5 +6436,44 @@
       "case": "architecture > the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root"
     },
     "reason": "the root workspaces gain src/published-packs/* (ADR 2026-030)"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > the examples exercised below are every shipped pack's examples",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > R7: examples/ holds each <slug>.config.ts with its <slug>.scenarios.ts, and nothing else"
+    },
+    "reason": "every example must have its scenarios beside it (R7, ADR 2026-031), and src/test/example-scenarios.test.ts runs every example's scenarios, so no list of examples is kept by hand"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > review-plan-before-building: a write under src/ and a delegation to builder are refused, allowed once plan-reviewer succeeds, and refused again when the plan changes; .bounded/ and .claude/agents/ are protected",
+    "successor": null,
+    "reason": "moved into data: src/packs/prereqs/examples/review-plan-before-building.scenarios.ts holds each call with its full expected verdict, run by src/test/example-scenarios.test.ts (ADR 2026-031); the red-first check lets only test-only commits change it after this red commit, so no build commit can weaken it (ADR 2026-001, amended by red-first-scenarios)"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > review-spec-before-tests: a delegation to test-writer is refused, allowed once spec-reviewer succeeds, and refused again when a contract or the spec changes",
+    "successor": null,
+    "reason": "moved into data: src/packs/prereqs/examples/review-spec-before-tests.scenarios.ts holds each call with its full expected verdict, run by src/test/example-scenarios.test.ts (ADR 2026-031); the red-first check lets only test-only commits change it after this red commit, so no build commit can weaken it (ADR 2026-001, amended by red-first-scenarios)"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > review-infra-before-apply: terraform apply is refused, allowed once infra-reviewer succeeds, and refused again when infra/ changes; terraform plan is always allowed",
+    "successor": null,
+    "reason": "moved into data: src/packs/prereqs/examples/review-infra-before-apply.scenarios.ts holds each call with its full expected verdict, run by src/test/example-scenarios.test.ts (ADR 2026-031); the red-first check lets only test-only commits change it after this red commit, so no build commit can weaken it (ADR 2026-001, amended by red-first-scenarios)"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > keep-secrets-out: environment files, private keys and secrets/ are neither read nor written; .env.example and a filtered search that cannot reach secrets/ stay allowed",
+    "successor": null,
+    "reason": "moved into data: src/packs/protected-paths/examples/keep-secrets-out.scenarios.ts holds each call with its full expected verdict, run by src/test/example-scenarios.test.ts (ADR 2026-031); the red-first check lets only test-only commits change it after this red commit, so no build commit can weaken it (ADR 2026-001, amended by red-first-scenarios)"
+  },
+  {
+    "file": "src/core/composition-root/pack-examples.test.ts",
+    "case": "every shipped pack's example, its rules exercised > guard-the-guardrails: every path bounded init's defaults protect, generated code and applied migrations are protected; their carve-outs are not",
+    "successor": null,
+    "reason": "moved into data: src/packs/protected-paths/examples/guard-the-guardrails.scenarios.ts holds each call with its full expected verdict, run by src/test/example-scenarios.test.ts (ADR 2026-031); the red-first check lets only test-only commits change it after this red commit, so no build commit can weaken it (ADR 2026-001, amended by red-first-scenarios)"
   }
 ]

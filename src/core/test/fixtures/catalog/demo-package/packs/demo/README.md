@@ -28,7 +28,7 @@ Anything an agent does.
 
 ## Examples
 
-- `basic.config.ts`: the project keeps one note.
+- `basic.config.ts`, with `basic.scenarios.ts`: the project keeps one note.
 
 ## Records
 

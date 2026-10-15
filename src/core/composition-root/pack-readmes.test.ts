@@ -55,8 +55,14 @@ async function readmeInputOf(name: keyof typeof packs) {
     sections: document.sections,
     pointKeys: description.points.map(({ key }) => key),
     portKeys: description.ports.map(({ key }) => key),
+    exampleFileNames: exampleFileNamesOf(name),
   };
 }
+/** The file names in a shipped pack's examples/: each example's configuration and its scenarios. */
+const exampleFileNamesOf = (name: string): string[] =>
+  readdirSync(join(PACKS, name, "examples"))
+    .filter((file) => file.endsWith(".ts"))
+    .sort();
 const shippedNames = (): (keyof typeof packs)[] => [...SHIPPED_PACKS.keys()].filter((name): name is keyof typeof packs => name in packs);
 
 describe("shipped packs' READMEs", () => {
@@ -96,6 +102,20 @@ describe("shipped packs' READMEs", () => {
       expect(description.points.length + description.ports.length).toBeGreaterThan(0);
       for (const { key } of description.points) expect({ pack: name, point: key, named: codeSpansOf("Rule shape").includes(key) }).toEqual({ pack: name, point: key, named: true });
       for (const { key } of description.ports) expect({ pack: name, port: key, named: codeSpansOf("Ports").includes(key) }).toEqual({ pack: name, port: key, named: true });
+    }
+  });
+
+  test("each shipped README's Examples section names both files of every example, by the lexer's code spans", async () => {
+    expect(SHIPPED_PACKS.size).toBeGreaterThan(0);
+    for (const name of shippedNames()) {
+      const document = await documentOf(name);
+      const examplesSpans = document.sections.find((section) => section.heading === "Examples")?.codeSpans ?? [];
+      const fileNames = exampleFileNamesOf(name);
+      expect({ pack: name, configurations: fileNames.filter((file) => file.endsWith(".config.ts")).length > 0 }).toEqual({ pack: name, configurations: true });
+      for (const file of fileNames.filter((given) => given.endsWith(".config.ts"))) {
+        const scenarios = file.replace(/\.config\.ts$/, ".scenarios.ts");
+        expect({ pack: name, example: file, named: [examplesSpans.includes(file), examplesSpans.includes(scenarios)] }).toEqual({ pack: name, example: file, named: [true, true] });
+      }
     }
   });
 

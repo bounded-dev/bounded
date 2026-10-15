@@ -13,12 +13,12 @@
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Ajv } from "ajv";
-import { FileSystemProjectConfigSource, MarkedMarkdownSections } from "bounded/adapters";
-import { PackDescription, PackReadme } from "bounded/domain";
+import { FileSystemProjectConfigSource, MarkedMarkdownSections, NodePackModules } from "bounded/adapters";
+import { ExampleScenarios, PackDescription, PackReadme } from "bounded/domain";
 import { refusedToolsPack } from "../packs/refused-tools/index.ts";
 import { refusedToolWireForms } from "../packs/refused-tools/domain/refused-tool.wire-forms.test-support.ts";
 
@@ -33,6 +33,7 @@ const ajv = new Ajv({ strict: false, allErrors: true });
 interface CataloguedPack {
   readonly id: string;
   readonly points: readonly { readonly key: string; readonly wire: { readonly schema: Record<string, unknown> } | null }[];
+  readonly examples?: readonly { readonly path: string; readonly scenarios?: unknown }[];
 }
 
 /** This package's catalogue, rebuilt now by bounded's built CLI under Node; the packs it lists, or none when the build failed. */
@@ -78,6 +79,7 @@ describe("bounded-example's catalogue and README", () => {
       sections: document.sections,
       pointKeys: description.points.map(({ key }) => key),
       portKeys: description.ports.map(({ key }) => key),
+      exampleFileNames: readdirSync(join(PACKAGE, "packs", "refused-tools", "examples")).sort(),
     });
     expect(parsed.ok ? null : parsed.error).toBeNull();
     expect(readFileSync(join(PACKAGE, README), "utf8")).toStartWith("# bounded-example/refused-tools: ");
@@ -111,6 +113,19 @@ describe("bounded-example's catalogue and README", () => {
     }
     for (const rejected of [{ tool: "x" }, { tool: "x", redirect: "y", extra: 1 }, { redirect: "y" }, { tool: "WebFetch", redirect: "y" }]) {
       expect({ rejected, valid: validatesAgainst(catalogue, rejected).valid }).toEqual({ rejected, valid: false });
+    }
+  });
+
+  test("its catalogue carries each example's scenarios in their normal form", async () => {
+    const catalogue = builtCatalogue();
+    expect(catalogue.output).toContain("Wrote bounded.catalog.json");
+    const examples = catalogue.packs.flatMap((pack) => pack.examples ?? []);
+    expect(examples.map(({ path }) => path).sort()).toEqual([...new Glob("packs/*/examples/*.config.ts").scanSync({ cwd: PACKAGE })].sort());
+    for (const example of examples) {
+      const scenariosPath = example.path.replace(/\.config\.ts$/, ".scenarios.ts");
+      const loaded = await new NodePackModules().loadDefaultExport(PACKAGE, scenariosPath);
+      const parsed = loaded.ok ? ExampleScenarios.parse(loaded.value) : loaded;
+      expect({ path: example.path, scenarios: example.scenarios }).toEqual({ path: example.path, scenarios: parsed.ok ? parsed.value.toJSON().scenarios : parsed.error });
     }
   });
 });
