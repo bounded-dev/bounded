@@ -177,7 +177,8 @@ describe("the published packs, each its own npm package", () => {
         expect({ dir, target, packed: files.includes(target.replace(/^\.\//, "")) }).toEqual({ dir, target, packed: true });
       }
       expect({ dir, tests: files.filter((file) => file.endsWith(".test.ts") || file.endsWith(".test-support.ts") || file.split("/").includes("fixtures") || file.startsWith("test/")) }).toEqual({ dir, tests: [] });
-      const sources = [...new Glob("packs/*/{README.md,examples/*.config.ts}").scanSync({ cwd: join(ROOT, dir) })].sort();
+      // Two patterns: bun's Glob matches no brace alternative holding a '/'.
+      const sources = ["packs/*/README.md", "packs/*/examples/*.config.ts"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: join(ROOT, dir) })]).sort();
       expect({ dir, sources: sources.length > 0 }).toEqual({ dir, sources: true });
       for (const source of sources) expect({ dir, source, packed: files.includes(source) }).toEqual({ dir, source, packed: true });
     }
