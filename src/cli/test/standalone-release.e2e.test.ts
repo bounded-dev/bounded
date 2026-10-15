@@ -103,3 +103,32 @@ test("a native smoke archive contains a verified, self-running Bounded executabl
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 180_000);
+
+test("stable release builds reject targets that do not match the native host", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-native-target-"));
+  try {
+    const checkout = join(scratch, "checkout");
+    const cloned = Bun.spawnSync(["git", "clone", "--local", "--no-hardlinks", "--quiet", REPO, checkout], { stdout: "pipe", stderr: "pipe" });
+    expect(cloned.exitCode).toBe(0);
+    const installed = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile"], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
+    expect(installed.exitCode).toBe(0);
+    const otherArch = process.arch === "arm64" ? "x64" : "arm64";
+    const targets = [
+      process.platform === "darwin" ? `windows-${otherArch}` : `darwin-${otherArch}`,
+      process.platform === "linux"
+        ? `linux-${otherArch}-${nativeTarget().endsWith("-gnu") ? "musl" : "gnu"}`
+        : `${process.platform === "win32" ? "windows" : "darwin"}-${otherArch}`,
+    ];
+    for (const [index, target] of targets.entries()) {
+      const output = join(scratch, `output-${index}`);
+      const built = Bun.spawnSync([process.execPath, join(checkout, "src", "build-release.ts"), "--target", target, "--out", output], {
+        cwd: checkout, stdout: "pipe", stderr: "pipe",
+      });
+      expect(built.exitCode).not.toBe(0);
+      expect(built.stderr.toString()).toMatch(/target.*(does not match|incompatible).*host|host.*(does not match|incompatible).*target/i);
+      expect(existsSync(output)).toBe(false);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}, 180_000);

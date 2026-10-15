@@ -141,3 +141,18 @@ test("assembly refuses duplicate targets, mismatched identities, development art
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("assembly refuses an otherwise valid native job backed only by a self-asserted smoke record", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-assembly-untrusted-"));
+  try {
+    const input = join(scratch, "input");
+    targetJob(input, "linux-arm64-gnu");
+    const output = join(scratch, "output");
+    const result = assemble([input], output);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr?.toString()).toMatch(/provenance|workflow|attestation|native verification/i);
+    expect(existsSync(join(output, `bounded-v${VERSION}-manifest-v1.json`))).toBe(false);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
