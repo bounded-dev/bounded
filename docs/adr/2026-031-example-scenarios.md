@@ -155,6 +155,16 @@ them, never what they point at.
 - A scenario that writes or deletes a file under `node_modules/` (ignoring
   case), where the runner installs bounded and the linked packages, ends
   with that problem, and none of its steps runs.
+- Defence in depth, beside that guard (re-review: without it, a test that
+  deleted `Node_Modules/bounded/package.json` followed the `bounded` link,
+  macOS resolving the case, and deleted bounded's own `package.json`):
+  before any write or delete, the runner resolves the real path the file
+  leads to (its parent's through every link, and a link's target when a
+  link is written through) and ends the scenario with a problem naming the
+  path when it is outside the project root's real path. A link is deleted,
+  never its target. No gap in a guard can reach outside the project.
+- A `linkedPackages` name that is not a package's name (`name` or
+  `@scope/name`, no `.` or `..` segment) is the report's problem.
 - A scenario whose project does not open, or that runs a shell command
   when no reader was given, ends with that problem, and none of its steps
   runs.

@@ -164,6 +164,9 @@ export default defineExampleScenarios({
   nothing under `.bounded/`, Bounded's own state (the parser refuses
   both), nor under `node_modules/`, where the runner installs bounded and
   the linked packages (the runner ends such a scenario with that problem).
+  The runner writes and deletes only inside the scenario's project: a path
+  that leads out through a link ends the scenario with a problem, and a
+  link is deleted, never its target.
   `.git/` is the scenario's to write, a hook for instance.
 - A step is one of `{ toolUse, verdict }` (a tool use, `{ role?, tool,
   effects, callId? }`, and the verdict it gets: `{ kind: "allow" }` or
