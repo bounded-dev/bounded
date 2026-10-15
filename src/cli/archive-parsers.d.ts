@@ -1,10 +1,14 @@
 declare module "tar-stream" {
   import type { Readable, Writable } from "node:stream";
+  interface Pack extends Readable {
+    entry(header: { name: string; size: number; mode: number; type: "file" }, body: Buffer): void;
+    finalize(): void;
+  }
   interface Entry extends Readable {
     readonly header: { readonly name: string; readonly type: string; readonly size: number };
   }
   interface Extract extends Writable, AsyncIterable<Entry> {}
-  const tar: { extract(): Extract };
+  const tar: { extract(): Extract; pack(): Pack };
   export default tar;
 }
 
