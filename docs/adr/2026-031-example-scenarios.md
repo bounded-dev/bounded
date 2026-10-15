@@ -94,11 +94,22 @@ One function, `describeExecute`, words an execute command, for
 `ExampleScenarios.parse` is strict for authored files: every refusal names
 the scenario (its number and title) and the step (its number), and it
 refuses unknown fields, a blank or multi-line title, a scenario with no
-tool use, and a project file or changed file the runner or Bounded owns:
-the project's configuration at its root (any name starting
+tool use, the project's root as a file, a file named twice (`a.txt` and
+`./a.txt`), and a project file or changed file where Bounded keeps its
+own: the project's configuration at its root (any name starting
 `bounded.config.`, ignoring case: the list of configuration names lives in
 the core's adapters, which the domain may not import, and the prefix covers
-it), or anything under `.bounded`, `.git` or `node_modules`, ignoring case.
+it), or anything under `.bounded`, ignoring case. The domain names no
+other directory (final review): `.git/` is a scenario's to write, so a
+git-hooks pack can ship a scenario whose project holds
+`.git/hooks/pre-commit`; `node_modules/` is reserved by the runner, which
+installs packages there (below).
+
+A step's type in TypeScript is a union of the three kinds without mutual
+exclusions, so that a tool use step without its verdict fails to compile
+with "Property 'verdict' is missing". A step that gives two kinds
+(`{ toolUse, verdict, changeFiles }`) therefore compiles, and is refused
+only at run time, by `ExampleScenarios.parse`.
 
 `toJSON()` gives the **normal form**: every role, list filter and execute
 `cwd` written (null for none) and the project files written (`{}` for
@@ -139,7 +150,11 @@ them, never what they point at.
   one and removes it after. No run writes the user's real state directory.
 - Scenarios that do not parse are the report's top-level `problem`, with
   the parser's error: no project is made, and neither `ports` nor the
-  reader is called.
+  reader is called. So are a `linkedPackages` directory that does not
+  exist and an example that cannot be read.
+- A scenario that writes or deletes a file under `node_modules/` (ignoring
+  case), where the runner installs bounded and the linked packages, ends
+  with that problem, and none of its steps runs.
 - A scenario whose project does not open, or that runs a shell command
   when no reader was given, ends with that problem, and none of its steps
   runs.
@@ -246,8 +261,8 @@ natively. A throwaway spike before the red commit recorded:
 
 - Node v24.18.1 (and v26.5.0): in `src/` and in `src/published-packs/example/`
   the build loads every scenarios file, exits 0, and writes nothing on
-  stderr (no `ExperimentalWarning`). Node 22.18, the engines floor, was not
-  run.
+  stderr (no `ExperimentalWarning`). Loading scenarios is tested on Node 24
+  and 26 only; Node 22.18, the engines floor, is untested for it.
 - Under `node_modules`, Node refuses: "Stripping types is currently
   unsupported for files under node_modules". The build runs in a package's
   own directory, never in an installed copy, so this is a limit, reported
@@ -263,6 +278,11 @@ natively. A throwaway spike before the red commit recorded:
 - A third-party package gets the same mechanism through
   `bounded/testing/example-scenarios`, and its catalogue is honest only if
   its tests run it.
+- That route is untested from a packed `bounded`: this repository's tests
+  run the runner from the workspace's source (bounded-example links
+  `bounded` to `src/`), never a third party installing the tarball and
+  running its scenarios. Testing it is Node-dist work, out of scope until
+  the bundled bun binary; it is a limit.
 - The guard-the-guardrails parity test
   (`src/test/guard-the-guardrails-init-defaults.test.ts`) is unchanged:
   scenarios check verdicts, not that the example's rules equal `bounded

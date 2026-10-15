@@ -246,10 +246,10 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   key) and Examples (naming both files of each example, `<slug>.config.ts`
   and `<slug>.scenarios.ts`, by file name; no other part names a scenarios
   file), and holds no project configuration; `examples/` holds
-  only `<slug>.config.ts` files, at least one, each a project's
-  configuration whose default export's TSDoc gives its title and at most
-  one paragraph of purpose, each with its `<slug>.scenarios.ts` beside it
-  (ADR 2026-031): its scenarios, `defineExampleScenarios({ scenarios })`
+  `<slug>.config.ts` files, at least one, each a project's configuration
+  whose default export's TSDoc gives its title and at most one paragraph of
+  purpose, and beside each its sibling `<slug>.scenarios.ts`, and nothing
+  else (ADR 2026-031): the example's scenarios, `defineExampleScenarios({ scenarios })`
   from `bounded/domain`, which the package's tests run;
   a pack is defined only in an overview, which binds imported names in
   definePack's sections (id, dependsOn, points, contributes, ports,

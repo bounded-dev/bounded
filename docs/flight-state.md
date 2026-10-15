@@ -620,10 +620,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded/testing/example-scenarios` (here, the architecture test requires
   every published package to). It loads each scenarios file under Node's
   type stripping, a transitional Node dependency until the bundled bun
-  binary: never under `node_modules`, where Node refuses, and Node 22.18,
-  the engines floor, is not run by the tests. Rule coverage by scenarios is
-  a review item; scenarios have no agent-run-finish, SessionStart or
-  time-stamped step yet.
+  binary: never under `node_modules`, where Node refuses; tested on Node 24
+  and 26, while Node 22.18, the engines floor, is untested for it. The
+  third-party route (a package installing the packed `bounded` and running
+  its scenarios with `bounded/testing/example-scenarios`) is untested:
+  this repository runs the runner from source only. Rule coverage by
+  scenarios is a review item; a step giving two kinds compiles and is
+  refused only at run time; scenarios have no agent-run-finish,
+  SessionStart or time-stamped step yet.
 - **Published packs' limits** (ADR 2026-030): a published pack's ports
   cannot be provided yet (the hosts provide only the shipped packs'
   adapters; a project selecting a pack with ports has every event refused,

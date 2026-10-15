@@ -160,8 +160,11 @@ export default defineExampleScenarios({
 - A scenario is `{ title, projectFiles?, steps }`: a one-line title, the
   files its project starts with (by project path), and its steps, at least
   one a tool use. Its project's `bounded.config.ts` is the example; it
-  writes nothing at the configuration, nor under `.bounded/`, `.git/` or
-  `node_modules/`.
+  writes no configuration at the project's root (`bounded.config.*`) and
+  nothing under `.bounded/`, Bounded's own state (the parser refuses
+  both), nor under `node_modules/`, where the runner installs bounded and
+  the linked packages (the runner ends such a scenario with that problem).
+  `.git/` is the scenario's to write, a hook for instance.
 - A step is one of `{ toolUse, verdict }` (a tool use, `{ role?, tool,
   effects, callId? }`, and the verdict it gets: `{ kind: "allow" }` or
   `{ kind: "refuse", reason, redirect }`, the full text),
@@ -214,7 +217,8 @@ contract that disagrees with the pack object, or a missing library is
 refused, and nothing is written. It stores the scenarios; it does not run
 them, so a catalogue shows checked verdicts only when the package's tests
 run them. It loads each scenarios file under Node, which strips its types
-(Node 22.18 or later; never a file under `node_modules`).
+(tested on Node 24 and 26; Node 22.18, the engines floor, is untested for
+it; never a file under `node_modules`, where Node refuses).
 
 - **package.json.** List each export path that exports a pack, with the
   pack's source directory, in the `bounded` field, list the catalogue in
