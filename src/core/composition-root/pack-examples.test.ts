@@ -252,6 +252,24 @@ describe("every shipped pack's example, its rules exercised", () => {
     expect(redirectOf(await judge(read("secrets/db.txt")))).toBe("Ask a maintainer for the value you need");
     expect(redirectOf(await judge(list("secrets", null)))).toBe("List a root outside 'secrets' — Ask a maintainer for the value you need");
     expect(reasonOf(await judge(search(".", "*.ts")))).toContain("the rule 'secrets' from bounded/project");
+    const ENV_WHY = "(environment files hold credentials)";
+    expect(reasonOf(await judge(read(".env")))).toBe(`bounded/protected-paths refused read .env: the rule '**/.env' from bounded/project denies read of '.env' ${ENV_WHY}`);
+    expect(reasonOf(await judge(read("app/.env")))).toBe(`bounded/protected-paths refused read app/.env: the rule '**/.env' from bounded/project denies read of 'app/.env' ${ENV_WHY}`);
+    expect(reasonOf(await judge(write(".env.local", "create")))).toBe(
+      `bounded/protected-paths refused write (create) .env.local: the rule '**/.env.local' from bounded/project denies create of '.env.local' ${ENV_WHY}`,
+    );
+    expect(reasonOf(await judge(read("certs/server.pem")))).toBe(
+      "bounded/protected-paths refused read certs/server.pem: the rule '**/*.pem' from bounded/project denies read of 'certs/server.pem' (private keys stay with people)",
+    );
+    expect(reasonOf(await judge(read("secrets/db.txt")))).toBe(
+      "bounded/protected-paths refused read secrets/db.txt: the rule 'secrets' from bounded/project denies read of 'secrets/db.txt' (secrets are kept by people)",
+    );
+    expect(reasonOf(await judge(list("secrets", null)))).toBe(
+      "bounded/protected-paths refused list secrets: the rule 'secrets' from bounded/project denies list, and listing 'secrets' could reveal a path it matches (secrets are kept by people)",
+    );
+    expect(reasonOf(await judge(search(".", "*.ts")))).toBe(
+      "bounded/protected-paths refused list . (*.ts): the rule 'secrets' from bounded/project denies list, and listing '.' could reveal a path it matches (secrets are kept by people)",
+    );
 
     expect(reasonOf(await judge(read(".env.example")))).toBe("allowed");
     expect(reasonOf(await judge(read("src/a.ts")))).toBe("allowed");
@@ -280,6 +298,26 @@ describe("every shipped pack's example, its rules exercised", () => {
     ];
     for (const [event, redirect] of refusedWrites) {
       expect({ effect: event.effects[0], redirect: redirectOf(await judge(event)) }).toEqual({ effect: event.effects[0], redirect });
+    }
+    /** The full reason protected-paths gives for refusing a write (`change`) of `path` by the rule `match`, whose why is `why`. */
+    const writeRefusedBy = (path: string, change: string, match: string, why: string) =>
+      `bounded/protected-paths refused write (${change}) ${path}: the rule '${match}' from bounded/project denies ${change} of '${path}' (${why})`;
+    const refusedWriteReasons: [ReturnType<typeof write>, string][] = [
+      [write("bounded.config.ts", "modify"), writeRefusedBy("bounded.config.ts", "modify", "**/bounded.config.*", "the project's guardrails are changed by people, not by agents")],
+      [write("packages/app/bounded.config.mjs", "create"), writeRefusedBy("packages/app/bounded.config.mjs", "create", "**/bounded.config.*", "the project's guardrails are changed by people, not by agents")],
+      [write(".bounded/log.jsonl", "modify"), writeRefusedBy(".bounded/log.jsonl", "modify", ".bounded/**", "Bounded's own state and log")],
+      [write(".claude/settings.json", "modify"), writeRefusedBy(".claude/settings.json", "modify", ".claude/settings*.json", "Claude Code's settings hold Bounded's hook")],
+      [write(".claude/settings.local.json", "create"), writeRefusedBy(".claude/settings.local.json", "create", ".claude/settings*.json", "Claude Code's settings hold Bounded's hook")],
+      [write(".pi/extensions/bounded/index.ts", "create"), writeRefusedBy(".pi/extensions/bounded/index.ts", "create", ".pi/extensions/bounded/**", "pi's loader for Bounded")],
+      [write("node_modules/bounded/package.json", "modify"), writeRefusedBy("node_modules/bounded/package.json", "modify", "node_modules/bounded/**", "Bounded's own installed code")],
+      [write(".git/hooks/pre-commit", "create"), writeRefusedBy(".git/hooks/pre-commit", "create", ".git/hooks/**", "git runs these hooks later, outside Bounded's view")],
+      [write(".git/config", "modify"), writeRefusedBy(".git/config", "modify", ".git/config", "git's config can point core.hooksPath at hooks of its own")],
+      [write("generated/api.ts", "modify"), writeRefusedBy("generated/api.ts", "modify", "generated/**", "generated/ is written by the generator")],
+      [write("migrations/001.sql", "modify"), writeRefusedBy("migrations/001.sql", "modify", "migrations/**", "applied migrations are history")],
+      [write("migrations/001.sql", "delete"), writeRefusedBy("migrations/001.sql", "delete", "migrations/**", "applied migrations are history")],
+    ];
+    for (const [event, reason] of refusedWriteReasons) {
+      expect({ effect: event.effects[0], reason: reasonOf(await judge(event)) }).toEqual({ effect: event.effects[0], reason });
     }
     const allowed = [write("generated/README.md", "modify"), write("migrations/002.sql", "create"), write("src/a.ts", "modify"), write(".pi/extensions/other/index.ts", "create"), read("generated/api.ts")];
     for (const event of allowed) {
