@@ -89,8 +89,14 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
   await mkdir(outputDirectory, { recursive: true });
   const executableName = targetId.startsWith("windows-") ? "bounded.exe" : "bounded";
   const executablePath = join(HERE, "dist", "standalone", executableName);
+  const treeSitterWasm = join(HERE, "..", "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
   await mkdir(join(HERE, "dist", "standalone"), { recursive: true });
-  const compiled = Bun.spawnSync([process.execPath, "build", join(HERE, "standalone-main.ts"), "--compile", "--target", target.bun, "--outfile", executablePath], { cwd: join(HERE, "dist", "standalone"), stdout: "pipe", stderr: "pipe" });
+  const compiled = Bun.spawnSync([
+    process.execPath, "build", join(HERE, "standalone-main.ts"), "--compile", "--target", target.bun,
+    "--asset", join(treeSitterWasm, "tree-sitter.wasm"),
+    "--asset", join(treeSitterWasm, "tree-sitter-bash.wasm"),
+    "--outfile", executablePath,
+  ], { cwd: join(HERE, "dist", "standalone"), stdout: "pipe", stderr: "pipe" });
   if (compiled.exitCode !== 0) throw new Error(`standalone compilation failed:\n${compiled.stdout.toString()}${compiled.stderr.toString()}`);
   copyFileSync(executablePath, join(outputDirectory, executableName));
   const commit = sourceCommit();

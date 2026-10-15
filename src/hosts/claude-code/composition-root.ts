@@ -5,6 +5,7 @@
 // passes the `...FromConfig` ones, which open the project with its
 // bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
+import { FileSystemProjectConfigSource } from "bounded/adapters";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
@@ -20,7 +21,19 @@ import { projectPaths } from "./paths.ts";
 const shellCommandReading = openShellCommandReading();
 
 /** Opens a project with the adapters this host provides, on disk: the protected-paths pack's, the prerequisites pack's, and its optional status snapshot (ADR 2026-026), which only this host provides. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()] });
+const open = (projectRoot: string) => {
+  const loadConfigAsModule: unknown = Reflect.get(globalThis, "__boundedStandaloneConfigLoader");
+  return openProject(projectRoot, {
+    ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()],
+    ...(typeof loadConfigAsModule === "function" ? {
+      configSource: new FileSystemProjectConfigSource(async (file, root) => {
+        const path: unknown = await Reflect.apply(loadConfigAsModule, undefined, [file, root]);
+        if (typeof path !== "string") throw new Error("the standalone configuration builder returned no module path");
+        return path;
+      }),
+    } : {}),
+  });
+};
 
 /**
  * How long bounded may take to decide, then how long work still pending after

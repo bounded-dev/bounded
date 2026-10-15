@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -31,7 +31,7 @@ function hook(binary: string, project: string, toolName: string, toolInput: Reco
   const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: toolName, tool_input: toolInput, cwd: project, session_id: "standalone-test", tool_use_id: `call-${toolName}` });
   const ran = Bun.spawnSync([binary, "hook", "claude-code"], {
     cwd: project,
-    env: { ...process.env, PATH: join(project, "empty-path"), CLAUDE_PROJECT_DIR: project },
+    env: { ...process.env, PATH: join(project, "empty-path"), CLAUDE_PROJECT_DIR: project, XDG_STATE_HOME: join(project, "state") },
     stdin: new TextEncoder().encode(payload),
     stdout: "pipe",
     stderr: "pipe",
@@ -54,6 +54,8 @@ test("the archive alone loads a TypeScript project config, nested local pack and
     // Build in a disposable checkout. Delete it before running the artifact so
     // imports or WASM reads from its node_modules cannot make this pass.
     successful(["git", "clone", "--quiet", "--no-hardlinks", REPO, source], REPO);
+    // Exercise the working tree during development as well as committed HEAD.
+    cpSync(join(REPO, "src"), join(source, "src"), { recursive: true, force: true });
     successful([process.execPath, "install", "--frozen-lockfile", "--offline"], source);
     const targetId = nativeTarget();
     successful([process.execPath, join(source, "src", "build-release.ts"), "--target", targetId, "--smoke", "--out", release], source);
@@ -79,6 +81,8 @@ test("the archive alone loads a TypeScript project config, nested local pack and
     mkdirSync(join(project, "packs"), { recursive: true });
     mkdirSync(join(project, "empty-path"));
     writeFileSync(join(project, "packs", "local-rule.ts"), 'export const guardedPrefix = "generated/";\n');
+    const fixedRuleTime = new Date("2020-01-01T00:00:00.000Z");
+    utimesSync(join(project, "packs", "local-rule.ts"), fixedRuleTime, fixedRuleTime);
     writeFileSync(join(project, "packs", "local-pack.ts"), `import { contribution, corePack, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { guardedPrefix } from "./local-rule.ts";
 export const localGate = definePack({
