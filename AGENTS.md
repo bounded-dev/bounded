@@ -65,7 +65,8 @@ the licence, `.claude/`, `docs/` and `scripts/`).
 ```
 src/                    bounded             the published package: package.json, build-dist.ts (its build for Node: the library,
                                             the CLI, the host adapters and the shell command reader; ADRs 2026-016, 2026-020),
-                                            tsconfig.types.json, README.md and LICENSE; its build output is src/dist/
+                                            tsconfig.types.json, README.md and LICENSE; its build output is src/dist/;
+                                            and build-published-pack.ts, the published packs' shared build (ADR 2026-030)
   core/                                     the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
   packs/
     <name>/                                 every shipped pack: its overview, contract, index and their test, domain/, application/, adapters/, and
@@ -75,6 +76,12 @@ src/                    bounded             the published package: package.json,
                                             generated, gitignored src/bounded.catalog.json; ADR 2026-029)
     protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
     prereqs/                                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
+  published-packs/                          the published packs (ADR 2026-030): each <name>/ the npm package bounded-<name>,
+                                            vendor- or language-specific, with bounded as its peer; built by src/build-published-pack.ts
+    <name>/             bounded-<name>      package.json, README.md, LICENSE; its packs in packs/<pack>/ (each laid out as a shipped
+                                            pack), its end-to-end tests in test/; dist/ and bounded.catalog.json are generated
+    example/            bounded-example     the fixture that keeps the slot tested (private, never published): the pack
+                                            bounded-example/refused-tools
   lib/
     shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands, for the host adapters: ReadShellCommand,
                                             its ShellCommandReader port and TreeSitterShellCommandReader;
@@ -88,7 +95,8 @@ src/                    bounded             the published package: package.json,
                                             (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
   test/                                     the repository's tests: architecture.test.ts (the layer and dependency rules, as a
                                             test), compile-time.test.ts (proves an undeclared contribution does not compile,
-                                            with its fixtures in fixtures/compile-time/), packaging.test.ts and
+                                            with its fixtures in fixtures/compile-time/), packaging.test.ts (bounded),
+                                            published-pack-packaging.test.ts (each published pack) and
                                             guard-the-guardrails-init-defaults.test.ts (reads the cli's INITIAL_CONFIG and the
                                             protected-paths example guard-the-guardrails as text: the example holds bounded init's
                                             default rules, field for field)
@@ -97,11 +105,13 @@ scripts/workflow/                           the lifecycle's two scripts
 scripts/check-prereqs-status-band.ts        the prereqs status band's own check (bun run check:prereqs-status-band)
 ```
 
-The workspaces are `src` (bounded), `src/lib/*`, `src/hosts/*` and
-`src/cli`, each with its own `package.json`, under a private root. A
-**context** is the core (`src/core`, in the package `bounded`) or a library
-(`src/lib/<name>`, its own package); an **app** is a host
-(`src/hosts/<name>`) or the cli (`src/cli`). A unit's `test/` folder holds
+The workspaces are `src` (bounded), `src/lib/*`, `src/hosts/*`,
+`src/cli` and `src/published-packs/*`, each with its own `package.json`,
+under a private root. A
+**context** is the core (`src/core`, in the package `bounded`), a library
+(`src/lib/<name>`, its own package) or a published pack's package
+(`src/published-packs/<name>`, whose packs are in `packs/<pack>/`); an
+**app** is a host (`src/hosts/<name>`) or the cli (`src/cli`). A unit's `test/` folder holds
 its end-to-end tests and fixtures, outside its layers. A unit's source sits
 directly in its directory: there is no inner `src/`.
 
@@ -140,9 +150,10 @@ A shipped pack is bounded's, in `src/packs/<name>/` (ADR 2026-009); a
 
 Rules, enforced by `src/test/architecture.test.ts` unless stated:
 
-- **Every file belongs to one unit:** a layer of a context, a shipped pack's
-  own directory, an app, or a unit's `test/`; every library, host and the
-  cli has its own `package.json`.
+- **Every file belongs to one unit:** a layer of a context, a shipped or
+  published pack's own directory, an app, or a unit's `test/`; every
+  library, host, published pack's package and the cli has its own
+  `package.json`.
 - **Dependencies point inwards:** domain <- application <- adapters <- composition-root;
   a shipped pack (`src/packs/<name>/`) depends on the domain only.
   An adapter imports its own context's (or pack's) domain, application and
@@ -220,7 +231,7 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   `typeof … === "object"`, `instanceof`) appears only in a file that owns a
   shape (a class with a static `parse` or a private constructor, a `parse`
   function, a command), or is named in the test with its reason. R7: a
-  shipped pack's directory holds exactly `<name>.pack.ts` (its overview),
+  shipped or published pack's directory holds exactly `<name>.pack.ts` (its overview),
   `<name>.contract.ts`, `index.ts`, the overview's test and a required
   `README.md`, and only the folders `domain/`, `application/`, `adapters/`
   and `examples/`. The README is titled `# <pack id>: <summary>` and has the
@@ -260,6 +271,23 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   `bounded/testing/*`); no file imports an example, the repository's tests
   and every unit's `test/` included; tests open one as a project's
   `bounded.config.ts`.
+- **A published pack is an ordinary pack in its own package** (ADR
+  2026-030): vendor- or language-specific packs are published as
+  `bounded-<name>` from `src/published-packs/<name>/`, generic ones are
+  shipped in `bounded`. Its packs (`packs/<pack>/`) follow every pack rule,
+  R1 to R7 and the hexagon included. Its code imports, from `bounded`,
+  `bounded/domain` only (never another export path, a shipped pack's
+  included, nor a relative path), its own files by relative path only
+  (never through its package's name), and libraries its package declares;
+  only its `adapters/out/` do I/O. Its examples import `bounded/domain`,
+  the shipped packs' own export paths and its own package's pack export
+  paths. Nothing outside its package imports it, by name or by relative
+  path, from any file of the repository, and no other workspace's
+  `package.json` names it. Its `package.json` has `bounded` as a
+  `peerDependency` at exactly `~<major>.<minor>.0` of bounded's version
+  (and `workspace:*` in `devDependencies`), never as a `dependency`; its
+  root holds only `package.json`, `README.md`, `LICENSE`, `packs/` and
+  `test/`. It stays `private` until it is released.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are

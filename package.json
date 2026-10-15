@@ -6,7 +6,8 @@
     "src",
     "src/lib/*",
     "src/hosts/*",
-    "src/cli"
+    "src/cli",
+    "src/published-packs/*"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

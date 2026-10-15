@@ -1,7 +1,8 @@
 // The layer and dependency rules (AGENTS.md "Layout"), adapted from the Bounded
 // harness's hexagonal worked example. Every import of every file of every
 // unit under src/ (ADR 2026-024: the core, the shipped packs, the libraries,
-// the hosts and the cli) is read with the TypeScript parser.
+// the hosts and the cli; ADR 2026-030: the published packs) is read with the
+// TypeScript parser.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { rmSync, writeFileSync } from "node:fs";
@@ -52,6 +53,7 @@ interface Context {
   readonly exports: Record<string, string>;
   /** Each export path's every target, every condition's: all must exist. */
   readonly exportTargets: Record<string, readonly string[]>;
+  /** What it may import: its dependencies, and for a published pack's package its peer dependencies too (its bounded, ADR 2026-030). */
   readonly dependencies: readonly string[];
   /** What only its tests may import (an app's devDependencies). */
   readonly devDependencies: readonly string[];
@@ -66,7 +68,10 @@ type ExportTarget = string | Record<string, string>;
 const sourceOf = (target: ExportTarget): string => (typeof target === "string" ? target : (target.bun ?? target.types ?? target.default ?? ""));
 const targetsOf = (target: ExportTarget): string[] => (typeof target === "string" ? [target] : Object.values(target));
 
-function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): Context {
+function contextOf(
+  manifest: string,
+  pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string>; peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> },
+): Context {
   const entries = Object.entries(pkg.exports ?? {});
   const dir = manifest.replace("/package.json", "");
   return {
@@ -75,7 +80,8 @@ function contextOf(manifest: string, pkg: { name: string; exports?: Record<strin
     name: pkg.name,
     exports: Object.fromEntries(entries.map(([path, target]) => [path, sourceOf(target)])),
     exportTargets: Object.fromEntries(entries.map(([path, target]) => [path, targetsOf(target)])),
-    dependencies: Object.keys(pkg.dependencies ?? {}),
+    // A published pack's bounded is its peer (ADR 2026-030); no other workspace's peers count as its dependencies.
+    dependencies: [...Object.keys(pkg.dependencies ?? {}), ...(dir.startsWith("src/published-packs/") ? Object.keys(pkg.peerDependencies ?? {}) : [])],
     devDependencies: Object.keys(pkg.devDependencies ?? {}),
   };
 }
@@ -83,12 +89,20 @@ function contextOf(manifest: string, pkg: { name: string; exports?: Record<strin
 const manifestsMatching = (pattern: string): string[] => [...new Glob(pattern).scanSync({ cwd: ROOT })].sort();
 
 // The contexts: bounded (src/package.json), whose core is src/core and whose
-// shipped packs are src/packs/<name>, and each library (src/lib/<name>).
+// shipped packs are src/packs/<name>, each library (src/lib/<name>), and each
+// published pack's package (src/published-packs/<name>, ADR 2026-030), whose
+// packs are src/published-packs/<name>/packs/<pack>.
 const contexts: Context[] = [];
-for (const manifest of [...manifestsMatching("src/package.json"), ...manifestsMatching("src/lib/*/package.json")]) {
+for (const manifest of [...manifestsMatching("src/package.json"), ...manifestsMatching("src/lib/*/package.json"), ...manifestsMatching("src/published-packs/*/package.json")]) {
   contexts.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
+/** Where the published packs' packages live (ADR 2026-030). */
+const PUBLISHED_PACKS = "src/published-packs/";
+/** The published packs' packages: each a context of its own. */
+const publishedPackages: readonly Context[] = contexts.filter((context) => context.dir.startsWith(PUBLISHED_PACKS));
+/** The directory of the published pack's package a path is in (`src/published-packs/<name>`), or undefined when it is in none. */
+const publishedPackageDirOf = (path: string): string | undefined => (path.startsWith(PUBLISHED_PACKS) ? path.split("/").slice(0, 3).join("/") : undefined);
 
 // Apps (src/hosts/<name> and src/cli) are the programs built on the contexts,
 // such as host adapters. An app may do I/O and use libraries, but reaches a
@@ -161,11 +175,14 @@ function exampleImportViolations(path: string, imports: readonly { spec: string;
 }
 /** What each layer of a shipped pack may import of its own pack. */
 const PACK_LAYERS: Readonly<Record<string, readonly string[]>> = { domain: ["domain"], application: ["domain", "application"], root: ["domain", "application", "root"] };
+/** A file's pack directory (`<sourceRoot>/`), a shipped or published pack's, or undefined when it is in no pack. */
+const packDirOf = (file: string | undefined): string | undefined => {
+  const unit = file === undefined ? undefined : placedUnitOf(file);
+  return unit?.kind === "pack" ? `${unit.sourceRoot}/` : undefined;
+};
 function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
-  const packDir = (file: string | undefined): string | undefined => {
-    const unit = file === undefined ? undefined : placedUnitOf(file);
-    return unit?.kind === "pack" ? `${unit.sourceRoot}/` : undefined;
-  };
+  if (publishedPackageDirOf(path) !== undefined) return publishedPackViolations(path, imports, context);
+  const packDir = packDirOf;
   const own = packDir(path);
   const isTest = /\.test(-support)?\.ts$/.test(path);
   const unit = placedUnitOf(path);
@@ -190,7 +207,8 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
       }
       continue;
     }
-    if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
+    // A published pack is imported by nothing outside its package: publishedPackageImportViolations says so.
+    if (into !== undefined && into !== own && !rootTest && publishedPackageDirOf(into) === undefined) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
     const adapter = from === "adapters";
@@ -206,6 +224,108 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
       if (spec !== `${context.name}/domain`) out.push(`${at} — a shipped pack depends only on \`${context.name}/domain\`, the core's public exports`);
     } else if (adapter ? !spec.startsWith("node:") && !context.dependencies.includes(spec) : IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
       out.push(`${at} — ${adapter ? "a pack's adapter uses only node:* and libraries its package declares" : "a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do"}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * A published pack (ADR 2026-030), in its own package at
+ * src/published-packs/<name>/, is an ordinary pack as a shipped one is, with
+ * the same small hexagon inside, but bounded is another package to it: its
+ * code reaches bounded only through `bounded/domain`, never by relative path
+ * and never through another export path (a shipped pack's included), its own
+ * files only by relative path within its pack (never through its package's
+ * name), and libraries only when its package declares them; only its
+ * adapters/out/ do I/O. Its examples import as a project's configuration
+ * does: bounded/domain, the shipped packs' own export paths and its own
+ * package's pack export paths. Its tests are held to the import rules only
+ * by contextImportViolations, as a shipped pack's are.
+ */
+function publishedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
+  const core = byName.get(CORE);
+  const own = packDirOf(path);
+  const isTest = /\.test(-support)?\.ts$/.test(path);
+  const from = packLayerOf(path) ?? "root";
+  const adapter = from === "adapters";
+  /** The file an export path of a package names, from the repository root, or undefined when the package has no such export path. */
+  const exportFile = (pkg: Context | undefined, spec: string): string | undefined => {
+    if (pkg === undefined) return undefined;
+    const target = pkg.exports[spec === pkg.name ? "." : `./${spec.slice(pkg.name.length + 1)}`];
+    return target === undefined ? undefined : exportFileOf(pkg, target);
+  };
+  const isPackage = (pkg: Context | undefined, spec: string): boolean => pkg !== undefined && (spec === pkg.name || spec.startsWith(`${pkg.name}/`));
+  /** Whether a file is a pack's own export: the index.ts at the root of a shipped or published pack. */
+  const isPackIndex = (file: string | undefined): boolean => file !== undefined && packDirOf(file) !== undefined && file === `${packDirOf(file)}index.ts`;
+  const out: string[] = [];
+  for (const { spec, line } of imports) {
+    const at = `${path}:${line} imports "${spec}"`;
+    const relative = spec.startsWith(".");
+    const file = relative ? new URL(spec, `file:///${path}`).pathname.slice(1) : (exportFile(core, spec) ?? exportFile(context, spec));
+    if (packDirOf(file) !== undefined && packLayerOf(file ?? "") === "examples") {
+      out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+      continue;
+    }
+    if (packLayerOf(path) === "examples") {
+      if (relative || !(isPackage(core, spec) || isPackage(context, spec))) out.push(`${at} — an example imports only ${CORE}'s and ${context.name}'s export paths, as a project's configuration does`);
+      else if (spec !== `${CORE}/domain` && !isPackIndex(file)) {
+        out.push(`${at} — an example imports only ${CORE}/domain, the shipped packs' own export paths (${CORE}/<pack>) and ${context.name}'s pack export paths, as a project's configuration does; "${spec}" is not one`);
+      }
+      continue;
+    }
+    if (own === undefined || isTest) continue;
+    if (relative) {
+      const to = packLayerOf(file ?? "") ?? "root";
+      const allowed = adapter ? ["domain", "application", "adapters"] : (PACK_LAYERS[from] ?? []);
+      if (file === undefined || !file.startsWith(own)) {
+        out.push(publishedPackageDirOf(file ?? "") === undefined ? `${at} — a published pack reaches bounded only through ${CORE}/domain, never by relative path` : `${at} — a published pack reaches only its own pack's files by relative path`);
+      } else if (!allowed.includes(to)) out.push(`${at} — a pack's ${from} may not import its ${to}`);
+    } else if (isPackage(context, spec)) out.push(`${at} — a published pack reaches its own files by relative path, never through its package's name`);
+    else if (isPackage(core, spec)) {
+      if (spec !== `${CORE}/domain`) out.push(`${at} — a published pack depends only on \`${CORE}/domain\`, the core's public exports`);
+    } else if (adapter ? !spec.startsWith("node:") && !context.dependencies.includes(spec) : IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
+      out.push(`${at} — ${adapter ? "a pack's adapter uses only node:* and libraries its package declares" : "a published pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do"}`);
+    }
+  }
+  return out;
+}
+
+const NOTHING_IMPORTS_A_PUBLISHED_PACK = "nothing outside a published pack's package imports it: bounded never depends on a published pack";
+/**
+ * Any file's imports of a published pack's package (ADR 2026-030), by name
+ * (`bounded-<name>`, `bounded-<name>/…`) or by relative path into
+ * src/published-packs/<name>/, from outside that package: every file of the
+ * repository is read for them, its tests and every unit's test/ included. A
+ * package's own files may import it.
+ */
+function publishedPackageImportViolations(path: string, imports: readonly { spec: string; line: number }[]): string[] {
+  const ownPackageDir = publishedPackageDirOf(path);
+  return imports
+    .filter(({ spec }) => {
+      const targetDir = spec.startsWith(".") ? publishedPackageDirOf(new URL(spec, `file:///${path}`).pathname.slice(1)) : publishedPackages.find((pkg) => spec === pkg.name || spec.startsWith(`${pkg.name}/`))?.dir;
+      return targetDir !== undefined && targetDir !== ownPackageDir;
+    })
+    .map(({ spec, line }) => `${path}:${line} imports "${spec}" — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`);
+}
+
+/** The fields of a package.json that name packages it depends on. */
+const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
+
+/**
+ * Every workspace manifest but a published pack's package's own that names
+ * that package in a dependency field (ADR 2026-030): `manifests` maps each
+ * workspace's package.json path to its parsed contents, `packages` gives each
+ * published package's name and directory.
+ */
+function publishedPackageManifestViolations(manifests: ReadonlyMap<string, Readonly<Record<string, unknown>>>, packages: readonly { readonly name: string; readonly dir: string }[]): string[] {
+  const out: string[] = [];
+  for (const pkg of packages) {
+    for (const [path, manifest] of manifests) {
+      if (path === `${pkg.dir}/package.json`) continue;
+      for (const field of DEPENDENCY_FIELDS) {
+        const listed = manifest[field];
+        if (typeof listed === "object" && listed !== null && Object.hasOwn(listed, pkg.name)) out.push(`${path} names ${pkg.name} in ${field} — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`);
+      }
     }
   }
   return out;
@@ -408,14 +528,18 @@ function contextImportViolations(path: string, text: string): string[] {
   return out;
 }
 
+/** Whether a path is build output: bounded's (src/dist/) or a published pack's package's (src/published-packs/<name>/dist/, ADR 2026-030). */
+const isBuildOutput = (path: string): boolean => path.startsWith("src/dist/") || /^src\/published-packs\/[^/]+\/dist\//.test(path);
+
 /**
- * Outside every scan: the repository's own tests (src/test/), bounded's
- * build output (src/dist/), src/'s own files (bounded's build), installed
- * packages, and the declarations Claude Code writes into a plugin folder it
- * loads (`.claude-plugin/types/`, ADR 2026-027).
+ * Outside every scan: the repository's own tests (src/test/), build output
+ * (bounded's src/dist/ and each published pack's package's dist/), src/'s
+ * own files (bounded's build and the published packs'), installed packages,
+ * and the declarations Claude Code writes into a plugin folder it loads
+ * (`.claude-plugin/types/`, ADR 2026-027).
  */
 const outsideEveryScan = (path: string): boolean =>
-  path.startsWith("src/test/") || path.startsWith("src/dist/") || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules") || path.includes("/.claude-plugin/types/");
+  path.startsWith("src/test/") || isBuildOutput(path) || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules") || path.includes("/.claude-plugin/types/");
 
 /** The prereqs status band (ADR 2026-027): a Claude Code plugin folder, shipped alone in dist, so it reaches nothing outside itself. */
 const BAND = "src/hosts/claude-code/prereqs-status-band/";
@@ -480,7 +604,7 @@ for (const path of files) {
   const layer = layerOf(path);
   const isTest = /\.test(-support)?\.ts$/.test(path);
   if (context === undefined || layer === undefined) {
-    violations.push(`${path} — every file sits in a context's domain/, application/, adapters/ or composition-root/, or in a shipped pack's directory`);
+    violations.push(`${path} — every file sits in a context's domain/, application/, adapters/ or composition-root/, or in a shipped or published pack's directory`);
     continue;
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
@@ -576,13 +700,25 @@ for (const path of appFiles.filter((file) => file.startsWith(BAND))) bandRuleVio
 
 // No file imports a pack's example: the files above are read for it by shippedPackViolations; every other file (the apps', src/test/ and every unit's test/) is read here.
 const scannedForExampleImports = new Set(files);
-for (const path of [...new Glob("src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].filter((path) => !path.startsWith("src/dist/") && !path.split("/").includes("node_modules") && !scannedForExampleImports.has(path)).sort()) {
+for (const path of [...new Glob("src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].filter((path) => !isBuildOutput(path) && !path.split("/").includes("node_modules") && !scannedForExampleImports.has(path)).sort()) {
   violations.push(...exampleImportViolations(path, importsOf(path, await Bun.file(`${ROOT}/${path}`).text())));
 }
 
-/** Every file R7 reads: the scan's TypeScript and each shipped pack's other files git tracks (its README), never an untracked or ignored one. */
+// Nothing outside a published pack's package imports it (ADR 2026-030): every TypeScript file of the repository is read for it, but build output and installed packages.
+for (const path of [...["src/**/*.ts", "scripts/**/*.ts", "*.ts"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: ROOT, dot: true })])].filter((path) => !isBuildOutput(path) && !path.split("/").includes("node_modules")).sort()) {
+  violations.push(...publishedPackageImportViolations(path, importsOf(path, await Bun.file(`${ROOT}/${path}`).text())));
+}
+
+/** Every workspace's package.json, the root's included, by path from the repository root. */
+const workspaceManifests = new Map<string, Readonly<Record<string, unknown>>>();
+for (const path of ["package.json", ...manifestsMatching("src/**/package.json").filter((path) => !path.split("/").some((segment) => segment === "node_modules" || segment === "dist"))]) {
+  workspaceManifests.set(path, await Bun.file(`${ROOT}/${path}`).json());
+}
+violations.push(...publishedPackageManifestViolations(workspaceManifests, publishedPackages));
+
+/** Every file R7 reads: the scan's TypeScript and each shipped or published pack's other files git tracks (its README), never an untracked or ignored one. */
 function packLayoutPaths(): string[] {
-  return [...files, ...trackedFiles().filter((path) => path.startsWith("src/packs/") && !path.endsWith(".ts"))];
+  return [...files, ...trackedFiles().filter((path) => (path.startsWith("src/packs/") || /^src\/published-packs\/[^/]+\/packs\//.test(path)) && !path.endsWith(".ts"))];
 }
 
 // The contract rules R1–R7 (architecture.rules.test-support.ts): every file of every context and shipped pack, tests included; the test-support import ban reads the apps too.
@@ -1172,24 +1308,25 @@ describe("architecture", () => {
     expect(rootTypeScript).toEqual(ROOT_TYPESCRIPT);
   });
 
-  test("src/ holds the bounded package's manifest and build beside the core, the shipped packs, the libraries, the hosts, the cli and the repository's tests", () => {
+  test("src/ holds the bounded package's manifest and builds beside the core, the shipped packs, the published packs, the libraries, the hosts, the cli and the repository's tests", () => {
     const underSrc = trackedFiles()
       .filter((path) => path.startsWith("src/"))
       .map((path) => path.slice("src/".length));
-    expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "test"]);
-    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "package.json", "tsconfig.types.json"]);
+    expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "published-packs", "test"]);
+    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "package.json", "tsconfig.types.json"]);
   });
 
-  test("the workspaces are bounded (src), its libraries, the hosts and the cli, under a private root", async () => {
+  test("the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root", async () => {
     const root = (await Bun.file(`${ROOT}/package.json`).json()) as { private?: boolean; workspaces?: string[] };
     expect(root.private).toBe(true);
-    expect(root.workspaces).toEqual(["src", "src/lib/*", "src/hosts/*", "src/cli"]);
+    expect(root.workspaces).toEqual(["src", "src/lib/*", "src/hosts/*", "src/cli", "src/published-packs/*"]);
     expect(Object.fromEntries([...contexts, ...apps].map((unit) => [unit.name, unit.dir]))).toEqual({
       bounded: "src",
       "bounded-shell-command-reader": "src/lib/shell-command-reader",
       "bounded-claude-code": "src/hosts/claude-code",
       "bounded-pi": "src/hosts/pi",
       "bounded-cli": "src/cli",
+      "bounded-example": "src/published-packs/example",
     });
   });
 
@@ -1221,7 +1358,7 @@ describe("architecture", () => {
     expect(naming).toEqual([]);
   });
 
-  test("every file belongs to one unit: a layer of a context, a shipped pack's own directory, an app, or a unit's test/", () => {
+  test("every file belongs to one unit: a layer of a context, a shipped or published pack's own directory, an app, or a unit's test/", () => {
     const manifests = ["src/package.json", "src/lib/x/package.json", "src/hosts/claude-code/package.json"];
     const refusal = (path: string, list: readonly string[] = manifests): string | undefined => {
       const placed = unitOf(path, list);
@@ -1233,13 +1370,13 @@ describe("architecture", () => {
     expect(refusal("src/packs/loose.ts")).toBe("src/packs/loose.ts — a shipped pack lives in its own directory, src/packs/<name>/");
     expect(refusal("src/lib/loose.ts")).toBe("src/lib/loose.ts — a library lives in its own directory, src/lib/<name>/, with a package.json");
     expect(refusal("src/hosts/loose.ts")).toBe("src/hosts/loose.ts — a host lives in its own directory, src/hosts/<name>/, with a package.json");
-    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host and the cli is a workspace package of its own`;
+    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host, published pack's package and the cli is a workspace package of its own`;
     expect(refusal("src/lib/y/domain/a.ts")).toBe(`src/lib/y/domain/a.ts — ${unpackaged("src/lib/y")}`);
     expect(refusal("src/hosts/z/a.ts")).toBe(`src/hosts/z/a.ts — ${unpackaged("src/hosts/z")}`);
     expect(refusal("src/cli/a.ts")).toBe(`src/cli/a.ts — ${unpackaged("src/cli")}`);
     expect(refusal("src/cli/a.ts", [...manifests, "src/cli/package.json"])).toBeUndefined();
     expect(refusal("src/core/domain/a.ts", ["src/lib/x/package.json"])).toBe(`src/core/domain/a.ts — ${unpackaged("src")}`);
-    const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/lib/<name>, src/hosts/<name> or src/cli";
+    const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/published-packs/<name>/packs/<pack>, src/lib/<name>, src/hosts/<name> or src/cli";
     expect(refusal("src/build-dist.ts")).toBe(`src/build-dist.ts — ${outside}`);
     expect(refusal("src/other/a.ts")).toBe(`src/other/a.ts — ${outside}`);
     const accepted = (path: string) => unitOf(path, manifests);
@@ -1306,6 +1443,203 @@ describe("architecture", () => {
     ]);
     expect(valueObjectImplementationViolations([libraryContract, { path: "src/lib/x/domain/thing.ts", text: implementation }])).toEqual([]);
     expect(valueObjectImplementationViolations([{ path: "src/core/domain/thing.contract.ts", text: contract }, { path: "src/packs/gate/domain/thing.ts", text: implementation }])).toEqual([]);
+  });
+
+  // Published packs (ADR 2026-030): a pack that is its own npm package, in src/published-packs/<name>/.
+  const EXAMPLE_PUBLISHED_PACK_DIR = "src/published-packs/example/packs/refused-tools";
+  const importsList = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+  /** The example published package's context; it throws when the scan has none. */
+  const examplePackage = (): Context => {
+    const example = byName.get("bounded-example");
+    if (example === undefined) throw new Error("no bounded-example context: src/published-packs/example/package.json is not read as a context");
+    return example;
+  };
+
+  test("a published pack's files belong to its package: src/published-packs/<name>/packs/<pack>/ is a pack of the package at src/published-packs/<name>, and its test/ is the package's", () => {
+    const manifests = ["src/package.json", "src/published-packs/example/package.json"];
+    expect(unitOf(`${EXAMPLE_PUBLISHED_PACK_DIR}/refused-tools.pack.ts`, manifests)).toEqual({ ok: true, unit: { kind: "pack", packageDir: "src/published-packs/example", sourceRoot: EXAMPLE_PUBLISHED_PACK_DIR, layer: "packs" } });
+    expect(unitOf("src/published-packs/example/test/x.test.ts", manifests)).toEqual({ ok: true, unit: { kind: "package", packageDir: "src/published-packs/example", sourceRoot: "src/published-packs/example", layer: "test" } });
+    const refusal = (path: string): string | undefined => {
+      const placed = unitOf(path, manifests);
+      return placed.ok ? undefined : placed.reason;
+    };
+    expect(refusal("src/published-packs/loose.ts")).toBe("src/published-packs/loose.ts — a published pack's package lives in its own directory, src/published-packs/<name>/, with a package.json");
+    expect(refusal("src/published-packs/example/loose.ts")).toBe("src/published-packs/example/loose.ts — a published pack's package holds its packs in packs/<name>/ and its end-to-end tests in test/");
+    expect(refusal("src/published-packs/example/domain/a.ts")).toBe("src/published-packs/example/domain/a.ts — a published pack's package holds its packs in packs/<name>/ and its end-to-end tests in test/");
+    expect(refusal("src/published-packs/example/packs/loose.ts")).toBe("src/published-packs/example/packs/loose.ts — a published pack lives in its own directory, packs/<name>/, in its package");
+    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host, published pack's package and the cli is a workspace package of its own`;
+    expect(refusal("src/published-packs/y/packs/y/y.pack.ts")).toBe(`src/published-packs/y/packs/y/y.pack.ts — ${unpackaged("src/published-packs/y")}`);
+  });
+
+  test("no pack rule reads a published package's test/", () => {
+    expect(unitByPath("src/published-packs/example/test/helper.ts")).toEqual({ ok: true, unit: { kind: "package", packageDir: "src/published-packs/example", sourceRoot: "src/published-packs/example", layer: "test" } });
+    const text = 'import { definePack } from "bounded/domain";\nexport const loose = (raw: unknown) => Array.isArray(raw);\nexport const extra = definePack({ id: x });\n';
+    for (const path of ["src/published-packs/example/test/x.test.ts", "src/published-packs/example/test/helper.ts"]) {
+      expect(packLayoutViolations([path])).toEqual([]);
+      expect(conceptTripletViolations([path], new Map([[path, text]]))).toEqual([]);
+      expect(shapeCheckViolations([{ path, text }])).toEqual([]);
+      expect(packOverviewViolations([{ path, text }])).toEqual([]);
+    }
+  });
+
+  test("a published package's build output is outside every scan", async () => {
+    const declaration = "src/published-packs/example/dist/types/packs/refused-tools/index.d.ts";
+    expect(outsideEveryScan(declaration)).toBe(true);
+    expect(outsideEveryScan("src/published-packs/example/dist/packs/refused-tools/index.js")).toBe(true);
+    expect(outsideEveryScan(`${EXAMPLE_PUBLISHED_PACK_DIR}/index.ts`)).toBe(false);
+    expect(await Bun.file(`${ROOT}/${declaration}`).exists()).toBe(true);
+    expect(files).not.toContain(declaration);
+  });
+
+  test("a published pack's package is named bounded-<its directory>, declares bounded as a peer dependency and never as a dependency, and holds only package.json, README.md, LICENSE, packs/ and test/ at its root", async () => {
+    const manifests = manifestsMatching("src/published-packs/*/package.json");
+    expect(manifests).toContain("src/published-packs/example/package.json");
+    const tracked = trackedFiles();
+    for (const manifest of manifests) {
+      const dir = manifest.slice(0, -"/package.json".length);
+      const name = dir.split("/").at(-1) ?? "";
+      const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name?: string; peerDependencies?: Record<string, string>; dependencies?: Record<string, string> };
+      expect({ dir, name: pkg.name }).toEqual({ dir, name: `bounded-${name}` });
+      expect({ dir, peer: pkg.peerDependencies?.bounded !== undefined }).toEqual({ dir, peer: true });
+      expect({ dir, dependency: pkg.dependencies?.bounded }).toEqual({ dir, dependency: undefined });
+      const atRoot = tracked
+        .filter((path) => path.startsWith(`${dir}/`) && !path.startsWith(`${dir}/packs/`) && !path.startsWith(`${dir}/test/`))
+        .map((path) => path.slice(dir.length + 1))
+        .sort();
+      expect({ dir, atRoot }).toEqual({ dir, atRoot: ["LICENSE", "README.md", "package.json"] });
+    }
+  });
+
+  test("the published-pack rule: from bounded it reaches bounded/domain only, its own pack by relative path only and libraries its package declares, and only its adapters/out/ do I/O", () => {
+    const example = examplePackage();
+    const path = `${EXAMPLE_PUBLISHED_PACK_DIR}/x.ts`;
+    const one = (from: string, spec: string) => shippedPackViolations(from, importsList(spec), example);
+    expect(one(path, "bounded/domain")).toEqual([]);
+    expect(one(path, "./domain/rule.ts")).toEqual([]);
+    for (const spec of ["bounded/application", "bounded/protected-paths", "bounded/protected-paths/adapters"]) {
+      expect(one(path, spec)).toEqual([`${path}:1 imports "${spec}" — a published pack depends only on \`bounded/domain\`, the core's public exports`]);
+    }
+    expect(one(path, "../../../../packs/protected-paths/index.ts")).toEqual([`${path}:1 imports "../../../../packs/protected-paths/index.ts" — a published pack reaches bounded only through bounded/domain, never by relative path`]);
+    expect(one(path, "bounded-example")).toEqual([`${path}:1 imports "bounded-example" — a published pack reaches its own files by relative path, never through its package's name`]);
+    const undeclared = "a published pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do";
+    expect(one(path, "picomatch")).toEqual([`${path}:1 imports "picomatch" — ${undeclared}`]);
+    expect(one(`${EXAMPLE_PUBLISHED_PACK_DIR}/domain/rule.ts`, "node:fs")).toEqual([`${EXAMPLE_PUBLISHED_PACK_DIR}/domain/rule.ts:1 imports "node:fs" — ${undeclared}`]);
+    expect(one(`${EXAMPLE_PUBLISHED_PACK_DIR}/adapters/out/files/files.ts`, "node:fs")).toEqual([]);
+    expect(one(`${EXAMPLE_PUBLISHED_PACK_DIR}/domain/rule.ts`, "../application/feature/feature.ts")).toEqual([`${EXAMPLE_PUBLISHED_PACK_DIR}/domain/rule.ts:1 imports "../application/feature/feature.ts" — a pack's domain may not import its application`]);
+  });
+
+  test("an example of a published pack reaches its package only through its export paths: a deep path into it is refused", () => {
+    const example = `${EXAMPLE_PUBLISHED_PACK_DIR}/examples/basic.config.ts`;
+    expect(shippedPackViolations(example, importsList("bounded-example/packs/refused-tools/index.ts"), examplePackage())).toEqual([
+      `${example}:1 imports "bounded-example/packs/refused-tools/index.ts" — an example imports only bounded/domain, the shipped packs' own export paths (bounded/<pack>) and bounded-example's pack export paths, as a project's configuration does; "bounded-example/packs/refused-tools/index.ts" is not one`,
+    ]);
+  });
+
+  test("nothing outside a published package imports it, by name or by relative path, from any file of the repository", async () => {
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing outside a published pack's package imports it: bounded never depends on a published pack`];
+    const check = (path: string, spec: string) => publishedPackageImportViolations(path, importsList(spec));
+    expect(check("src/core/composition-root/x.test.ts", "bounded-example")).toEqual(refused("src/core/composition-root/x.test.ts", "bounded-example"));
+    expect(check("src/core/composition-root/x.test.ts", "../../published-packs/example/packs/refused-tools/index.ts")).toEqual(refused("src/core/composition-root/x.test.ts", "../../published-packs/example/packs/refused-tools/index.ts"));
+    expect(check("src/hosts/pi/test/x.test.ts", "../../../published-packs/example/packs/refused-tools/index.ts")).toEqual(refused("src/hosts/pi/test/x.test.ts", "../../../published-packs/example/packs/refused-tools/index.ts"));
+    expect(check("src/cli/x.ts", "bounded-example")).toEqual(refused("src/cli/x.ts", "bounded-example"));
+    expect(check("src/test/x.test.ts", "bounded-example/x")).toEqual(refused("src/test/x.test.ts", "bounded-example/x"));
+    expect(publishedPackageImportViolations("src/published-packs/example/test/x.test.ts", importsList("bounded-example", "../packs/refused-tools/index.ts"))).toEqual([]);
+    const workspaceManifests = ["package.json", ...manifestsMatching("src/**/package.json").filter((path) => !path.split("/").some((segment) => segment === "node_modules" || segment === "dist"))];
+    expect(workspaceManifests).toContain("src/published-packs/example/package.json");
+    const naming: string[] = [];
+    for (const manifest of workspaceManifests.filter((path) => path !== "src/published-packs/example/package.json")) {
+      const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as Record<string, unknown>;
+      for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        const listed = pkg[field];
+        if (typeof listed === "object" && listed !== null && "bounded-example" in listed) naming.push(`${manifest} ${field}`);
+      }
+    }
+    expect(naming).toEqual([]);
+  });
+
+  test("an example of a published pack imports as a project does: bounded/domain, the shipped packs' own export paths and its own package's pack export paths", () => {
+    const example = `${EXAMPLE_PUBLISHED_PACK_DIR}/examples/basic.config.ts`;
+    const context = examplePackage();
+    expect(shippedPackViolations(example, importsList("bounded/domain", "bounded/prereqs", "bounded-example"), context)).toEqual([]);
+    expect(shippedPackViolations(example, importsList("../domain/rule.ts"), context)).toEqual([`${example}:1 imports "../domain/rule.ts" — an example imports only bounded's and bounded-example's export paths, as a project's configuration does`]);
+    expect(shippedPackViolations(example, importsList("bounded/adapters"), context)).toEqual([
+      `${example}:1 imports "bounded/adapters" — an example imports only bounded/domain, the shipped packs' own export paths (bounded/<pack>) and bounded-example's pack export paths, as a project's configuration does; "bounded/adapters" is not one`,
+    ]);
+  });
+
+  test("R7, R3 and R6 hold in a published pack as in a shipped one", () => {
+    const tidy = ["refused-tools.pack.ts", "refused-tools.contract.ts", "refused-tools.pack.test.ts", "index.ts", "README.md", "examples/basic.config.ts", "domain/rule.ts", "application/judge/judge.ts", "adapters/out/files/files.ts"].map((file) => `${EXAMPLE_PUBLISHED_PACK_DIR}/${file}`);
+    expect(packLayoutViolations(tidy)).toEqual([]);
+    expect(packLayoutViolations([...tidy, `${EXAMPLE_PUBLISHED_PACK_DIR}/helpers.ts`])).toEqual([
+      `${EXAMPLE_PUBLISHED_PACK_DIR}/helpers.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
+    ]);
+    expect(packLayoutViolations([`${EXAMPLE_PUBLISHED_PACK_DIR}/index.ts`])).toEqual([
+      `${EXAMPLE_PUBLISHED_PACK_DIR} — a published pack has refused-tools.pack.ts`,
+      `${EXAMPLE_PUBLISHED_PACK_DIR} — a published pack has refused-tools.contract.ts`,
+      `${EXAMPLE_PUBLISHED_PACK_DIR} — a published pack has README.md`,
+      `${EXAMPLE_PUBLISHED_PACK_DIR} — a published pack has at least one example, examples/<name>.config.ts`,
+    ]);
+    expect(conceptTripletViolations([`${EXAMPLE_PUBLISHED_PACK_DIR}/domain/loose.ts`], new Map())).toEqual([
+      `${EXAMPLE_PUBLISHED_PACK_DIR}/domain/loose.ts — a domain concept is a contract, an implementation and a test: add loose.contract.ts`,
+      `${EXAMPLE_PUBLISHED_PACK_DIR}/domain/loose.ts — a domain concept is a contract, an implementation and a test: add loose.test.ts`,
+    ]);
+    const overview = `${EXAMPLE_PUBLISHED_PACK_DIR}/refused-tools.pack.ts`;
+    const head = 'import { contribution, corePack, definePack } from "bounded/domain";\nimport { judge } from "./application/judge/judge.ts";\nimport { refusedToolsId } from "./domain/refused-tools-id.ts";\nimport type { RefusedToolsPack } from "./refused-tools.contract.ts";\n';
+    expect(packOverviewViolations([{ path: overview, text: `${head}import { files } from "./adapters/out/files/files.ts";\nexport const refusedToolsPack: RefusedToolsPack = definePack({ id: refusedToolsId });\n` }])).toEqual([
+      `${overview}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/files/files.ts"`,
+    ]);
+    const loose = { path: `${EXAMPLE_PUBLISHED_PACK_DIR}/domain/loose.ts`, text: "export function decide(raw: unknown) {\n  return Array.isArray(raw);\n}\n" };
+    expect(shapeCheckViolations([loose])).toEqual([`${loose.path}:2 — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`]);
+  });
+
+  test("no workspace's package.json but a published package's own names it, whichever published package it is", () => {
+    const packages = [
+      { name: "bounded-example", dir: "src/published-packs/example" },
+      { name: "bounded-other", dir: "src/published-packs/other" },
+    ];
+    const manifests = new Map<string, Record<string, unknown>>([
+      ["package.json", { name: "bounded-workspace" }],
+      ["src/published-packs/example/package.json", { name: "bounded-example", devDependencies: { bounded: "workspace:*" } }],
+      ["src/published-packs/other/package.json", { name: "bounded-other", dependencies: { "bounded-other": "workspace:*" } }],
+      ["src/hosts/pi/package.json", { name: "bounded-pi", dependencies: { bounded: "workspace:*", "bounded-other": "workspace:*" } }],
+      ["src/cli/package.json", { name: "bounded-cli", devDependencies: { "bounded-example": "workspace:*" } }],
+      ["src/package.json", { name: "bounded", peerDependencies: { "bounded-other": "0.1.0" }, optionalDependencies: { "bounded-example": "0.1.0" } }],
+    ]);
+    expect(publishedPackageManifestViolations(manifests, packages)).toEqual([
+      `src/cli/package.json names bounded-example in devDependencies — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`,
+      `src/package.json names bounded-example in optionalDependencies — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`,
+      `src/hosts/pi/package.json names bounded-other in dependencies — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`,
+      `src/package.json names bounded-other in peerDependencies — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`,
+    ]);
+    expect(publishedPackages.map((pkg) => pkg.name)).toContain("bounded-example");
+    expect(workspaceManifests.has("src/hosts/pi/package.json")).toBe(true);
+    expect(publishedPackageManifestViolations(workspaceManifests, publishedPackages)).toEqual([]);
+  });
+
+  test("the published-pack rule refuses an adapter's undeclared library and a relative path into another pack of its package, once each", () => {
+    const example = examplePackage();
+    const one = (from: string, spec: string) => shippedPackViolations(from, importsList(spec), example);
+    const adapter = `${EXAMPLE_PUBLISHED_PACK_DIR}/adapters/out/files/files.ts`;
+    expect(one(adapter, "picomatch")).toEqual([`${adapter}:1 imports "picomatch" — a pack's adapter uses only node:* and libraries its package declares`]);
+    const root = `${EXAMPLE_PUBLISHED_PACK_DIR}/x.ts`;
+    expect(one(root, "../other-pack/index.ts")).toEqual([`${root}:1 imports "../other-pack/index.ts" — a published pack reaches only its own pack's files by relative path`]);
+  });
+
+  test("a published package's bounded is a peer, and a workspace:* devDependency, and only a published package's peers count as dependencies", async () => {
+    for (const pkg of publishedPackages) {
+      const manifest = (await Bun.file(`${ROOT}/${pkg.dir}/package.json`).json()) as { devDependencies?: Record<string, string> };
+      expect({ dir: pkg.dir, dev: manifest.devDependencies?.bounded }).toEqual({ dir: pkg.dir, dev: "workspace:*" });
+      expect({ dir: pkg.dir, bounded: pkg.dependencies.includes(CORE) }).toEqual({ dir: pkg.dir, bounded: true });
+    }
+    expect(publishedPackages.length).toBeGreaterThan(0);
+    expect(contextOf("src/lib/x/package.json", { name: "x", dependencies: { a: "1" }, peerDependencies: { b: "1" } }).dependencies).toEqual(["a"]);
+    expect(contextOf("src/published-packs/x/package.json", { name: "bounded-x", dependencies: { a: "1" }, peerDependencies: { bounded: "~3.3.0" } }).dependencies).toEqual(["a", "bounded"]);
+  });
+
+  test("R7 reads each published pack's tracked README", () => {
+    const paths = packLayoutPaths();
+    expect(paths).toContain(`${EXAMPLE_PUBLISHED_PACK_DIR}/README.md`);
+    expect(packLayoutViolations(paths)).toEqual([]);
   });
 });
 

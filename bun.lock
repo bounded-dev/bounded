@@ -70,6 +70,16 @@
         "bounded": "workspace:*",
       },
     },
+    "src/published-packs/example": {
+      "name": "bounded-example",
+      "version": "0.1.0",
+      "devDependencies": {
+        "bounded": "workspace:*",
+      },
+      "peerDependencies": {
+        "bounded": "~3.3.0",
+      },
+    },
   },
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
@@ -109,6 +119,8 @@
     "bounded-claude-code": ["bounded-claude-code@workspace:src/hosts/claude-code"],
 
     "bounded-cli": ["bounded-cli@workspace:src/cli"],
+
+    "bounded-example": ["bounded-example@workspace:src/published-packs/example"],
 
     "bounded-pi": ["bounded-pi@workspace:src/hosts/pi"],
 

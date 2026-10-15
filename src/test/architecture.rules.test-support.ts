@@ -36,13 +36,18 @@ export type ContextLayer = (typeof CONTEXT_LAYERS)[number];
  * - a shipped pack (`src/packs/<name>`, bounded's), its layer the
  *   pseudo-layer `packs` (R7 allows it no test/);
  * - an app (`src/hosts/<name>` or `src/cli`, each its own package), its
- *   layer `test` for its test/ and none otherwise: an app has no layers.
+ *   layer `test` for its test/ and none otherwise: an app has no layers;
+ * - a published pack (`src/published-packs/<package>/packs/<pack>`, ADR
+ *   2026-030): a pack of its own package, `src/published-packs/<package>`,
+ *   laid out and checked as a shipped pack, its layer `packs`;
+ * - a published pack's package's test/ (`src/published-packs/<package>/test`):
+ *   the package's end-to-end tests, kind `package`, its layer `test`.
  *
  * `packageDir` is the directory of the unit's package.json, `sourceRoot` the
  * directory its files sit in.
  */
 export interface Unit {
-  readonly kind: "context" | "pack" | "app";
+  readonly kind: "context" | "pack" | "app" | "package";
   readonly packageDir: string;
   readonly sourceRoot: string;
   readonly layer: ContextLayer | "packs" | "test" | undefined;
@@ -60,7 +65,7 @@ const refused = (path: string, reason: string): Placement => ({ ok: false, reaso
  */
 export function unitByPath(path: string): Placement {
   const [top, area, name, ...rest] = path.split("/");
-  const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/lib/<name>, src/hosts/<name> or src/cli";
+  const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/published-packs/<name>/packs/<pack>, src/lib/<name>, src/hosts/<name> or src/cli";
   if (top !== "src" || area === undefined || name === undefined) return refused(path, outside);
   const contextLayer = (sourceRoot: string, packageDir: string, first: string, more: number): Placement => {
     if (first === "packs") return refused(path, "a packs/ folder in a context is no layer: shipped packs are bounded's, each in src/packs/<name>/");
@@ -84,6 +89,18 @@ export function unitByPath(path: string): Placement {
       return { ok: true, unit: { kind: "app", packageDir: `src/hosts/${name}`, sourceRoot: `src/hosts/${name}`, layer: rest[0] === "test" && rest.length > 1 ? "test" : undefined } };
     case "cli":
       return { ok: true, unit: { kind: "app", packageDir: "src/cli", sourceRoot: "src/cli", layer: name === "test" && rest.length > 0 ? "test" : undefined } };
+    case "published-packs": {
+      // A published pack's package (ADR 2026-030): its packs in packs/<pack>/, each a pack as a shipped one is, and its end-to-end tests in test/.
+      if (rest.length === 0) return refused(path, "a published pack's package lives in its own directory, src/published-packs/<name>/, with a package.json");
+      const packageDir = `src/published-packs/${name}`;
+      const [first, pack] = rest;
+      if (first === "packs") {
+        if (pack === undefined || rest.length < 3) return refused(path, "a published pack lives in its own directory, packs/<name>/, in its package");
+        return { ok: true, unit: { kind: "pack", packageDir, sourceRoot: `${packageDir}/packs/${pack}`, layer: "packs" } };
+      }
+      if (first === "test" && rest.length > 1) return { ok: true, unit: { kind: "package", packageDir, sourceRoot: packageDir, layer: "test" } };
+      return refused(path, "a published pack's package holds its packs in packs/<name>/ and its end-to-end tests in test/");
+    }
     default:
       return refused(path, outside);
   }
@@ -92,13 +109,13 @@ export function unitByPath(path: string): Placement {
 /**
  * The unit a file belongs to, as unitByPath, and only when the unit's
  * package.json is among `manifests` (paths such as `src/package.json`):
- * every library, host and the cli is a workspace package, and the core and
- * the shipped packs are bounded's, at `src`.
+ * every library, host, published pack's package and the cli is a workspace
+ * package, and the core and the shipped packs are bounded's, at `src`.
  */
 export function unitOf(path: string, manifests: readonly string[]): Placement {
   const placed = unitByPath(path);
   if (!placed.ok || manifests.includes(`${placed.unit.packageDir}/package.json`)) return placed;
-  return refused(path, `${placed.unit.packageDir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host and the cli is a workspace package of its own`);
+  return refused(path, `${placed.unit.packageDir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host, published pack's package and the cli is a workspace package of its own`);
 }
 
 /** A file's path within its unit's source root (`domain/x.ts`), or undefined when it belongs to no unit. */
@@ -589,7 +606,7 @@ export function brandExportViolations(files: readonly SourceFile[]): string[] {
 
 /** The sections of definePack, in the only order an overview may give them. */
 const SECTIONS = ["id", "dependsOn", "points", "contributes", "ports", "optionalPorts"];
-/** A shipped pack's file: its pack's directory (`src/packs/<name>`), the pack's name, and its path within that directory. */
+/** A shipped or published pack's file: its pack's directory (`src/packs/<name>`, `src/published-packs/<package>/packs/<name>`), the pack's name, and its path within that directory. */
 const packFileOf = (path: string): { readonly dir: string; readonly name: string; readonly rest: string } | undefined => {
   const within = withinUnit(path);
   if (within?.unit.kind !== "pack") return undefined;
@@ -600,7 +617,7 @@ const packFileOf = (path: string): { readonly dir: string; readonly name: string
 const EXAMPLE = /^examples\/[a-z0-9]+(-[a-z0-9]+)*\.config\.ts$/;
 
 /**
- * R7, layout: a shipped pack's directory holds exactly its overview
+ * R7, layout: a shipped or published pack's directory holds exactly its overview
  * (`<name>.pack.ts`), its contract (`<name>.contract.ts`), its index, the
  * overview's test and its README, and only the folders `domain/`,
  * `application/`, `adapters/` and `examples/`; `examples/` holds only
@@ -623,8 +640,10 @@ export function packLayoutViolations(paths: readonly string[]): string[] {
     if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`);
   }
   for (const [dir, name] of dirs) {
-    for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts", "README.md"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — a shipped pack has ${needed}`);
-    if (!paths.some((path) => path.startsWith(`${dir}/`) && EXAMPLE.test(path.slice(dir.length + 1)))) out.push(`${dir} — a shipped pack has at least one example, examples/<name>.config.ts`);
+    // A published pack (ADR 2026-030) is laid out exactly as a shipped one; the message names its kind.
+    const kind = dir.startsWith("src/published-packs/") ? "a published pack" : "a shipped pack";
+    for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts", "README.md"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — ${kind} has ${needed}`);
+    if (!paths.some((path) => path.startsWith(`${dir}/`) && EXAMPLE.test(path.slice(dir.length + 1)))) out.push(`${dir} — ${kind} has at least one example, examples/<name>.config.ts`);
   }
   return out;
 }

@@ -6409,5 +6409,32 @@
       "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a parsed catalogue is frozen, its packs too"
     },
     "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/test/architecture.test.ts",
+    "case": "architecture > every file belongs to one unit: a layer of a context, a shipped pack's own directory, an app, or a unit's test/",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > every file belongs to one unit: a layer of a context, a shipped or published pack's own directory, an app, or a unit's test/"
+    },
+    "reason": "a second kind of pack, the published pack (ADR 2026-030), is a unit, and the refusals name its slot"
+  },
+  {
+    "file": "src/test/architecture.test.ts",
+    "case": "architecture > src/ holds the bounded package's manifest and build beside the core, the shipped packs, the libraries, the hosts, the cli and the repository's tests",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > src/ holds the bounded package's manifest and builds beside the core, the shipped packs, the published packs, the libraries, the hosts, the cli and the repository's tests"
+    },
+    "reason": "src/ gains src/published-packs/ and the published packs' shared build (ADR 2026-030)"
+  },
+  {
+    "file": "src/test/architecture.test.ts",
+    "case": "architecture > the workspaces are bounded (src), its libraries, the hosts and the cli, under a private root",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root"
+    },
+    "reason": "the root workspaces gain src/published-packs/* (ADR 2026-030)"
   }
 ]

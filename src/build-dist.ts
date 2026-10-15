@@ -101,7 +101,7 @@ interface Manifest {
 }
 
 /** The package imports a built file makes: its import and export statements' and dynamic imports' specifiers that are not relative. */
-const importsOf = (text: string): string[] =>
+export const importsOf = (text: string): string[] =>
   [...text.matchAll(/^(?:import|export)\b[^";]*?\bfrom\s*"([^"]+)"/gm), ...text.matchAll(/^import\s*"([^"]+)"/gm), ...text.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)]
     .map(([, spec = ""]) => spec)
     .filter((spec) => !spec.startsWith("."));

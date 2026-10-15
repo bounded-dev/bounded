@@ -1,0 +1,50 @@
+{
+  "name": "bounded-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The fixture that keeps Bounded's published-pack slot tested (ADR 2026-030): a published pack's package, built, packed and installed beside bounded by the repository's tests. Never published",
+  "keywords": [
+    "bounded-pack"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bounded-dev/bounded.git",
+    "directory": "src/published-packs/example"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "type": "module",
+  "scripts": {
+    "prepack": "bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build"
+  },
+  "files": [
+    "dist",
+    "packs",
+    "bounded.catalog.json",
+    "README.md",
+    "!packs/**/*.test.ts",
+    "!packs/**/*.test-support.ts",
+    "!packs/**/fixtures/**"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./packs/refused-tools/index.ts",
+      "types": "./dist/types/packs/refused-tools/index.d.ts",
+      "default": "./dist/packs/refused-tools/index.js"
+    }
+  },
+  "bounded": {
+    "catalog": "./bounded.catalog.json",
+    "packs": {
+      ".": "packs/refused-tools"
+    }
+  },
+  "peerDependencies": {
+    "bounded": "~3.3.0"
+  },
+  "devDependencies": {
+    "bounded": "workspace:*"
+  }
+}

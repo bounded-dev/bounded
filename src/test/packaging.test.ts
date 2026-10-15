@@ -6,7 +6,7 @@
 // core's and the packs' TypeScript sources (for types and for bun), without tests, test support
 // (but the exported conformance suite) or fixtures.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PREREQS_STATUS_BAND_FILES, PRIVATE_PACKAGE_EXPORTS, unknownDistImport, unlistedBandFile } from "../build-dist.ts";
@@ -156,6 +156,12 @@ describe("bounded, the one published package", () => {
     expect(topLevel.filter((entry) => !allowed.includes(entry))).toEqual([]);
     expect(topLevel).toEqual(allowed);
     expect(packed.filter((file) => file.startsWith("lib/")).sort()).toEqual([...PUBLISHED_LIBRARY_SOURCES].sort());
+  });
+
+  test("its tarball holds nothing of the published packs (src/published-packs/)", () => {
+    // Published packs are packages of their own (ADR 2026-030), beside bounded's sources in src/: bounded's files patterns must not reach them.
+    expect(existsSync(join(CORE, "published-packs", "example", "package.json"))).toBe(true);
+    expect(packed.filter((file) => file.startsWith("published-packs/") || file.includes("/published-packs/"))).toEqual([]);
   });
 
   test("dist/ imports only node's modules, bounded's own export paths and bounded's dependencies, so it resolves from an installed bounded", () => {
