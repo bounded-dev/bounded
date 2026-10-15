@@ -6409,5 +6409,14 @@
       "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a parsed catalogue is frozen, its packs too"
     },
     "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/cli/release-manifest.test.ts",
+    "case": "standalone release manifest > verifies archive length, digest and every extracted file, rejecting missing or extra entries",
+    "successor": {
+      "file": "src/cli/release-manifest.test.ts",
+      "case": "standalone release manifest > parses verified tar.gz bytes, refusing unexpected members, links and traversal"
+    },
+    "reason": "release verification now reads archive members from the verified tar.gz bytes instead of accepting an unrelated caller-supplied map"
   }
 ]
