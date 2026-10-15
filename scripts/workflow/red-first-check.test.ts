@@ -367,6 +367,43 @@ describe("red-first-check end to end", () => {
       expect(main([evil.red, "HEAD", "--repo", evil.repo.dir], (l) => evilLines.push(l))).toBe(1);
       expect(evilLines.some((l) => FAIL_LINE.test(l) && l.includes(merge.slice(0, 12)))).toBe(true);
     }, 120_000);
+
+    test("a test-only rename does not take example scenarios out of the guard: a build commit changing the renamed file fails", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      repo.git("mv", SCENARIOS, "src/packs/p/examples/b.scenarios.ts");
+      repo.git("commit", "--quiet", "-m", "test-only rename");
+      repo.commit({ "src/packs/p/examples/b.scenarios.ts": scenarios("changed by the build after the rename"), "sum.ts": `${SUM}// touched\n` }, "build");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => /^FAIL scenarios: src\/packs\/p\/examples\/b\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a build commit that adds a new example scenarios file fails", () => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/packs/p/examples"), { recursive: true });
+      const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+      repo.commit({ "sum.ts": SUM, "src/packs/p/examples/new.scenarios.ts": scenarios("added by the build") }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => /^FAIL scenarios: src\/packs\/p\/examples\/new\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a merge that keeps one parent's example scenarios and resolves code itself passes", () => {
+      const { repo, red } = redWithScenarios();
+      repo.git("checkout", "--quiet", "-b", "build");
+      repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b; // build\n" }, "green on build");
+      repo.git("checkout", "--quiet", "main");
+      repo.commit({ [SCENARIOS]: scenarios("changed on main by a test-only commit") }, "test-only on main");
+      repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b; // main\n" }, "green on main");
+      // Both sides changed sum.ts: the merge stops on the conflict and resolves the code itself, keeping main's scenarios.
+      spawnSync("git", ["merge", "--quiet", "--no-ff", "--no-commit", "build"], { cwd: repo.dir });
+      writeFileSync(join(repo.dir, "sum.ts"), SUM);
+      repo.git("add", "-A");
+      repo.git("commit", "--quiet", "--no-edit");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    }, 60_000);
   });
 
   test("a red commit may delete a test file only when every case in it is recorded as superseded", () => {
