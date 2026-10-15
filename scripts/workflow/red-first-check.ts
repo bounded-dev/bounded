@@ -10,9 +10,10 @@
 //                 *.test.tsx), shared test code (*.test-support.ts), test
 //                 fixtures (anything under a testdata/, fixtures/,
 //                 __fixtures__/ or __snapshots__/ directory) and shipped
-//                 packs' example scenarios
-//                 (src/packs/<name>/examples/<slug>.scenarios.ts). It deletes
-//                 nothing, and adds at least one runnable test file.
+//                 and published packs' example scenarios
+//                 (src/packs/<name>/examples/<slug>.scenarios.ts and
+//                 src/published-packs/<name>/packs/<pack>/examples/<slug>.scenarios.ts).
+//                 It deletes nothing, and adds at least one runnable test file.
 //   2. red        each runnable test file the red commit touches fails when
 //                 `bun test` runs it alone at the red commit, in a temporary
 //                 worktree with the lockfile's dependencies installed. A file
@@ -48,10 +49,10 @@
 // same id in its own file, followed through renames by git's rename
 // detection; a case moved to an unrelated file is not detected.
 //
-// Example scenarios. Scenarios are tests, so they never ride in a build
-// commit: every example scenarios file any commit after the red commit adds,
-// changes or deletes, whether or not the red commit touched it, may be changed
-// only by test-only commits. A rename counts as both its paths, so a
+// Example scenarios. A shipped or published pack's example scenarios are
+// tests, so they never ride in a build commit: every example scenarios file
+// any commit after the red commit adds, changes or deletes, whether or not the
+// red commit touched it, may be changed only by test-only commits. A rename counts as both its paths, so a
 // test-only move takes no file out of the guard. A merge is judged only when
 // its version of the file differs from every parent's (git log's history
 // simplification leaves out the others), by the paths it changed itself. So
@@ -61,7 +62,13 @@
 // one changed since the red commit is printed as a note and the reviewer
 // reads its diff. A build commit's change to a scenarios file that a merge
 // then discarded (taking the other side's version) is not reported: it is
-// not in the head.
+// not in the head. A scenarios file states verdicts under its sibling
+// configuration (the same path with .config.ts for .scenarios.ts), which is
+// shipped configuration a build commit may change. For every example
+// scenarios file at the head (whether or not the red commit touched it, and
+// wherever a move took it) whose sibling configuration any commit after the
+// red commit changed or deleted, the check prints a note naming both, never a
+// failure, and the reviewer reads the configuration's diff.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
@@ -114,13 +121,16 @@ function underFixtureDirectory(path: string): boolean {
 export const SUPERSESSIONS = "superseded-tests.json";
 
 /**
- * A shipped pack's example scenarios: `src/packs/<name>/examples/<slug>.scenarios.ts`,
- * one level deep with a kebab-case slug, beside the example it states calls
- * and expected verdicts for. Not the example itself, which is shipped configuration.
+ * A shipped or published pack's example scenarios:
+ * `src/packs/<name>/examples/<slug>.scenarios.ts` or
+ * `src/published-packs/<name>/packs/<pack>/examples/<slug>.scenarios.ts`,
+ * one level deep under `examples/` with a kebab-case slug, beside the example
+ * it states calls and expected verdicts for. Not the example itself, which is
+ * shipped configuration.
  */
-export const EXAMPLE_SCENARIOS = /^src\/packs\/[^/]+\/examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/;
+export const EXAMPLE_SCENARIOS = /^src\/(packs\/[^/]+|published-packs\/[^/]+\/packs\/[^/]+)\/examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/;
 
-/** A path a red commit may touch: a test file, shared test code, a test fixture, a shipped pack's example scenarios or the supersession record. */
+/** A path a red commit may touch: a test file, shared test code, a test fixture, a shipped or published pack's example scenarios or the supersession record. */
 export function isTestPath(path: string): boolean {
   return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path) || EXAMPLE_SCENARIOS.test(path) || path === SUPERSESSIONS;
 }
@@ -717,7 +727,7 @@ function run(args: readonly string[], print: (line: string) => void): number {
   }
 
   // Scenarios are tests, so they never ride in a build commit: every shipped
-  // pack's example scenarios file any commit after the red commit adds,
+  // or published pack's example scenarios file any commit after the red commit adds,
   // changes or deletes (each path of a rename, so a test-only move takes no
   // file out of the guard) may be changed only by test-only commits. A merge
   // is listed only when its version of the file differs from every parent's,
@@ -737,6 +747,20 @@ function run(args: readonly string[], print: (line: string) => void): number {
       if (!isTestOnlyCommit(commit, parentsOf(commit))) failures.push(`scenarios: ${path} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
     }
     if (touching.length > 0) notes.push(`scenarios: ${path} changed since the red commit: read its diff`);
+  }
+  // Every scenarios file at the head, whether or not the red commit touched
+  // it and wherever a move took it, states verdicts under its sibling
+  // configuration, shipped code a build commit may change: any change to it
+  // since the red commit (a deletion included) is a note, so the reviewer
+  // reads its diff.
+  const scenariosAtHead = git(repo, "ls-tree", "-r", "--name-only", head)
+    .split("\n")
+    .filter((l) => EXAMPLE_SCENARIOS.test(l));
+  for (const scenariosPath of scenariosAtHead) {
+    const configurationPath = scenariosPath.replace(/\.scenarios\.ts$/, ".config.ts");
+    if (commitsTouching(configurationPath).length > 0) {
+      notes.push(`scenarios: ${configurationPath}, the configuration ${scenariosPath} is judged under, changed since the red commit: read its diff`);
+    }
   }
 
   // 2. red
