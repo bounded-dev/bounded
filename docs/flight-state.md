@@ -204,8 +204,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
   After `/cd` the session's root and the file's differ and it says
   unavailable; under the user-wide `CLAUDE_CODE_PLUGIN_DIRS` load a project
   with a configuration but without the pack shows unavailable. Its parser
-  checks shape, not content, and the file decides nothing. Its own check
-  needs the declarations an interactive `claude --plugin-dir` load lays.
+  checks shape, not content, and the file decides nothing. Where an
+  organization manages Claude Code, the classic events pass over plugins a
+  person installs, so the band sees no finish and says there is no reading
+  yet. Its own check needs the declarations an interactive
+  `claude --plugin-dir` load lays, written by the installed build.
 
 - **Bounded discourages agents and keeps a record; it is not a security
   boundary.** An agent running as the same user can always get round it.

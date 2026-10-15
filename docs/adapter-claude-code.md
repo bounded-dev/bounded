@@ -335,7 +335,9 @@ outside Claude Code leaves the last reading shown, with its time; its
 redraws stop with a reload until the next finish or session start, showing
 "updating" meanwhile; its clock and the hook's must agree; and loading it
 from `node_modules` relies on Claude Code being able to write into that
-folder.
+folder. Where an organization manages Claude Code, the classic events pass
+over plugins a person installs, so the band sees no finish and keeps saying
+there is no reading yet.
 
 **Checking it.** `bun run check:prereqs-status-band` runs `claude plugin
 validate`, `claude plugin test` and `tsc` against Claude Code's own

@@ -280,6 +280,12 @@ in `docs/flight-state.md`):
   a classic event without `next` hides it; files changed outside Claude Code
   change nothing the band sees. In each case the band keeps showing the last
   reading, with its time, until the next finish it sees.
+- Where an organization manages Claude Code, the classic events
+  (`classic.PostToolUse`, `classic.PostToolUseFailure`,
+  `classic.SubagentStop`) pass over plugins a person installs, and only a
+  plugin listed in managed settings runs them (`claude plugin validate`,
+  Claude Code 2.1.299). There the band sees no finish, so it keeps saying
+  there is no reading yet: it never shows a status, rather than a stale one.
 - `$.session.root()` against `CLAUDE_PROJECT_DIR`: after `/cd` they differ,
   and the band says unavailable.
 - Under the user-wide `CLAUDE_CODE_PLUGIN_DIRS` load, a project with a
