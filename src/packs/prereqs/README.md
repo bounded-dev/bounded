@@ -297,6 +297,23 @@ call and each finish, so it must give its after-call and finish handling a
 budget above its other checks plus 2.5 s (Claude Code's hook deadline is 20
 s).
 
+### Seeing the status in Claude Code
+
+`bounded` ships a Claude Code plugin that draws this status above the
+prompt, the prereqs status band (ADR 2026-027): each requirement with its
+status, and the next action that is blocked. `bounded init` does not install
+it; load it from the project's root with
+
+```sh
+claude --plugin-dir node_modules/bounded/dist/hosts/claude-code/prereqs-status-band
+```
+
+or name that folder's absolute path in `CLAUDE_CODE_PLUGIN_DIRS`. It shows a
+status only when the reading is newer than the last finished call it saw,
+and otherwise says there is no reading yet, that it is updating, or that the
+status is unavailable and why. See
+[the Claude Code adapter](../../../docs/adapter-claude-code.md#the-prereqs-status-band).
+
 ## The protection it relies on
 
 The guarantee rests on the protected-paths pack keeping agents off:

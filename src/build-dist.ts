@@ -22,7 +22,11 @@
 // carried app's import of its entry (bounded-shell-command-reader/
 // shell-command-reading) becomes an import of bounded/shell-command-reader,
 // so dist holds one copy of the reader and imports no private package.
-import { mkdir, rename, rm } from "node:fs/promises";
+// - The prereqs status band (ADR 2026-027): a Claude Code plugin folder,
+//   copied as its TypeScript source (Claude Code loads it itself) from an
+//   explicit file list, to dist/hosts/claude-code/prereqs-status-band; its
+//   plugin tests and the files Claude Code writes into it are left out.
+import { copyFile, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import type { BunPlugin } from "bun";
 
@@ -44,6 +48,39 @@ const CARRIED: readonly { readonly entry: string; readonly out: string; readonly
   { entry: join(HOSTS, "pi", "host-installer.ts"), out: "dist/hosts/pi/host-installer.js" },
   { entry: READER_ENTRY, out: "dist/shell-command-reader/index.js", reader: true },
 ];
+
+/** The prereqs status band's folder, a Claude Code plugin (ADR 2026-027). */
+const PREREQS_STATUS_BAND = join(HOSTS, "claude-code", "prereqs-status-band");
+/** Where dist carries it, beside the Claude Code hook. */
+const PREREQS_STATUS_BAND_OUT = "dist/hosts/claude-code/prereqs-status-band";
+
+/** Every file of the band dist carries: its manifest, its hooks module and the modules it imports, and its state contract. */
+export const PREREQS_STATUS_BAND_FILES: readonly string[] = Object.freeze([
+  ".claude-plugin/plugin.json",
+  "hooks/hooks.json",
+  "hooks/register.ts",
+  "hooks/engine-subset.ts",
+  "hooks/prereqs-status-file.ts",
+  "hooks/prereqs-status-band-lines.ts",
+  "hooks/project-config-names.ts",
+  "types/index.d.ts",
+]);
+
+/** Why the band's hooks/ cannot be carried as listed, or undefined when it can: a file there that the list does not name would be left out of dist, where the hooks module may import it. */
+export function unlistedBandFile(hooksFolderFiles: readonly string[]): string | undefined {
+  const unlisted = hooksFolderFiles.find((name) => !PREREQS_STATUS_BAND_FILES.includes(`hooks/${name}`));
+  return unlisted === undefined ? undefined : `hooks/${unlisted} is in the prereqs status band but not in its file list: add it to the band's file list in build-dist.ts or remove it`;
+}
+
+/** Copies the band's listed files into dist, refusing a file in its hooks/ that the list does not name. */
+async function carryPrereqsStatusBand(): Promise<void> {
+  const problem = unlistedBandFile(await readdir(join(PREREQS_STATUS_BAND, "hooks")));
+  if (problem !== undefined) throw new Error(problem);
+  for (const file of PREREQS_STATUS_BAND_FILES) {
+    await mkdir(dirname(join(HERE, PREREQS_STATUS_BAND_OUT, file)), { recursive: true });
+    await copyFile(join(PREREQS_STATUS_BAND, file), join(HERE, PREREQS_STATUS_BAND_OUT, file));
+  }
+}
 
 /** The private workspace packages' export paths the carried apps import, each with the bounded export path dist reaches it through. */
 export const PRIVATE_PACKAGE_EXPORTS: Readonly<Record<string, string>> = Object.freeze({ "bounded-shell-command-reader/shell-command-reading": "bounded/shell-command-reader" });
@@ -196,6 +233,7 @@ export async function buildDist(): Promise<void> {
   }
 
   await buildDeclarations(ownReaderExports);
+  await carryPrereqsStatusBand();
 
   const dependencies = Object.keys(manifest.dependencies ?? {});
   const targets = Object.values(manifest.exports).flatMap((target) => (typeof target === "string" ? [target] : [target.default ?? ""])).filter((target) => target.startsWith("./dist/"));

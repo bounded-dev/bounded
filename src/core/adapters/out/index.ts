@@ -6,6 +6,7 @@ export { FileSystemBoundedLog } from "./bounded-log/bounded-log.ts";
 export { NodeModulesHostInstallerSource } from "./host-installer-source/host-installer-source.ts";
 export { CheckedProjectConfigSource } from "./project-config-source/checked-project-config-source.ts";
 export { FileSystemProjectConfigSource } from "./project-config-source/file-system-project-config-source.ts";
+export { PROJECT_CONFIG_NAMES } from "./project-config-source/project-config-names.ts";
 export { FileSystemProjectBoundedLogs } from "./project-bounded-logs/project-bounded-logs.ts";
 export { FileSystemProjectSetupFiles } from "./project-setup-files/project-setup-files.ts";
 // The package catalogue build's (ADR 2026-029); each loads its libraries from the package it catalogues.

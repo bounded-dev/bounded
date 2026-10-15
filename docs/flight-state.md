@@ -81,7 +81,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
   saves the status of every rule to `.bounded/prereqs/status.json` after
   each call and each agent run's finish, read through the same evaluation
   as its gate ([ADR 2026-026](adr/2026-026-prereqs-status-snapshot.md)).
-  Nothing reads the file yet: the status band is item B.
+  The prereqs status band reads it ([ADR 2026-027](adr/2026-027-prereqs-status-band.md),
+  3.3.0): a Claude Code plugin shipped in dist at
+  `dist/hosts/claude-code/prereqs-status-band/`, loaded with
+  `claude --plugin-dir` (bounded does not install it), that draws each
+  requirement's status and the next blocked action above the prompt, from a
+  reading newer than the last finish it saw, and otherwise says there is no
+  reading yet, that it is updating, or why the status is unavailable. Its
+  own check, `bun run check:prereqs-status-band`, needs Claude Code and is
+  outside `bun run check`.
 - **The standard pack structure** (issue #68, step 1;
   [writing a pack](writing-a-pack.md); ADR 2026-013's R7 and ADR 2026-009,
   amended by `pack-structure`): every shipped pack has a README with the
@@ -179,6 +187,28 @@ when written; keep it current (AGENTS.md, "Working with the user").
   call behind. It sits in `.bounded/`, which drift never watches, so a shell
   write the protected-paths pack does not see can forge it; it decides
   nothing.
+
+- **The prereqs status band (ADR 2026-027)** is checked by Claude Code's
+  plugin test kit, which cannot reach: the real file read through `$.fs`;
+  loading from `node_modules`, where Claude Code writes its declarations
+  into the installed package (a read-only or content-addressed store may
+  refuse it); the band's clock and bounded's hook's agreeing; the classic
+  hook chain's order (were bounded's hook not beneath the band, it would
+  show "updating" until a redraw finds the file); timer liveness (its
+  redraws stop with a reload until the next finish or session start, still
+  drawing no mark); and whether an in-process `/resume` keeps its one value
+  (`claude -p --resume` does not). It cannot see a call interrupted with
+  Esc, a call bounded denied, a SubagentStop with an empty `agent_type`, a
+  classic event a plugin above it answers without `next`, or a change made
+  outside Claude Code: it keeps showing the last reading, with its time.
+  After `/cd` the session's root and the file's differ and it says
+  unavailable; under the user-wide `CLAUDE_CODE_PLUGIN_DIRS` load a project
+  with a configuration but without the pack shows unavailable. Its parser
+  checks shape, not content, and the file decides nothing. Where an
+  organization manages Claude Code, the classic events pass over plugins a
+  person installs, so the band sees no finish and says there is no reading
+  yet. Its own check needs the declarations an interactive
+  `claude --plugin-dir` load lays, written by the installed build.
 
 - **Bounded discourages agents and keeps a record; it is not a security
   boundary.** An agent running as the same user can always get round it.
@@ -569,10 +599,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded packs show`, `bounded packs search`), `bounded guide`,
   `bounded pack init` and the website are later steps.
 - A file-backed pack catalog (only the in-memory catalog exists).
-- The prerequisites pack's next items (ADR 2026-019, "Future work"):
-  `require: { execute }`, and the Claude Code status band that shows
-  the status snapshot (item B, `prereqs-status-band`, ADR 2026-027; the
-  snapshot it reads exists, ADR 2026-026).
+- The prerequisites pack's next item (ADR 2026-019, "Future work"):
+  `require: { execute }`. Installing the prereqs status band with
+  `bounded init`, once project-level plugin loading is verified
+  (ADR 2026-027).
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the Bounded log ([Bounded log](bounded-log.md),

@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "biome lint .",
     "test": "bun test",
-    "check": "bun run typecheck && bun run lint && bun run test"
+    "check": "bun run typecheck && bun run lint && bun run test",
+    "check:prereqs-status-band": "bun scripts/check-prereqs-status-band.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

@@ -4,8 +4,8 @@ import type { ProjectConfigSource } from "bounded/application";
 import { Config, type Result } from "bounded/domain";
 import { loadConfigAsModule } from "./config-as-module.ts";
 import { loadFailure } from "./load-failure.ts";
+import { PROJECT_CONFIG_NAMES } from "./project-config-names.ts";
 
-const NAMES = ["bounded.config.ts", "bounded.config.js", "bounded.config.mjs"];
 const FORM = "export default defineConfig({ packs: [...] })";
 
 function described(value: unknown): string {
@@ -22,7 +22,7 @@ function described(value: unknown): string {
  */
 export class FileSystemProjectConfigSource implements ProjectConfigSource {
   async load(projectRoot: string): Promise<Result<Config>> {
-    const found = NAMES.filter((name) => existsSync(join(projectRoot, name)));
+    const found = PROJECT_CONFIG_NAMES.filter((name) => existsSync(join(projectRoot, name)));
     const [name] = found;
     if (name === undefined) return { ok: false, error: `No configuration in ${projectRoot}: create bounded.config.ts (or bounded.config.js, bounded.config.mjs) there with ${FORM}` };
     if (found.length > 1) return { ok: false, error: `More than one configuration in ${projectRoot} (${found.join(", ")}): keep one` };

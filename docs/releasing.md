@@ -15,7 +15,9 @@ an outward action (AGENTS.md).
 
 1. **Bump every version in lockstep.** `src`, `src/cli`,
    `src/hosts/claude-code`, `src/hosts/pi` and `src/lib/shell-command-reader` carry
-   the same version. The CLI reports
+   the same version, and so does the prereqs status band's
+   `src/hosts/claude-code/prereqs-status-band/.claude-plugin/plugin.json`
+   (ADR 2026-027). The CLI reports
    its version from the package it runs in, and `bounded init` installs
    exactly that version. `src/test/packaging.test.ts` pins the version, so update its
    `VERSION` too. No `bun install` (plain, `--force` or `--lockfile-only`,
@@ -31,7 +33,8 @@ an outward action (AGENTS.md).
    `dist/` afresh, then the package catalogue, `bounded.catalog.json`
    ([ADR 2026-029](adr/2026-029-package-catalogue.md)), with Node. Check the file list:
    - `dist/` (the library, its declarations in `dist/types/`, `dist/cli.js`
-     and `dist/hosts/`);
+     and `dist/hosts/`, with the prereqs status band's plugin folder in
+     `dist/hosts/claude-code/prereqs-status-band/`);
    - `core/` and `packs/`, the core's and the shipped packs' sources, without tests, test support (but
      the two conformance suites under `bounded/testing/*`) or fixtures;
    - `bounded.catalog.json`, generated (it is gitignored);

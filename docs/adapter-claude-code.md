@@ -24,6 +24,11 @@ Every file below is in `src/hosts/claude-code/`.
    the host, and the bootstrap Claude Code runs.
 6. `install.ts` — merging the hook into `.claude/settings.json`.
 7. `test/main.e2e.test.ts` — the hook run as Claude Code runs it.
+8. `prereqs-status-band/` — the prereqs status band, a Claude Code plugin of
+   its own (below): `hooks/prereqs-status-file.ts` (reading the status
+   file), `hooks/prereqs-status-band-lines.ts` (what it draws, pure),
+   `hooks/register.ts` (its hooks), `hooks/engine-subset.ts` (the part of
+   the plugin API it uses), then `tests/`.
 
 ## The tool map
 
@@ -274,3 +279,68 @@ rather than left beside the new one. An existing entry counts as already install
 event's installed form as a `command` hook for every tool (matcher `""`,
 `"*"` or none). It refuses settings with `disableAllHooks: true`, where no hook
 would run.
+
+## The prereqs status band
+
+A Claude Code plugin in `prereqs-status-band/`, shipped in `bounded`'s dist
+and not installed (ADR 2026-027). It draws `bounded/prereqs`'s status above
+the prompt, from `.bounded/prereqs/status.json`, which bounded's hook writes
+after every finished tool call and agent run (ADR 2026-026):
+
+```
+prereqs status as of 14:02:11 UTC
+✓ plan-reviewer  over .agent-state/*/plan.md as they are now
+✗ spec-reviewer  stale: spec.md changed since
+· infra-reviewer  not yet run
+→ next: delegating to builder needs plan-reviewer ✓   delegating to test-writer needs spec-reviewer ✗
+```
+
+✓ is a requirement that holds, ◷ one whose run is still going, ✗ a stale
+one and · one not yet met, or whose patterns match no file yet. The next
+line lists the rules in order up to the first that is blocked, so it reads
+as the current step.
+
+**Loading it.** From the project's root:
+
+```sh
+claude --plugin-dir node_modules/bounded/dist/hosts/claude-code/prereqs-status-band
+```
+
+or name that folder's absolute path in `CLAUDE_CODE_PLUGIN_DIRS` (the
+process environment or `~/.claude/settings.json`'s `env`, never a
+project's settings), which loads it in every session: a project with no
+bounded configuration shows nothing, and one with a configuration but
+without `bounded/prereqs` says the status is unavailable. Claude Code writes
+its plugin declarations (`.claude-plugin/types/`, `tsconfig.json`) into the
+folder it loads.
+
+**Never a stale status.** The band keeps one value, when it last saw a
+finished tool call or agent run (a SubagentStop with an empty `agent_type`
+is none). A reading begun at or after it is drawn; before any finish it
+says there is no reading yet this session; a reading begun before it is
+"updating" for up to 30 s (bounded's hook writes within its 20-second
+deadline), then unavailable. Only a fresh reading draws a mark.
+
+**Unavailable** says why: no bounded configuration (nothing drawn); no
+status file (is `bounded/prereqs` selected, and bounded's hook installed?);
+a file it cannot read; one that is not JSON, of another format (load the
+band that ships with the project's bounded) or malformed; one for another
+project (after `/cd`, say); a reading bounded could not make, with its
+reason; or the band itself failing to draw. Every hook passes Claude Code's
+events through unchanged, whatever fails.
+
+**Its limits** (ADR 2026-027): the status is as of the last finish the band
+saw, so a call interrupted with Esc, a call bounded denied, or a change made
+outside Claude Code leaves the last reading shown, with its time; its
+redraws stop with a reload until the next finish or session start, showing
+"updating" meanwhile; its clock and the hook's must agree; and loading it
+from `node_modules` relies on Claude Code being able to write into that
+folder. Where an organization manages Claude Code, the classic events pass
+over plugins a person installs, so the band sees no finish and keeps saying
+there is no reading yet.
+
+**Checking it.** `bun run check:prereqs-status-band` runs `claude plugin
+validate`, `claude plugin test` and `tsc` against Claude Code's own
+declarations, on a copy of the folder; load the band once with
+`claude --plugin-dir src/hosts/claude-code/prereqs-status-band` first, so
+the declarations are laid.

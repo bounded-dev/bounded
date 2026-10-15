@@ -18,6 +18,8 @@ pi-subagents' async completion and its synchronous results say when a run
 finished, so a requirement can be met on pi; a resume is a delegation to the
 agent bounded tied to its run, or refused; and the redirect for a delegation
 whose finish goes unreported is reworded host-neutrally.
+Amended by [ADR 2026-027](2026-027-prereqs-status-band.md) (3.3.0): the
+status widget in Future work is the prereqs status band.
 
 ## Decision
 
@@ -427,7 +429,9 @@ pi-subagents' project agent directory), which give role identity.
   port only Claude Code provides, the pack saves a status snapshot after
   every call and every finish, read through the same evaluation the gate
   uses (`readRuleStatuses`), to `.bounded/prereqs/status.json`. The band
-  that shows it is item B (ADR 2026-027).
+  that shows it is done in
+  [ADR 2026-027](2026-027-prereqs-status-band.md) (3.3.0): a Claude Code
+  plugin shipped in dist and loaded with `claude --plugin-dir`.
 
 ## Consequences
 

@@ -1,0 +1,8 @@
+{
+  "name": "bounded-prereqs-status-band",
+  "version": "3.3.0",
+  "description": "Bounded's prereqs status band: bounded/prereqs's status above the prompt, from the status file bounded's Claude Code hook writes after each finished tool call and agent run",
+  "author": { "name": "Bounded" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

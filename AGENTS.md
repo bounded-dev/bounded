@@ -27,6 +27,7 @@ Bun is the runtime, package manager and test runner.
 | `bun run typecheck` | `tsc` over every workspace, strict |
 | `bun run lint` | Biome's linter |
 | `bun run test` | `bun test`: unit, law, conformance, architecture, compile-time, packaging and end-to-end tests. A preload (`test-preload.ts`) first builds `bounded`'s `dist/` (`src/build-dist.ts`), the JavaScript for Node its export paths and bin point at. The end-to-end test (`src/cli/test/bounded-cli.e2e.test.ts`) packs `bounded`, runs `npx` on the tarball and installs it with bun and with npm, one run with no bun on `PATH` (fetching libraries unless npm's and bun's caches have them, so it may need the network); expect `bun run check` to take up to about 3 minutes |
+| `bun run check:prereqs-status-band` | The prereqs status band's own check (ADR 2026-027): `claude plugin validate`, `claude plugin test` and `tsc` against the declarations Claude Code lays, on a copy of `src/hosts/claude-code/prereqs-status-band`. Needs `claude` on `PATH`, and the band loaded once with `claude --plugin-dir src/hosts/claude-code/prereqs-status-band` so its declarations are laid; not part of `check`. Run it when a change touches the band |
 
 `bun run check` must be green before any commit that is not a red commit.
 The workspace uses bun's hoisted linker (`bunfig.toml`, ADR 2026-016).
@@ -80,6 +81,8 @@ src/                    bounded             the published package: package.json,
                                             published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
   hosts/
     claude-code/        bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
+      prereqs-status-band/                  the prereqs status band: a Claude Code plugin folder shipped in bounded's dist, not
+                                            installed (ADR 2026-027); its plugin tests run under bun run check:prereqs-status-band
     pi/                 bounded-pi          the pi host adapter (docs/adapter-pi.md)
   cli/                  bounded-cli         the `bounded` command: init and update
                                             (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
@@ -88,6 +91,7 @@ src/                    bounded             the published package: package.json,
                                             with its fixtures in fixtures/compile-time/) and packaging.test.ts
 docs/adr/                                   decisions, including every deviation from the layout below
 scripts/workflow/                           the lifecycle's two scripts
+scripts/check-prereqs-status-band.ts        the prereqs status band's own check (bun run check:prereqs-status-band)
 ```
 
 The workspaces are `src` (bounded), `src/lib/*`, `src/hosts/*` and
@@ -156,6 +160,15 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   imports its own files by relative path (never its `test/`), a context only through its export
   paths and only when its `package.json` declares it, and never another app.
   An app's tests may import its devDependencies; its other files may not.
+- **The prereqs status band imports only its own files** (ADR 2026-027): it
+  ships alone in dist and Claude Code loads it with no Node. Every file under
+  `src/hosts/claude-code/prereqs-status-band/` imports only band files by
+  relative path, no package but `claude-code/testing` in its plugin tests
+  (`tests/*.test.ts`) and a type of `claude-code` in
+  `tests/register.typecheck.ts`, and holds no `import()` call; its `hooks/`
+  use no `Bun.`, `process.`, `require(`, timers, `Date.now()` or
+  `new Date()` (time only through `$.clock`); its one declaration file is
+  its state contract, `types/index.d.ts`, which imports and exports nothing.
 - **Value objects are classes, as in the worked example (ADR 2026-012).**
   The contract declares a branded interface (`readonly __brand`, the value,
   `equals`, `toJSON`) and a factory (`parse(raw: unknown): Result<X>`); the

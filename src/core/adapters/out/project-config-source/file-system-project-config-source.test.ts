@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { Config } from "bounded/domain";
 import { projectConfigSourceConformance } from "../../../application/project-config/open-project/open-project.project-config-source.test-support.ts";
 import { FileSystemProjectConfigSource } from "./file-system-project-config-source.ts";
+import { PROJECT_CONFIG_NAMES } from "./project-config-names.ts";
 
 const CORE = resolve(import.meta.dir, "../../../..");
 const VALID = `import { corePack, defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [corePack] });\n`;
@@ -39,6 +40,17 @@ describe("FileSystemProjectConfigSource", () => {
       ok: false,
       error: `No configuration in ${root}: create bounded.config.ts (or bounded.config.js, bounded.config.mjs) there with export default defineConfig({ packs: [...] })`,
     });
+  });
+
+  test("loads a configuration under each name of PROJECT_CONFIG_NAMES, and names them all when none is there", async () => {
+    expect([...PROJECT_CONFIG_NAMES]).toEqual(["bounded.config.ts", "bounded.config.js", "bounded.config.mjs"]);
+    for (const name of PROJECT_CONFIG_NAMES) {
+      const loaded = await source.load(project({ [name]: VALID }));
+      expect([name, loaded.ok]).toEqual([name, true]);
+    }
+    const none = await source.load(project({}));
+    expect(none.ok).toBe(false);
+    for (const name of PROJECT_CONFIG_NAMES) expect(none.ok ? "" : none.error).toContain(name);
   });
 
   test("refuses a project with more than one configuration", async () => {
