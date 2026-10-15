@@ -154,9 +154,9 @@ describe("ExampleScenarios — an example's scenarios as data (ADR 2026-031)", (
     expect(refusal(oneScenario([readStep], { notes: "x" }))).toBe("Scenario 1 ('t') has no field 'notes': a scenario is { title, projectFiles?, steps }");
   });
 
-  test("refuses project files and changed files where the runner or Bounded owns them, whatever their case", () => {
-    const owned = "is where the runner or Bounded keeps its own files (the project's bounded.config.*, .bounded/, .git/, node_modules/): a scenario writes no file there";
-    for (const path of ["bounded.config.ts", "Bounded.Config.mjs", ".bounded/prereqs/records.jsonl", ".BOUNDED/x", ".bounded", ".git/config", ".Git/hooks/x", "node_modules/x/y", "Node_Modules/x"]) {
+  test("refuses project files and changed files where Bounded keeps its own, whatever their case; .git and node_modules are no concern of the domain's", () => {
+    const owned = "is where Bounded keeps its own files (the project's bounded.config.* at its root, .bounded/): a scenario writes no file there";
+    for (const path of ["bounded.config.ts", "Bounded.Config.mjs", ".bounded/prereqs/records.jsonl", ".BOUNDED/x", ".bounded"]) {
       expect({ path, error: refusal(oneScenario([readStep], { projectFiles: { [path]: "x" } })) }).toEqual({ path, error: `Scenario 1 ('t')'s project file '${path}' ${owned}` });
       expect({ path, error: refusal(oneScenario([readStep, { changeFiles: { [path]: null } }])) }).toEqual({ path, error: `Scenario 1 ('t'), step 2: changed file '${path}' ${owned}` });
     }
@@ -165,7 +165,9 @@ describe("ExampleScenarios — an example's scenarios as data (ADR 2026-031)", (
       expect({ path, error }).toEqual({ path, error: `Scenario 1 ('t')'s project file '${path}': ${errorOf(ProjectPath.parse(path))}` });
       expect({ path, error: refusal(oneScenario([readStep, { changeFiles: { [path]: "x" } }])) }).toEqual({ path, error: `Scenario 1 ('t'), step 2: changed file '${path}': ${errorOf(ProjectPath.parse(path))}` });
     }
-    for (const path of ["src/bounded.config.ts", "docs/.git-notes"]) {
+    // A git-hooks pack ships a scenario whose project holds a hook; the runner, not the domain, keeps node_modules/ for itself.
+    expect(refusal(oneScenario([readStep], { projectFiles: { ".git/hooks/pre-commit": "#!/bin/sh\n" } }))).toBe("accepted");
+    for (const path of ["src/bounded.config.ts", "docs/.git-notes", ".git/config", ".Git/hooks/x", "node_modules/x/y", "Node_Modules/x"]) {
       expect({ path, error: refusal(oneScenario([readStep], { projectFiles: { [path]: "x" } })) }).toEqual({ path, error: "accepted" });
       expect({ path, error: refusal(oneScenario([readStep, { changeFiles: { [path]: null } }])) }).toEqual({ path, error: "accepted" });
     }
@@ -174,6 +176,13 @@ describe("ExampleScenarios — an example's scenarios as data (ADR 2026-031)", (
     expect(refusal(oneScenario([readStep, { changeFiles: { "a.txt": 1 } }]))).toBe("Scenario 1 ('t'), step 2: changed file 'a.txt' is its new text, or null to delete it");
     expect(refusal(oneScenario([readStep, { changeFiles: {} }]))).toBe("Scenario 1 ('t'), step 2: a change of files names at least one file");
     expect(refusal(oneScenario([readStep, { changeFiles: "a.txt" }]))).toBe("Scenario 1 ('t'), step 2: a change of files maps project paths to their new text, or null to delete them");
+  });
+
+  test("refuses the project's root as a file, and a file named twice, naming it", () => {
+    expect(refusal(oneScenario([readStep], { projectFiles: { ".": "x" } }))).toBe("Scenario 1 ('t')'s project file '.' is the project's root, not a file");
+    expect(refusal(oneScenario([readStep, { changeFiles: { "./": null } }]))).toBe("Scenario 1 ('t'), step 2: changed file './' is the project's root, not a file");
+    expect(refusal(oneScenario([readStep], { projectFiles: { "a.txt": "a", "./a.txt": "b" } }))).toBe("Scenario 1 ('t')'s project file './a.txt' is named twice, as 'a.txt'");
+    expect(refusal(oneScenario([readStep, { changeFiles: { "src/a.ts": null, "src//a.ts": "b" } }]))).toBe("Scenario 1 ('t'), step 2: changed file 'src//a.ts' is named twice, as 'src/a.ts'");
   });
 
   test("refuses a blank or multi-line title", () => {

@@ -212,6 +212,42 @@ describe("runExampleScenarios", () => {
     ]);
   });
 
+  test("a scenario that writes under node_modules/, where the runner installs the packages, ends with that problem, and runs none of its steps", async () => {
+    const spy = portsSpy();
+    const report = await runExampleScenarios({
+      examplePath: EXAMPLE,
+      scenarios: {
+        scenarios: [
+          { title: "Writes a package", projectFiles: { "node_modules/x/index.js": "x" }, steps: [readStep] },
+          { title: "Deletes a package", steps: [readStep, { changeFiles: { "Node_Modules/bounded/package.json": null } }] },
+          { title: "Only reads", steps: [readStep] },
+        ],
+      },
+      linkedPackages: { "refusing-package": REFUSING_PACKAGE },
+      stateHome: temporaryDirectory(),
+      ports: spy.ports,
+    });
+    expect(report.problem).toBeNull();
+    expect(report.scenarios).toEqual([
+      { title: "Writes a package", problem: "this scenario writes 'node_modules/x/index.js', under node_modules/, where the runner installs bounded and the linked packages: write no file there", steps: [] },
+      { title: "Deletes a package", problem: "this scenario writes 'Node_Modules/bounded/package.json', under node_modules/, where the runner installs bounded and the linked packages: write no file there", steps: [] },
+      { title: "Only reads", problem: null, steps: [{ number: 1, expected: { verdict: { kind: "allow" } }, actual: { verdict: { kind: "allow" } } }] },
+    ]);
+    expect(spy.stateHomes.length).toBe(1);
+  });
+
+  test("refuses a linkedPackages directory that does not exist, and an example that cannot be read, opening no project", async () => {
+    const spy = portsSpy();
+    const missing = join(temporaryDirectory(), "no-such-package");
+    const unlinked = await runExampleScenarios({ examplePath: EXAMPLE, scenarios: await fixtureScenarios(), linkedPackages: { "refusing-package": missing }, ports: spy.ports, shellCommandReading: recordingReader() });
+    expect(unlinked).toEqual({ examplePath: EXAMPLE, problem: `linkedPackages links refusing-package to ${missing}, which does not exist`, scenarios: [] });
+    const absent = join(temporaryDirectory(), "absent.config.ts");
+    const unread = await runExampleScenarios({ examplePath: absent, scenarios: await fixtureScenarios(), linkedPackages: { "refusing-package": REFUSING_PACKAGE }, ports: spy.ports, shellCommandReading: recordingReader() });
+    expect(unread.scenarios).toEqual([]);
+    expect(unread.problem).toStartWith(`the example ${absent} cannot be read: `);
+    expect(spy.stateHomes).toEqual([]);
+  });
+
   test("scenarios that do not parse are reported with the parser's error, and no project is opened", async () => {
     const unparseable = { scenarios: [{ title: "No verdict", steps: [{ toolUse: readStep.toolUse }] }] };
     const parsed = ExampleScenarios.parse(unparseable);
