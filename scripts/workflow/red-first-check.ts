@@ -48,15 +48,20 @@
 // same id in its own file, followed through renames by git's rename
 // detection; a case moved to an unrelated file is not detected.
 //
-// Example scenarios. A scenarios file the red commit adds or changes may
-// afterwards be changed only by test-only commits (merges as for the record:
-// a merge whose version equals one parent's passes, any other counts by the
-// paths it changed itself). So no build commit changes the expectations, and
-// a file no commit touched is byte-identical at the head. The check never
-// reads a scenarios file: a test-only commit may still change or delete one,
-// so each one changed since the red commit is printed as a note and the
-// reviewer reads its diff. A rename is not followed: a commit moving the file
-// touches it, and fails unless it is test-only.
+// Example scenarios. Scenarios are tests, so they never ride in a build
+// commit: every example scenarios file any commit after the red commit adds,
+// changes or deletes, whether or not the red commit touched it, may be changed
+// only by test-only commits. A rename counts as both its paths, so a
+// test-only move takes no file out of the guard. A merge is judged only when
+// its version of the file differs from every parent's (git log's history
+// simplification leaves out the others), by the paths it changed itself. So
+// no build commit adds, changes or deletes expectations, and a red scenarios
+// file no commit touched is byte-identical at the head. The check never reads
+// a scenarios file: a test-only commit may still change or delete one, so each
+// one changed since the red commit is printed as a note and the reviewer
+// reads its diff. A build commit's change to a scenarios file that a merge
+// then discarded (taking the other side's version) is not reported: it is
+// not in the head.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
@@ -711,21 +716,25 @@ function run(args: readonly string[], print: (line: string) => void): number {
     if (!isTestOnlyCommit(commit, parents)) failures.push(`supersessions: ${SUPERSESSIONS} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
   }
 
-  // A shipped pack's example scenarios the red commit adds or changes may
-  // change afterwards only in test-only commits, so a build can never quietly
-  // change the expectations it should meet. The check does not read them: each
-  // one changed since the red commit is a note, and the reviewer reads its diff.
-  const redScenarios = changes.filter((c) => c.status !== "D" && EXAMPLE_SCENARIOS.test(c.path)).map((c) => c.path);
-  for (const path of redScenarios) {
+  // Scenarios are tests, so they never ride in a build commit: every shipped
+  // pack's example scenarios file any commit after the red commit adds,
+  // changes or deletes (each path of a rename, so a test-only move takes no
+  // file out of the guard) may be changed only by test-only commits. A merge
+  // is listed only when its version of the file differs from every parent's,
+  // as git log simplifies history, and then counts by the paths it changed
+  // itself. The check does not read them: each one changed since the red
+  // commit is a note, and the reviewer reads its diff.
+  const scenariosChangedSinceRed = [
+    ...new Set(
+      git(repo, "log", "--format=", "--name-only", "--no-renames", "-m", `${red}..${head}`)
+        .split("\n")
+        .filter((l) => EXAMPLE_SCENARIOS.test(l)),
+    ),
+  ].sort();
+  for (const path of scenariosChangedSinceRed) {
     const touching = commitsTouching(path);
     for (const commit of touching) {
-      const parents = parentsOf(commit);
-      // A merge whose version equals one parent's changes nothing itself.
-      if (parents.length > 1) {
-        const merged = show(repo, commit, path);
-        if (parents.some((parent) => show(repo, parent, path) === merged)) continue;
-      }
-      if (!isTestOnlyCommit(commit, parents)) failures.push(`scenarios: ${path} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
+      if (!isTestOnlyCommit(commit, parentsOf(commit))) failures.push(`scenarios: ${path} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
     }
     if (touching.length > 0) notes.push(`scenarios: ${path} changed since the red commit: read its diff`);
   }

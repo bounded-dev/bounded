@@ -130,19 +130,19 @@ tree.
   neither parent had passes, whatever else it resolves (dropping a record
   only makes the check stricter); any other merge counts by the paths it changed itself, those
   differing from every parent.
-- **Scenarios:** a shipped pack's example scenarios file the red commit adds
-  or changes may afterwards be changed only by test-only commits, merges
-  judged as for the supersession record (a merge whose version of the file
-  equals one parent's passes; any other counts by the paths it changed
-  itself). A file no later commit touched is byte-identical at the head. The
-  check never reads a scenarios file, and a test-only commit can still
-  change one, weakening its expectations, or delete it: the check would pass.
-  So each red scenarios file changed since the red commit is printed as a
-  note (`scenarios: <path> changed since the red commit: read its diff`),
-  and that note is where any weakening shows: the final reviewer must read
-  that file's diff from the red commit to the head. Renames are not
-  followed: a commit that moves the file touches it, and fails unless it is
-  test-only.
+- **Scenarios:** scenarios are tests, so they never ride in a build commit.
+  Every shipped pack's example scenarios file that any commit after the red
+  commit adds, changes or deletes, whether or not the red commit touched it,
+  may be changed only by test-only commits. A rename counts as both its
+  paths, so a test-only move takes no file out of the guard. A merge is
+  judged only when its version of the file differs from every parent's, by
+  the paths it changed itself. A red scenarios file no later commit touched
+  is byte-identical at the head. The check never reads a scenarios file, and
+  a test-only commit can still change one, weakening its expectations, or
+  delete it: the check would pass. So each scenarios file changed since the
+  red commit is printed as a note (`scenarios: <path> changed since the red
+  commit: read its diff`), and that note is where any weakening shows: the
+  final reviewer must read that file's diff from the red commit to the head.
 
 **What a supersession record cannot prove.** A record says a case was
 replaced; the check confirms the successor exists, is a single named case,

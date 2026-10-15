@@ -43,8 +43,8 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 - **Red first, never weakened.** Commit the failing tests alone before
   implementing: test files, `*.test-support.ts` conformance suites,
   fixtures and shipped packs' example scenarios
-  (`src/packs/<name>/examples/<slug>.scenarios.ts`, which afterwards only
-  test-only commits may change) only. Before review, run
+  (`src/packs/<name>/examples/<slug>.scenarios.ts`, which only test-only
+  commits may ever add, change or delete) only. Before review, run
   `bun scripts/workflow/red-first-check.ts <red-commit> [<branch>]`: it proves
   the red commit touched only tests, that its tests failed at that commit,
   and that none was later deleted, skipped, emptied or stripped of assertions,
