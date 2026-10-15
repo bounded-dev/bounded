@@ -1,4 +1,4 @@
-import { type BasePack, type CataloguedExampleJSON, type CataloguedPackJSON, type ListedPack, PackageCatalog, PackageManifest, PackDescription, PackReadme, parsePack, type Result } from "bounded/domain";
+import { type BasePack, type CataloguedExampleJSON, type CataloguedPackJSON, ExampleScenarios, type ListedPack, PackageCatalog, PackageManifest, PackDescription, PackReadme, parsePack, type Result } from "bounded/domain";
 import type { BuildPackageCatalog, BuildPackageCatalogCommand, BuiltPackageCatalog, MarkdownSections, PackageCatalogFiles, PackModules, PackSourceApi, PackSourceApiReading } from "./build-package-catalog.contract.ts";
 
 /** A pack an export path exports, with the name it is exported under. */
@@ -75,11 +75,21 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
     const examplePaths = await this.files.listExamples(packageDir, packDir);
     if (!examplePaths.ok) return examplePaths;
     if (examplePaths.value.length === 0) return refused(`${id} has no example: add ${packDir}/examples/<slug>.config.ts, a complete bounded.config.ts the package's tests open as a project's configuration`);
+    // Each example has its scenarios beside it, and each scenarios file its example (ADR 2026-031).
+    const scenariosPaths = await this.files.listExampleScenarios(packageDir, packDir);
+    if (!scenariosPaths.ok) return scenariosPaths;
+    const orphan = scenariosPaths.value.find((path) => !examplePaths.value.includes(exampleOf(path)));
+    if (orphan !== undefined) return refused(`${id}: ${orphan} has no example beside it: scenarios sit beside their example, ${exampleOf(orphan)}`);
+    const unscenarioed = examplePaths.value.find((path) => !scenariosPaths.value.includes(scenariosOf(path)));
+    if (unscenarioed !== undefined) {
+      return refused(`${id}: ${unscenarioed} has no scenarios: add ${scenariosOf(unscenarioed)}, \`export default defineExampleScenarios({ scenarios: [...] })\` from bounded/domain, whose steps the package's tests run`);
+    }
     const api = await this.sourceApi.read({ packageDir, packDir, exportName: exported.exportName, examplePaths: examplePaths.value });
     if (!api.ok) return refused(`${id}: ${api.error}`);
     const disagreement = this.disagreement(id, packDir, description, api.value);
     if (disagreement !== undefined) return refused(disagreement);
-    const readme = await this.readmeOf(packageDir, packDir, description);
+    const exampleFileNames = [...examplePaths.value, ...scenariosPaths.value].map(fileNameOf).sort();
+    const readme = await this.readmeOf(packageDir, packDir, description, exampleFileNames);
     if (!readme.ok) return readme;
     const examples: CataloguedExampleJSON[] = [];
     for (const path of examplePaths.value) {
@@ -133,8 +143,8 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
     return undefined;
   }
 
-  /** The pack's README, read by the Markdown reader and checked by the README rules. */
-  private async readmeOf(packageDir: string, packDir: string, description: PackDescription): Promise<Result<PackReadme>> {
+  /** The pack's README, read by the Markdown reader and checked by the README rules, its Examples section against the file names in its examples/. */
+  private async readmeOf(packageDir: string, packDir: string, description: PackDescription, exampleFileNames: readonly string[]): Promise<Result<PackReadme>> {
     const path = `${packDir}/README.md`;
     const text = await this.files.readText(packageDir, path);
     if (!text.ok) return refused(`${description.id}: ${text.error}`);
@@ -152,17 +162,36 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
       pointKeys: description.points.map(({ key }) => key),
       // Ports names every port key, required and optional.
       portKeys: [...description.ports, ...description.optionalPorts].map(({ key }) => key),
+      exampleFileNames,
     });
   }
 
-  /** An example, embedded verbatim, titled by the first line of the TSDoc on its default export. */
+  /**
+   * An example, embedded verbatim, titled by the first line of the TSDoc on
+   * its default export, with at most one paragraph of purpose after it, and
+   * its scenarios, loaded from `<slug>.scenarios.ts` and stored in their
+   * normal form (ADR 2026-031).
+   */
   private async exampleAt(packageDir: string, id: string, path: string, api: PackSourceApiReading): Promise<Result<CataloguedExampleJSON>> {
     const source = await this.files.readText(packageDir, path);
     if (!source.ok) return refused(`${id}: ${source.error}`);
     if (source.value === null) return refused(`${id}: ${path} could not be read: it was listed as an example, then disappeared`);
     const documentation = api.examples.find((example) => example.path === path)?.documentation ?? "";
     const [title = "", ...rest] = documentation.split("\n");
-    if (title.trim() === "") return refused(`${id}: ${path} has no TSDoc title on its default export: begin the TSDoc above \`export default\` with a one-line title, then a blank line and what the example does`);
-    return { ok: true, value: { path, title: title.trim(), description: rest.join("\n").trim(), source: source.value } };
+    if (title.trim() === "") return refused(`${id}: ${path} has no TSDoc title on its default export: begin the TSDoc above \`export default\` with a one-line title, then a blank line and what the example is for`);
+    const purpose = rest.join("\n").trim();
+    if (purpose.split(/\n\s*\n/).length > 1) return refused(`${id}: ${path}'s TSDoc gives a title and one paragraph of purpose; put what it does in ${fileNameOf(scenariosOf(path))}`);
+    const loaded = await this.modules.loadDefaultExport(packageDir, scenariosOf(path));
+    if (!loaded.ok) return refused(`${id}: ${loaded.error}`);
+    const scenarios = ExampleScenarios.parse(loaded.value);
+    if (!scenarios.ok) return refused(`${id}: ${scenariosOf(path)}: ${scenarios.error}`);
+    return { ok: true, value: { path, title: title.trim(), description: purpose, source: source.value, scenarios: scenarios.value.scenarios.map((scenario) => ({ ...scenario })) } };
   }
 }
+
+/** An example's scenarios' path, beside it: `<slug>.scenarios.ts` for `<slug>.config.ts`. */
+const scenariosOf = (examplePath: string): string => examplePath.replace(/\.config\.ts$/, ".scenarios.ts");
+/** A scenarios file's example's path, beside it. */
+const exampleOf = (scenariosPath: string): string => scenariosPath.replace(/\.scenarios\.ts$/, ".config.ts");
+/** A package-relative path's file name. */
+const fileNameOf = (path: string): string => path.split("/").at(-1) ?? path;

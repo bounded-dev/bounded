@@ -150,14 +150,11 @@ class ExecuteEffectImpl implements Contract.ExecuteEffect {
   }
 
   static parse(raw: object): Result<Contract.ExecuteEffect> {
-    const command = Command.parse(own(raw, "command"));
-    if (!command.ok) return command;
-    const rawCwd = own(raw, "cwd") ?? null;
-    const cwd = rawCwd === null ? { ok: true as const, value: null } : ProjectPath.parse(rawCwd);
-    if (!cwd.ok) return cwd;
+    const toRead = commandToReadOf(own(raw, "command"), own(raw, "cwd"));
+    if (!toRead.ok) return toRead;
     // Required (Effect.parse checks it is there): the reading the host adapter built, checked for its shape.
     const reading = ShellCommandReading.parse(own(raw, "reading"));
-    return reading.ok ? { ok: true, value: new ExecuteEffectImpl(command.value, cwd.value, reading.value) } : reading;
+    return reading.ok ? { ok: true, value: new ExecuteEffectImpl(toRead.value.command, toRead.value.cwd, reading.value) } : reading;
   }
 
   equals(other: Contract.Effect): boolean {
@@ -297,6 +294,26 @@ function check(raw: unknown): Result<Contract.Effect> {
   return CLASSES[kind].parse(raw);
 }
 
+/**
+ * An execute effect's own command and cwd, checked with its own messages:
+ * what ExecuteEffect's parse reads before the reading, and what an example's
+ * scenarios give for a shell command still to be read (ADR 2026-031). A cwd
+ * left out or null is the project root.
+ */
+export function commandToReadOf(rawCommand: unknown, rawCwd: unknown): Result<Contract.CommandToRead> {
+  const command = Command.parse(rawCommand);
+  if (!command.ok) return command;
+  const given = rawCwd ?? null;
+  const cwd = given === null ? { ok: true as const, value: null } : ProjectPath.parse(given);
+  if (!cwd.ok) return cwd;
+  return { ok: true, value: Object.freeze({ command: command.value, cwd: cwd.value }) };
+}
+
+/** How messages name an execute effect's command, run in `cwd` (null: the project root). */
+export function describeExecute(command: Command, cwd: ProjectPath | null): string {
+  return cwd === null ? `execute \`${command.value}\`` : `execute \`${command.value}\` in ${cwd.value}`;
+}
+
 /** How messages name an effect: its kind and what it touches. */
 export function describeEffect(effect: Contract.Effect): string {
   switch (effect.kind) {
@@ -307,7 +324,7 @@ export function describeEffect(effect: Contract.Effect): string {
     case "write":
       return `write (${effect.change}) ${effect.path.value}`;
     case "execute":
-      return effect.cwd === null ? `execute \`${effect.command.value}\`` : `execute \`${effect.command.value}\` in ${effect.cwd.value}`;
+      return describeExecute(effect.command, effect.cwd);
     case "fetch":
       return `fetch ${effect.url.value}`;
     case "delegate":

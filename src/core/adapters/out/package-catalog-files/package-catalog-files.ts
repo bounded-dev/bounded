@@ -5,6 +5,8 @@ import type { PackageCatalogFiles } from "bounded/application";
 import type { Result } from "bounded/domain";
 
 const EXAMPLE = /^[^/]+\.config\.ts$/;
+/** An example's scenarios, beside it (ADR 2026-031). */
+const EXAMPLE_SCENARIOS = /^[^/]+\.scenarios\.ts$/;
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const isMissing = (thrown: unknown): boolean => typeof thrown === "object" && thrown !== null && "code" in thrown && (thrown.code === "ENOENT" || thrown.code === "ENOTDIR");
 
@@ -42,12 +44,21 @@ export class FileSystemPackageCatalogFiles implements PackageCatalogFiles {
     }
   }
 
-  async listExamples(packageDir: string, packDir: string): Promise<Result<readonly string[]>> {
+  listExamples(packageDir: string, packDir: string): Promise<Result<readonly string[]>> {
+    return this.examplesFiles(packageDir, packDir, EXAMPLE);
+  }
+
+  listExampleScenarios(packageDir: string, packDir: string): Promise<Result<readonly string[]>> {
+    return this.examplesFiles(packageDir, packDir, EXAMPLE_SCENARIOS);
+  }
+
+  /** The files directly in a pack's examples/ whose names match `name`, by package-relative path, sorted; none when it has no examples/. */
+  private async examplesFiles(packageDir: string, packDir: string, name: RegExp): Promise<Result<readonly string[]>> {
     const dir = inside(packageDir, join(packDir, "examples"));
     if (dir === undefined) return { ok: false, error: `${packDir} is not a directory in the package at ${packageDir}` };
     try {
       const entries = await readdir(dir, { withFileTypes: true });
-      return { ok: true, value: entries.filter((entry) => entry.isFile() && EXAMPLE.test(entry.name)).map((entry) => `${packDir}/examples/${entry.name}`).sort() };
+      return { ok: true, value: entries.filter((entry) => entry.isFile() && name.test(entry.name)).map((entry) => `${packDir}/examples/${entry.name}`).sort() };
     } catch (thrown) {
       return isMissing(thrown) ? { ok: true, value: [] } : { ok: false, error: `${packDir}/examples cannot be read: ${message(thrown)}` };
     }

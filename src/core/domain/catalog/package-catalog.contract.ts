@@ -68,15 +68,30 @@ export interface CataloguedReadmeJSON {
   readonly otherSections: readonly CataloguedSectionJSON[];
 }
 
-/** An example: a complete project configuration the package's tests open, embedded verbatim. */
+/**
+ * One of an example's scenarios as the catalogue carries it (ADR 2026-031):
+ * the normal form the build wrote (an ExampleScenarioJSON, from
+ * `<slug>.scenarios.ts`, parsed there in full), checked here only for a
+ * non-empty list of steps and kept as given. A reader parses it with
+ * `ExampleScenarios.parse({ scenarios })` and shows it with its
+ * `markdown()`, the one rendering.
+ */
+export interface CataloguedScenarioJSON {
+  readonly steps: readonly unknown[];
+  readonly [field: string]: unknown;
+}
+
+/** An example: a complete project configuration the package's tests open, embedded verbatim, and its scenarios. */
 export interface CataloguedExampleJSON {
   /** Its package-relative path, `<pack directory>/examples/<slug>.config.ts`. */
   readonly path: string;
   /** The first line of the TSDoc on its default export. */
   readonly title: string;
-  /** The rest of that TSDoc; empty when there is none. */
+  /** The rest of that TSDoc, its purpose; empty when there is none. */
   readonly description: string;
   readonly source: string;
+  /** What the example does: its scenarios, at least one, from `<slug>.scenarios.ts` beside it. */
+  readonly scenarios: readonly CataloguedScenarioJSON[];
 }
 
 /** One pack an export path of the package exports. */
@@ -130,8 +145,9 @@ export interface PackageCatalogFactory {
    * A frozen catalogue, or why the value is not one: a catalogVersion other
    * than the number 1; a package without a name or version; a pack id given
    * twice, or not rooted at the package's name; a README without one of its
-   * required sections' text; a pack with no example. Fields it does not
-   * know are dropped. Never throws.
+   * required sections' text; a pack with no example; an example with no
+   * scenarios, or a scenario with no steps. Fields it does not know are
+   * dropped, but a scenario is kept as given. Never throws.
    */
   parse(raw: unknown): Result<PackageCatalog>;
 }

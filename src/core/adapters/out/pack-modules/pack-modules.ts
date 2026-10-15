@@ -3,9 +3,11 @@
 // Node's require picks (default, require or node) is refused before anything is resolved, so
 // the refusal is the same under every runtime. Otherwise the export path is resolved by
 // self-reference, `<package name>/<subpath>` from the package's own package.json, and imported.
+// A module by its package-relative path (an example's scenarios, ADR 2026-031) is imported as the
+// runtime imports it: Node strips its types, and refuses to under node_modules.
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ModuleExport, PackModules } from "bounded/application";
 import type { Result } from "bounded/domain";
@@ -69,5 +71,19 @@ export class NodePackModules implements PackModules {
     }
     if (!isRecord(module)) return { ok: false, error: `${specifier} is not a module` };
     return { ok: true, value: Object.keys(module).map((exportName) => Object.freeze({ name: exportName, value: module[exportName] })) };
+  }
+
+  async loadDefaultExport(packageDir: string, path: string): Promise<Result<unknown>> {
+    // Inside the package only: a package-relative path that is absolute or climbs out names no file of it.
+    const within = isAbsolute(path) ? undefined : relative(resolve(packageDir), resolve(packageDir, path));
+    if (within === undefined || within === "" || within.split(sep)[0] === ".." || isAbsolute(within)) return { ok: false, error: `${path} is not a file in the package at ${packageDir}` };
+    let module: unknown;
+    try {
+      module = await import(pathToFileURL(resolve(packageDir, path)).href);
+    } catch (thrown) {
+      return { ok: false, error: `${path} cannot be loaded (${message(thrown)})` };
+    }
+    if (!isRecord(module) || !Object.hasOwn(module, "default")) return { ok: false, error: `${path} has no default export: export its value with \`export default\`` };
+    return { ok: true, value: module.default };
   }
 }

@@ -48,6 +48,21 @@ export type { DescribedPoint, DescribedPort, PackDescriptionFactory } from "./ca
 export { PackDescription } from "./catalog/pack-description.ts";
 export type { PackReadmeFactory, PackReadmeInput, ReadmeSection, ReadmeText, RequiredReadmeField } from "./catalog/pack-readme.contract.ts";
 export { PackReadme } from "./catalog/pack-readme.ts";
+// An example's scenarios (ADR 2026-031).
+export type {
+  ChangeFilesStepJSON,
+  ExampleScenarioJSON,
+  ExampleScenarioStepJSON,
+  ExampleScenariosFactory,
+  ExampleScenariosJSON,
+  ScenarioEffectJSON,
+  ScenarioExecuteJSON,
+  ScenarioToolResultJSON,
+  ScenarioToolUseJSON,
+  ToolResultStepJSON,
+  ToolUseStepJSON,
+} from "./catalog/example-scenarios.contract.ts";
+export { defineExampleScenarios, ExampleScenarios } from "./catalog/example-scenarios.ts";
 export type { IsExact, PackIdFactory, Refused } from "./packs/pack-id.contract.ts";
 export { PackId, packIdsFor } from "./packs/pack-id.ts";
 
@@ -79,6 +94,7 @@ export { Url } from "./events/url.ts";
 export type { ToolKind, ToolUseFactory, ToolUseJSON } from "./events/tool-use.contract.ts";
 export type {
   Change,
+  CommandToRead,
   DelegateEffect,
   DelegateEffectJSON,
   EffectByKind,
@@ -99,7 +115,7 @@ export type {
   WriteEffect,
   WriteEffectJSON,
 } from "./events/effect.contract.ts";
-export { describeEffect, Effect } from "./events/effect.ts";
+export { describeEffect, describeExecute, Effect } from "./events/effect.ts";
 export type {
   ReadShellCommandReading,
   ReadShellCommandReadingJSON,

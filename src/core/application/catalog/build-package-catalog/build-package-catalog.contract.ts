@@ -32,8 +32,9 @@ export interface BuiltPackageCatalog {
  * package.json lists in `bounded.packs`, in id order, load the one pack its
  * export path exports, describe it from the pack object, read its typed API
  * from its contract and TSDoc, its prose from its README and its examples,
- * then write `bounded.catalog.json` where `bounded.catalog` says. The first
- * refusal stops it, and nothing is written.
+ * each with its scenarios (ADR 2026-031), then write `bounded.catalog.json`
+ * where `bounded.catalog` says. The first refusal stops it, and nothing is
+ * written.
  */
 export interface BuildPackageCatalog {
   execute(command: BuildPackageCatalogCommand): Promise<Result<BuiltPackageCatalog>>;
@@ -51,6 +52,8 @@ export interface PackageCatalogFiles {
   readText(packageDir: string, path: string): Promise<Result<string | null>>;
   /** A pack's examples: `<packDir>/examples/*.config.ts`, by package-relative path, sorted; none when it has no examples/. */
   listExamples(packageDir: string, packDir: string): Promise<Result<readonly string[]>>;
+  /** A pack's examples' scenarios: `<packDir>/examples/*.scenarios.ts`, by package-relative path, sorted; none when it has no examples/ (ADR 2026-031). */
+  listExampleScenarios(packageDir: string, packDir: string): Promise<Result<readonly string[]>>;
   /** Writes `text` to a file inside the package, giving its package-relative path; refuses a path that leaves the package. */
   write(packageDir: string, path: string, text: string): Promise<Result<string>>;
 }
@@ -73,6 +76,13 @@ export interface PackModules {
    * resolving it, so it refuses alike under every runtime.
    */
   load(packageDir: string, exportPath: string): Promise<Result<readonly ModuleExport[]>>;
+  /**
+   * The default export of the module at a package-relative path, loaded as
+   * the runtime loads it (an example's scenarios, `<slug>.scenarios.ts`, ADR
+   * 2026-031). Refuses a path outside the package, a module that cannot be
+   * loaded and one with no default export, naming the path.
+   */
+  loadDefaultExport(packageDir: string, path: string): Promise<Result<unknown>>;
 }
 
 /** What to read of a pack's sources: the package, the pack's source directory and its examples, all package-relative, and the name its export path exports the pack under. */
