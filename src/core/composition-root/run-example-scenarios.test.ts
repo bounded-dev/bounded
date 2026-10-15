@@ -7,12 +7,12 @@
 // loaded as the catalogue build loads them. The reader here is a recording
 // fake, so these tests need no shell command reader.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { NodePackModules } from "bounded/adapters";
 import { ExampleScenarios } from "bounded/domain";
-import { runExampleScenarios } from "./run-example-scenarios.test-support.ts";
+import { runExampleScenarios, writeProjectFile } from "./run-example-scenarios.test-support.ts";
 
 /** bounded's directory, src/: what each scenario's project links node_modules/bounded to. */
 const BOUNDED = realpathSync(resolve(import.meta.dir, "../.."));
@@ -28,6 +28,13 @@ afterAll(() => {
 function temporaryDirectory(): string {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "bounded-run-example-scenarios-")));
   temporaryDirectories.push(directory);
+  return directory;
+}
+
+/** A throwaway package outside every project: a fresh temporary directory holding marker.txt, the only file a test may aim a write or delete at. */
+function throwawayPackage(): string {
+  const directory = temporaryDirectory();
+  writeFileSync(join(directory, "marker.txt"), "keep me\n");
   return directory;
 }
 
@@ -213,27 +220,68 @@ describe("runExampleScenarios", () => {
   });
 
   test("a scenario that writes under node_modules/, where the runner installs the packages, ends with that problem, and runs none of its steps", async () => {
+    // The payload aims only at a throwaway package, never at a real file through a link.
+    const throwaway = throwawayPackage();
     const spy = portsSpy();
     const report = await runExampleScenarios({
       examplePath: EXAMPLE,
       scenarios: {
         scenarios: [
           { title: "Writes a package", projectFiles: { "node_modules/x/index.js": "x" }, steps: [readStep] },
-          { title: "Deletes a package", steps: [readStep, { changeFiles: { "Node_Modules/bounded/package.json": null } }] },
+          { title: "Deletes a package", steps: [readStep, { changeFiles: { "Node_Modules/throwaway/marker.txt": null } }] },
           { title: "Only reads", steps: [readStep] },
         ],
       },
-      linkedPackages: { "refusing-package": REFUSING_PACKAGE },
+      linkedPackages: { "refusing-package": REFUSING_PACKAGE, throwaway },
       stateHome: temporaryDirectory(),
       ports: spy.ports,
     });
     expect(report.problem).toBeNull();
     expect(report.scenarios).toEqual([
       { title: "Writes a package", problem: "this scenario writes 'node_modules/x/index.js', under node_modules/, where the runner installs bounded and the linked packages: write no file there", steps: [] },
-      { title: "Deletes a package", problem: "this scenario writes 'Node_Modules/bounded/package.json', under node_modules/, where the runner installs bounded and the linked packages: write no file there", steps: [] },
+      { title: "Deletes a package", problem: "this scenario writes 'Node_Modules/throwaway/marker.txt', under node_modules/, where the runner installs bounded and the linked packages: write no file there", steps: [] },
       { title: "Only reads", problem: null, steps: [{ number: 1, expected: { verdict: { kind: "allow" } }, actual: { verdict: { kind: "allow" } } }] },
     ]);
     expect(spy.stateHomes.length).toBe(1);
+    expect(existsSync(join(throwaway, "marker.txt"))).toBe(true);
+    expect(existsSync(join(BOUNDED, "package.json"))).toBe(true);
+  });
+
+  test("writes and deletes only inside the scenario's project: a path that leads out through a link is refused, and a link is deleted, never its target", () => {
+    const outside = throwawayPackage();
+    const projectRoot = temporaryDirectory();
+    symlinkSync(outside, join(projectRoot, "out"), "dir");
+    symlinkSync(join(outside, "marker.txt"), join(projectRoot, "marker-link.txt"));
+    const leadsOut = (path: string) => `this scenario writes '${path}', which leads outside its project, to ${join(realpathSync(outside), path.split("/").at(-1) ?? "")}: a scenario writes only inside its project`;
+    expect(writeProjectFile(projectRoot, "out/marker.txt", null)).toBe(leadsOut("out/marker.txt"));
+    expect(writeProjectFile(projectRoot, "out/new.txt", "x")).toBe(leadsOut("out/new.txt"));
+    expect(writeProjectFile(projectRoot, "out/deeper/new.txt", "x")).toBe(`this scenario writes 'out/deeper/new.txt', which leads outside its project, to ${join(realpathSync(outside), "deeper", "new.txt")}: a scenario writes only inside its project`);
+    expect(writeProjectFile(projectRoot, "marker-link.txt", "overwritten")).toBe(`this scenario writes 'marker-link.txt', which leads outside its project, to ${join(realpathSync(outside), "marker.txt")}: a scenario writes only inside its project`);
+    expect(readFileSync(join(outside, "marker.txt"), "utf8")).toBe("keep me\n");
+    expect(existsSync(join(outside, "new.txt"))).toBe(false);
+    expect(existsSync(join(outside, "deeper"))).toBe(false);
+    // Deleting the link removes the link only.
+    expect(writeProjectFile(projectRoot, "marker-link.txt", null)).toBeNull();
+    expect(existsSync(join(projectRoot, "marker-link.txt"))).toBe(false);
+    expect(readFileSync(join(outside, "marker.txt"), "utf8")).toBe("keep me\n");
+    // Inside the project, writes and deletes work.
+    expect(writeProjectFile(projectRoot, "src/a.ts", "a\n")).toBeNull();
+    expect(readFileSync(join(projectRoot, "src", "a.ts"), "utf8")).toBe("a\n");
+    expect(writeProjectFile(projectRoot, "src/a.ts", null)).toBeNull();
+    expect(existsSync(join(projectRoot, "src", "a.ts"))).toBe(false);
+    expect(existsSync(join(BOUNDED, "package.json"))).toBe(true);
+  });
+
+  test("refuses a linkedPackages name that is not a package's name, opening no project", async () => {
+    for (const name of ["../escape", ".", "..", "a/b", "@scope/..", "@scope/../x", "", "@scope", "node_modules/../x"]) {
+      const spy = portsSpy();
+      const report = await runExampleScenarios({ examplePath: EXAMPLE, scenarios: await fixtureScenarios(), linkedPackages: { "refusing-package": REFUSING_PACKAGE, [name]: throwawayPackage() }, ports: spy.ports, shellCommandReading: recordingReader() });
+      expect({ name, report }).toEqual({ name, report: { examplePath: EXAMPLE, problem: `linkedPackages names '${name}', which is not a package's name (name or @scope/name): link each package under its own name`, scenarios: [] } });
+      expect(spy.stateHomes).toEqual([]);
+    }
+    const scoped = await runExampleScenarios({ examplePath: EXAMPLE, scenarios: await fixtureScenarios(), linkedPackages: { "refusing-package": REFUSING_PACKAGE, "@scope/throwaway.pkg_1": throwawayPackage() }, stateHome: temporaryDirectory(), shellCommandReading: recordingReader() });
+    expect(scoped.problem).toBeNull();
+    expect(scoped.scenarios.map(({ problem }) => problem)).toEqual([null]);
   });
 
   test("refuses a linkedPackages directory that does not exist, and an example that cannot be read, opening no project", async () => {
