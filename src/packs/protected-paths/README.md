@@ -128,7 +128,9 @@ project's configuration by the package's tests.
 
 - `keep-secrets-out.config.ts`: environment files, private keys and
   `secrets/` that agents may neither read nor write, with file rules so a
-  filtered search still works.
-- `guard-the-guardrails.config.ts`: the configuration, Bounded's state, the
-  hooks and git's hooks protected, generated code changed only through its
-  generator, and migrations that may be added but never changed.
+  filtered search outside `secrets/` still works.
+- `guard-the-guardrails.config.ts`: every path `bounded init`'s defaults
+  protect (the configuration, Bounded's state and installed code, Claude
+  Code's settings and pi's loader, git's hooks and config), generated code
+  changed only through its generator, and migrations that may be added but
+  never changed.

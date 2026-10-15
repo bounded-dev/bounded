@@ -84,7 +84,18 @@ export default defineConfig({
   2026-009).
 - `src/core/composition-root/pack-examples.test.ts` opens each example as a
   project's `bounded.config.ts`, with the shipped packs' ports, and wants no
-  problem: an example that drifts from the API fails the build.
+  problem: an example that drifts from the API fails the build. The same
+  file judges calls against each example's rules, before the tool runs:
+  every rule refuses at least one call it covers, with its reason and
+  redirect, and the calls its carve-outs leave out are allowed. A
+  prerequisite rule is refused, then met by a review and allowed, then
+  stale again once its files change. Shell commands there carry sample
+  readings (the core cannot depend on the shell reader), so the infra
+  example's claims about `sudo`, `env`, `bash -c` and `$TF apply` are
+  covered with the real reader in
+  `src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts`;
+  drift is not exercised for examples. A new example needs its own case
+  there, because a completeness case lists every example path.
 - Examples ship in the package, and the package catalogue embeds each
   verbatim; no declarations are emitted for them.
 

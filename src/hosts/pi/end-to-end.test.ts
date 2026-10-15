@@ -281,4 +281,21 @@ describe("bounded-pi end to end — bounded/prereqs on pi (ADR 2026-028)", () =>
     expect(answer).toMatchObject({ block: true });
     expect(reasonOf(answer).split("\n")[1]).toBe("Run plan-reviewer as a new run whose finish the host reports");
   });
+
+  test("a counted review goes stale when the plan is edited: the write and the delegation to builder it allowed are refused as changed since", async () => {
+    const STALE_WRITE =
+      "bounded/prereqs.rules: bounded/project's rule before write 'src/**' requires a delegation to plan-reviewer that succeeded over the current 'plans/plan.md', and plan-reviewer succeeded over them, but they have changed since. This call would write (modify) src/a.ts\nHave plan-reviewer review the current plan before editing src/";
+    const STALE_BUILD =
+      "bounded/prereqs.rules: bounded/project's rule before delegating to 'builder' requires a delegation to plan-reviewer that succeeded over the current 'plans/plan.md', and plan-reviewer succeeded over them, but they have changed since. This call would delegate to builder\nHave plan-reviewer review the current plan before building";
+    const root = prereqsProject();
+    const session = await prereqsSession(root);
+    await session.launchReview();
+    await session.complete(fixture("async-complete.json"));
+    expect(await session.writeSrc()).toBeUndefined();
+    expect(await session.call("call-build-1", "subagent", { agent: "builder", task: "Build it" })).toBeUndefined();
+
+    writeFileSync(join(root, "plans", "plan.md"), "the plan, edited\n");
+    expect(await session.writeSrc()).toEqual({ block: true, reason: STALE_WRITE });
+    expect(await session.call("call-build-2", "subagent", { agent: "builder", task: "Build it" })).toEqual({ block: true, reason: STALE_BUILD });
+  });
 });

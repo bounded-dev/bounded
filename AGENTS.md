@@ -88,7 +88,10 @@ src/                    bounded             the published package: package.json,
                                             (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
   test/                                     the repository's tests: architecture.test.ts (the layer and dependency rules, as a
                                             test), compile-time.test.ts (proves an undeclared contribution does not compile,
-                                            with its fixtures in fixtures/compile-time/) and packaging.test.ts
+                                            with its fixtures in fixtures/compile-time/), packaging.test.ts and
+                                            guard-the-guardrails-init-defaults.test.ts (reads the cli's INITIAL_CONFIG and the
+                                            protected-paths example guard-the-guardrails as text: the example holds bounded init's
+                                            default rules, field for field)
 docs/adr/                                   decisions, including every deviation from the layout below
 scripts/workflow/                           the lifecycle's two scripts
 scripts/check-prereqs-status-band.ts        the prereqs status band's own check (bun run check:prereqs-status-band)
