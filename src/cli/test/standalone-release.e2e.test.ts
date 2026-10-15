@@ -23,11 +23,22 @@ const nativeTarget = (): string => {
 };
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
-test("a native standalone archive contains a verified, self-running Bounded executable", async () => {
+test("a native smoke archive contains a verified, self-running Bounded executable and is not a stable release", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "bounded-release-e2e-"));
+  const staleDeclaration = join(REPO, "src", "dist", "types", "stale-release-marker.d.ts");
+  const dirtyProbe = join(REPO, "src", ".release-dirty-probe.txt");
   try {
+    writeFileSync(dirtyProbe, "an uncommitted source file must not enter a stable release\n");
+    const dirtyRelease = Bun.spawnSync([process.execPath, join(REPO, "src", "build-release.ts"), "--target", nativeTarget(), "--out", join(scratch, "dirty")], {
+      cwd: REPO, stdout: "pipe", stderr: "pipe",
+    });
+    expect(dirtyRelease.exitCode).not.toBe(0);
+    expect(dirtyRelease.stderr.toString()).toMatch(/dirty|clean|uncommitted/i);
+    expect(existsSync(join(scratch, "dirty", `bounded-v${VERSION}-manifest-v1.json`))).toBe(false);
+    rmSync(dirtyProbe);
+    writeFileSync(staleDeclaration, "export declare const staleReleaseMarker: true;\n");
     const targetId = nativeTarget();
-    const built = Bun.spawnSync([process.execPath, join(REPO, "src", "build-release.ts"), "--target", targetId, "--out", scratch], {
+    const built = Bun.spawnSync([process.execPath, join(REPO, "src", "build-release.ts"), "--target", targetId, "--smoke", "--out", scratch], {
       cwd: REPO,
       stdout: "pipe",
       stderr: "pipe",
@@ -37,20 +48,21 @@ test("a native standalone archive contains a verified, self-running Bounded exec
     const manifestPath = join(scratch, `bounded-v${VERSION}-manifest-v1.json`);
     expect(existsSync(manifestPath)).toBe(true);
     const manifestBytes = readFileSync(manifestPath);
-    const parsed = readReleaseManifest(manifestBytes, sha256(manifestBytes), VERSION);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) throw new Error(parsed.error);
-    expect(Object.keys(parsed.value.targets)).toEqual([targetId]);
-    const target = parsed.value.targets[targetId];
+    const smokeManifest = JSON.parse(manifestBytes.toString()) as { channel: string; targets: Record<string, { archive: { name: string }; executable: { path: string }; files: { path: string }[] }> };
+    expect(smokeManifest.channel).toBe("development");
+    expect(readReleaseManifest(manifestBytes, sha256(manifestBytes), VERSION).ok).toBe(false);
+    expect(Object.keys(smokeManifest.targets)).toEqual([targetId]);
+    const target = smokeManifest.targets[targetId];
     expect(target).toBeDefined();
     if (target === undefined) throw new Error(`missing native target ${targetId}`);
     const archiveBytes = readFileSync(join(scratch, target.archive.name));
-    const verified = await verifyReleaseArchive(parsed.value, targetId, archiveBytes);
+    const verified = await verifyReleaseArchive(smokeManifest as unknown as Parameters<typeof verifyReleaseArchive>[0], targetId, archiveBytes);
     expect(verified.ok).toBe(true);
     if (!verified.ok) throw new Error(verified.error);
     const expectedMembers = [target.executable.path, ...target.files.map((file) => file.path)].sort();
     expect(Object.keys(verified.value).sort()).toEqual(expectedMembers);
     expect(verified.value["share/types/index.d.ts"]?.byteLength).toBeGreaterThan(0);
+    expect(verified.value["share/types/stale-release-marker.d.ts"]).toBeUndefined();
     expect(verified.value["share/claude-code/prereqs-status-band/hooks/register.ts"]?.byteLength).toBeGreaterThan(0);
 
     const executable = join(scratch, targetId.startsWith("windows-") ? "bounded.exe" : "bounded");
@@ -77,7 +89,17 @@ test("a native standalone archive contains a verified, self-running Bounded exec
     expect(decision.hookSpecificOutput?.hookEventName).toBe("PreToolUse");
     expect(decision.hookSpecificOutput?.permissionDecision).toBe("deny");
     expect(decision.hookSpecificOutput?.permissionDecisionReason).toContain("not JSON");
+
+    const secondOutput = join(scratch, "repeat");
+    const repeated = Bun.spawnSync([process.execPath, join(REPO, "src", "build-release.ts"), "--target", targetId, "--smoke", "--out", secondOutput], {
+      cwd: REPO, stdout: "pipe", stderr: "pipe",
+    });
+    expect(repeated.exitCode).toBe(0);
+    expect(readFileSync(join(secondOutput, target.archive.name))).toEqual(archiveBytes);
+    expect(readFileSync(join(secondOutput, `bounded-v${VERSION}-manifest-v1.json`))).toEqual(manifestBytes);
   } finally {
+    rmSync(dirtyProbe, { force: true });
+    rmSync(staleDeclaration, { force: true });
     rmSync(scratch, { recursive: true, force: true });
   }
-}, 120_000);
+}, 180_000);

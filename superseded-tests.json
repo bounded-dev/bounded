@@ -6418,5 +6418,14 @@
       "case": "standalone release manifest > parses verified tar.gz bytes, refusing unexpected members, links and traversal"
     },
     "reason": "release verification now reads archive members from the verified tar.gz bytes instead of accepting an unrelated caller-supplied map"
+  },
+  {
+    "file": "src/cli/test/standalone-release.e2e.test.ts",
+    "case": "a native standalone archive contains a verified, self-running Bounded executable",
+    "successor": {
+      "file": "src/cli/test/standalone-release.e2e.test.ts",
+      "case": "a native smoke archive contains a verified, self-running Bounded executable and is not a stable release"
+    },
+    "reason": "a local binary build on a development checkout is explicitly a smoke artifact; its development channel cannot be accepted as a stable release. Stable release assembly uses separate clean native jobs and verifies their smoke records. The executable and hook assertions remain in the successor."
   }
 ]
