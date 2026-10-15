@@ -77,6 +77,7 @@ src/                    bounded             the published package: package.json,
     <name>/                                 every shipped pack: its overview, contract, index and their test, domain/, application/, adapters/, and
       README.md                             its README, with the seven required sections (R7; docs/writing-a-pack.md)
       examples/<slug>.config.ts             its examples: projects' configurations, outside its code (ADR 2026-009)
+      examples/<slug>.scenarios.ts          each example's scenarios: the calls it judges, with their full verdicts (ADR 2026-031)
                                             (bounded's prepack joins them, the READMEs and the packs' contracts into the
                                             generated, gitignored src/bounded.catalog.json; ADR 2026-029)
     protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
@@ -242,16 +243,22 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   and `examples/`. The README is titled `# <pack id>: <summary>` and has the
   sections What it is for, Rule shape (naming every point key), Workflows
   it fits, What it observes, What it cannot see, Ports (naming every port
-  key) and Examples, and holds no project configuration; `examples/` holds
+  key) and Examples (naming both files of each example, `<slug>.config.ts`
+  and `<slug>.scenarios.ts`, by file name; no other part names a scenarios
+  file), and holds no project configuration; `examples/` holds
   only `<slug>.config.ts` files, at least one, each a project's
-  configuration whose default export's TSDoc gives its title;
+  configuration whose default export's TSDoc gives its title and at most
+  one paragraph of purpose, each with its `<slug>.scenarios.ts` beside it
+  (ADR 2026-031): its scenarios, `defineExampleScenarios({ scenarios })`
+  from `bounded/domain`, which the package's tests run;
   a pack is defined only in an overview, which binds imported names in
   definePack's sections (id, dependsOn, points, contributes, ports,
   optionalPorts, in that order), typed by its contract, with no logic, and imports only its own
   domain/ and application/ (never an adapter). The core's `core.pack.ts`
   follows the same order and no-logic rules. The package catalogue build
   (`bounded catalog build`, ADR 2026-029) applies the same README rules
-  (`PackReadme`), wants at least one titled example, and fails closed.
+  (`PackReadme`), wants at least one titled example, each with scenarios
+  that parse, and fails closed.
   Exempt, each named in the test with its
   reason: barrels and the shared kernel (`domain/shared/{result,read,text,wire}.ts`).
 - **Shape checks live in the class that owns the shape (ADR 2026-013).**
@@ -273,9 +280,12 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   `bounded/domain` and the shipped packs' own export paths
   (`bounded/<pack>`), as a project's configuration does, never an internal
   path (`bounded/adapters`, `bounded/<pack>/adapters`, `bounded/hosts/*`,
-  `bounded/testing/*`); no file imports an example, the repository's tests
-  and every unit's `test/` included; tests open one as a project's
-  `bounded.config.ts`.
+  `bounded/testing/*`); its scenarios (`<slug>.scenarios.ts`) import only
+  `bounded/domain`; no file imports an example or its scenarios, the
+  repository's tests and every unit's `test/` included; tests open an
+  example as a project's `bounded.config.ts` and run its scenarios with
+  `bounded/testing/example-scenarios` (`src/test/example-scenarios.test.ts`
+  runs every shipped pack's; ADR 2026-031).
 - **A published pack is an ordinary pack in its own package** (ADR
   2026-030): vendor- or language-specific packs are published as
   `bounded-<name>` from `src/published-packs/<name>/`, generic ones are
@@ -286,7 +296,10 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   (never through its package's name), and libraries its package declares;
   only its `adapters/out/` do I/O. Its examples import `bounded/domain`,
   the shipped packs' own export paths and its own package's pack export
-  paths. Nothing outside its package imports it, by name or by relative
+  paths; their scenarios import only `bounded/domain`, and its package's
+  `test/example-scenarios.test.ts` runs them with
+  `bounded/testing/example-scenarios`, as a package outside this
+  repository does (ADR 2026-031). Nothing outside its package imports it, by name or by relative
   path, from any file of the repository, and no other workspace's
   `package.json` names it. Its `package.json` has `bounded` as a
   `peerDependency` at exactly `~<major>.<minor>.0` of bounded's version

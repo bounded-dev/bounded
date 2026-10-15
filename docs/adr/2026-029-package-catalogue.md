@@ -8,7 +8,9 @@ own. Amends [ADR 2026-016](2026-016-cli-app.md): the CLI gains
 `dist/`. Recorded as 2026-026 while it was built; renumbered 2026-029 on
 merging main, which had recorded the prereqs status snapshot as
 [ADR 2026-026](2026-026-prereqs-status-snapshot.md) (whose optional ports
-the catalogue carries) and reserved 2026-027.
+the catalogue carries) and reserved 2026-027. Amended by
+[ADR 2026-031](2026-031-example-scenarios.md): each catalogued example
+carries its scenarios, and the build refuses an example without them.
 
 ## Context
 
