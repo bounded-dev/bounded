@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -125,8 +125,16 @@ export default defineConfig({
     expect(allowedShell.exitCode).toBe(0);
     expect(allowedShell.stdout).toBe("");
 
-    writeFileSync(join(project, "packs", "local-rule.ts"), 'export const guardedPrefix = "new-generated/";\n');
-    const changedRule = hook(binary, project, "Write", { file_path: join(project, "new-generated", "a.py"), content: "x" });
+    const localRulePath = join(project, "packs", "local-rule.ts");
+    const configPath = join(project, "bounded.config.ts");
+    const priorRule = statSync(localRulePath);
+    const priorConfig = statSync(configPath);
+    writeFileSync(localRulePath, 'export const guardedPrefix = "alternate/";\n');
+    utimesSync(localRulePath, priorRule.atime, priorRule.mtime);
+    expect(statSync(localRulePath).mtimeMs).toBe(priorRule.mtimeMs);
+    expect(statSync(localRulePath).size).toBe(priorRule.size);
+    expect(statSync(configPath).mtimeMs).toBe(priorConfig.mtimeMs);
+    const changedRule = hook(binary, project, "Write", { file_path: join(project, "alternate", "a.py"), content: "x" });
     expect(refusal(changedRule.stdout)).toContain("local/gate");
     writeFileSync(join(project, "bounded.config.ts"), "export default 42;\n");
     expect(refusal(hook(binary, project, "Write", { file_path: join(project, "src", "a.py"), content: "x" }).stdout)).toContain("default export is a number");
