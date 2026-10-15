@@ -1172,24 +1172,25 @@ describe("architecture", () => {
     expect(rootTypeScript).toEqual(ROOT_TYPESCRIPT);
   });
 
-  test("src/ holds the bounded package's manifest and build beside the core, the shipped packs, the libraries, the hosts, the cli and the repository's tests", () => {
+  test("src/ holds the bounded package's manifest and builds beside the core, the shipped packs, the published packs, the libraries, the hosts, the cli and the repository's tests", () => {
     const underSrc = trackedFiles()
       .filter((path) => path.startsWith("src/"))
       .map((path) => path.slice("src/".length));
-    expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "test"]);
-    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "package.json", "tsconfig.types.json"]);
+    expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "published-packs", "test"]);
+    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "package.json", "tsconfig.types.json"]);
   });
 
-  test("the workspaces are bounded (src), its libraries, the hosts and the cli, under a private root", async () => {
+  test("the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root", async () => {
     const root = (await Bun.file(`${ROOT}/package.json`).json()) as { private?: boolean; workspaces?: string[] };
     expect(root.private).toBe(true);
-    expect(root.workspaces).toEqual(["src", "src/lib/*", "src/hosts/*", "src/cli"]);
+    expect(root.workspaces).toEqual(["src", "src/lib/*", "src/hosts/*", "src/cli", "src/published-packs/*"]);
     expect(Object.fromEntries([...contexts, ...apps].map((unit) => [unit.name, unit.dir]))).toEqual({
       bounded: "src",
       "bounded-shell-command-reader": "src/lib/shell-command-reader",
       "bounded-claude-code": "src/hosts/claude-code",
       "bounded-pi": "src/hosts/pi",
       "bounded-cli": "src/cli",
+      "bounded-example": "src/published-packs/example",
     });
   });
 
@@ -1221,7 +1222,7 @@ describe("architecture", () => {
     expect(naming).toEqual([]);
   });
 
-  test("every file belongs to one unit: a layer of a context, a shipped pack's own directory, an app, or a unit's test/", () => {
+  test("every file belongs to one unit: a layer of a context, a shipped or published pack's own directory, an app, or a unit's test/", () => {
     const manifests = ["src/package.json", "src/lib/x/package.json", "src/hosts/claude-code/package.json"];
     const refusal = (path: string, list: readonly string[] = manifests): string | undefined => {
       const placed = unitOf(path, list);
@@ -1233,13 +1234,13 @@ describe("architecture", () => {
     expect(refusal("src/packs/loose.ts")).toBe("src/packs/loose.ts — a shipped pack lives in its own directory, src/packs/<name>/");
     expect(refusal("src/lib/loose.ts")).toBe("src/lib/loose.ts — a library lives in its own directory, src/lib/<name>/, with a package.json");
     expect(refusal("src/hosts/loose.ts")).toBe("src/hosts/loose.ts — a host lives in its own directory, src/hosts/<name>/, with a package.json");
-    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host and the cli is a workspace package of its own`;
+    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host, published pack's package and the cli is a workspace package of its own`;
     expect(refusal("src/lib/y/domain/a.ts")).toBe(`src/lib/y/domain/a.ts — ${unpackaged("src/lib/y")}`);
     expect(refusal("src/hosts/z/a.ts")).toBe(`src/hosts/z/a.ts — ${unpackaged("src/hosts/z")}`);
     expect(refusal("src/cli/a.ts")).toBe(`src/cli/a.ts — ${unpackaged("src/cli")}`);
     expect(refusal("src/cli/a.ts", [...manifests, "src/cli/package.json"])).toBeUndefined();
     expect(refusal("src/core/domain/a.ts", ["src/lib/x/package.json"])).toBe(`src/core/domain/a.ts — ${unpackaged("src")}`);
-    const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/lib/<name>, src/hosts/<name> or src/cli";
+    const outside = "outside every unit: code lives in src/core, src/packs/<name>, src/published-packs/<name>/packs/<pack>, src/lib/<name>, src/hosts/<name> or src/cli";
     expect(refusal("src/build-dist.ts")).toBe(`src/build-dist.ts — ${outside}`);
     expect(refusal("src/other/a.ts")).toBe(`src/other/a.ts — ${outside}`);
     const accepted = (path: string) => unitOf(path, manifests);
@@ -1306,6 +1307,159 @@ describe("architecture", () => {
     ]);
     expect(valueObjectImplementationViolations([libraryContract, { path: "src/lib/x/domain/thing.ts", text: implementation }])).toEqual([]);
     expect(valueObjectImplementationViolations([{ path: "src/core/domain/thing.contract.ts", text: contract }, { path: "src/packs/gate/domain/thing.ts", text: implementation }])).toEqual([]);
+  });
+
+  // Published packs (ADR 2026-030): a pack that is its own npm package, in src/published-packs/<name>/.
+  const PUBLISHED = "src/published-packs/example/packs/refused-tools";
+  const importsList = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+  /** The example published package's context; it throws when the scan has none. */
+  const examplePackage = (): Context => {
+    const example = byName.get("bounded-example");
+    if (example === undefined) throw new Error("no bounded-example context: src/published-packs/example/package.json is not read as a context");
+    return example;
+  };
+
+  test("a published pack's files belong to its package: src/published-packs/<name>/packs/<pack>/ is a pack of the package at src/published-packs/<name>, and its test/ is the package's", () => {
+    const manifests = ["src/package.json", "src/published-packs/example/package.json"];
+    expect(unitOf(`${PUBLISHED}/refused-tools.pack.ts`, manifests)).toEqual({ ok: true, unit: { kind: "pack", packageDir: "src/published-packs/example", sourceRoot: PUBLISHED, layer: "packs" } });
+    expect(unitOf("src/published-packs/example/test/x.test.ts", manifests)).toEqual({ ok: true, unit: { kind: "package", packageDir: "src/published-packs/example", sourceRoot: "src/published-packs/example", layer: "test" } });
+    const refusal = (path: string): string | undefined => {
+      const placed = unitOf(path, manifests);
+      return placed.ok ? undefined : placed.reason;
+    };
+    expect(refusal("src/published-packs/loose.ts")).toBe("src/published-packs/loose.ts — a published pack's package lives in its own directory, src/published-packs/<name>/, with a package.json");
+    expect(refusal("src/published-packs/example/loose.ts")).toBe("src/published-packs/example/loose.ts — a published pack's package holds its packs in packs/<name>/ and its end-to-end tests in test/");
+    expect(refusal("src/published-packs/example/domain/a.ts")).toBe("src/published-packs/example/domain/a.ts — a published pack's package holds its packs in packs/<name>/ and its end-to-end tests in test/");
+    expect(refusal("src/published-packs/example/packs/loose.ts")).toBe("src/published-packs/example/packs/loose.ts — a published pack lives in its own directory, packs/<name>/, in its package");
+    const unpackaged = (dir: string) => `${dir} has no package.json: the core and the shipped packs are bounded's (src/package.json), and every library, host, published pack's package and the cli is a workspace package of its own`;
+    expect(refusal("src/published-packs/y/packs/y/y.pack.ts")).toBe(`src/published-packs/y/packs/y/y.pack.ts — ${unpackaged("src/published-packs/y")}`);
+  });
+
+  test("no pack rule reads a published package's test/", () => {
+    expect(unitByPath("src/published-packs/example/test/helper.ts")).toEqual({ ok: true, unit: { kind: "package", packageDir: "src/published-packs/example", sourceRoot: "src/published-packs/example", layer: "test" } });
+    const text = 'import { definePack } from "bounded/domain";\nexport const loose = (raw: unknown) => Array.isArray(raw);\nexport const extra = definePack({ id: x });\n';
+    for (const path of ["src/published-packs/example/test/x.test.ts", "src/published-packs/example/test/helper.ts"]) {
+      expect(packLayoutViolations([path])).toEqual([]);
+      expect(conceptTripletViolations([path], new Map([[path, text]]))).toEqual([]);
+      expect(shapeCheckViolations([{ path, text }])).toEqual([]);
+      expect(packOverviewViolations([{ path, text }])).toEqual([]);
+    }
+  });
+
+  test("a published package's build output is outside every scan", async () => {
+    const declaration = "src/published-packs/example/dist/types/packs/refused-tools/index.d.ts";
+    expect(outsideEveryScan(declaration)).toBe(true);
+    expect(outsideEveryScan("src/published-packs/example/dist/packs/refused-tools/index.js")).toBe(true);
+    expect(outsideEveryScan(`${PUBLISHED}/index.ts`)).toBe(false);
+    expect(await Bun.file(`${ROOT}/${declaration}`).exists()).toBe(true);
+    expect(files).not.toContain(declaration);
+  });
+
+  test("a published pack's package is named bounded-<its directory>, declares bounded as a peer dependency and never as a dependency, and holds only package.json, README.md, LICENSE, packs/ and test/ at its root", async () => {
+    const manifests = manifestsMatching("src/published-packs/*/package.json");
+    expect(manifests).toContain("src/published-packs/example/package.json");
+    const tracked = trackedFiles();
+    for (const manifest of manifests) {
+      const dir = manifest.slice(0, -"/package.json".length);
+      const name = dir.split("/").at(-1) ?? "";
+      const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name?: string; peerDependencies?: Record<string, string>; dependencies?: Record<string, string> };
+      expect({ dir, name: pkg.name }).toEqual({ dir, name: `bounded-${name}` });
+      expect({ dir, peer: pkg.peerDependencies?.bounded !== undefined }).toEqual({ dir, peer: true });
+      expect({ dir, dependency: pkg.dependencies?.bounded }).toEqual({ dir, dependency: undefined });
+      const atRoot = tracked
+        .filter((path) => path.startsWith(`${dir}/`) && !path.startsWith(`${dir}/packs/`) && !path.startsWith(`${dir}/test/`))
+        .map((path) => path.slice(dir.length + 1))
+        .sort();
+      expect({ dir, atRoot }).toEqual({ dir, atRoot: ["LICENSE", "README.md", "package.json"] });
+    }
+  });
+
+  test("the published-pack rule: from bounded it reaches bounded/domain only, its own pack by relative path only and libraries its package declares, and only its adapters/out/ do I/O", () => {
+    const example = examplePackage();
+    const path = `${PUBLISHED}/x.ts`;
+    const one = (from: string, spec: string) => shippedPackViolations(from, importsList(spec), example);
+    expect(one(path, "bounded/domain")).toEqual([]);
+    expect(one(path, "./domain/rule.ts")).toEqual([]);
+    for (const spec of ["bounded/application", "bounded/protected-paths", "bounded/protected-paths/adapters"]) {
+      expect(one(path, spec)).toEqual([`${path}:1 imports "${spec}" — a published pack depends only on \`bounded/domain\`, the core's public exports`]);
+    }
+    expect(one(path, "../../../../packs/protected-paths/index.ts")).toEqual([`${path}:1 imports "../../../../packs/protected-paths/index.ts" — a published pack reaches bounded only through bounded/domain, never by relative path`]);
+    expect(one(path, "bounded-example")).toEqual([`${path}:1 imports "bounded-example" — a published pack reaches its own files by relative path, never through its package's name`]);
+    const undeclared = "a published pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do";
+    expect(one(path, "picomatch")).toEqual([`${path}:1 imports "picomatch" — ${undeclared}`]);
+    expect(one(`${PUBLISHED}/domain/rule.ts`, "node:fs")).toEqual([`${PUBLISHED}/domain/rule.ts:1 imports "node:fs" — ${undeclared}`]);
+    expect(one(`${PUBLISHED}/adapters/out/files/files.ts`, "node:fs")).toEqual([]);
+    expect(one(`${PUBLISHED}/domain/rule.ts`, "../application/feature/feature.ts")).toEqual([`${PUBLISHED}/domain/rule.ts:1 imports "../application/feature/feature.ts" — a pack's domain may not import its application`]);
+  });
+
+  test("an example of a published pack reaches its package only through its export paths: a deep path into it is refused", () => {
+    const example = `${PUBLISHED}/examples/basic.config.ts`;
+    expect(shippedPackViolations(example, importsList("bounded-example/packs/refused-tools/index.ts"), examplePackage())).toEqual([
+      `${example}:1 imports "bounded-example/packs/refused-tools/index.ts" — an example imports only bounded/domain, the shipped packs' own export paths (bounded/<pack>) and bounded-example's pack export paths, as a project's configuration does; "bounded-example/packs/refused-tools/index.ts" is not one`,
+    ]);
+  });
+
+  test("nothing outside a published package imports it, by name or by relative path, from any file of the repository", async () => {
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing outside a published pack's package imports it: bounded never depends on a published pack`];
+    const check = (path: string, spec: string) => publishedPackageImportViolations(path, importsList(spec));
+    expect(check("src/core/composition-root/x.test.ts", "bounded-example")).toEqual(refused("src/core/composition-root/x.test.ts", "bounded-example"));
+    expect(check("src/core/composition-root/x.test.ts", "../../published-packs/example/packs/refused-tools/index.ts")).toEqual(refused("src/core/composition-root/x.test.ts", "../../published-packs/example/packs/refused-tools/index.ts"));
+    expect(check("src/hosts/pi/test/x.test.ts", "../../../published-packs/example/packs/refused-tools/index.ts")).toEqual(refused("src/hosts/pi/test/x.test.ts", "../../../published-packs/example/packs/refused-tools/index.ts"));
+    expect(check("src/cli/x.ts", "bounded-example")).toEqual(refused("src/cli/x.ts", "bounded-example"));
+    expect(check("src/test/x.test.ts", "bounded-example/x")).toEqual(refused("src/test/x.test.ts", "bounded-example/x"));
+    expect(publishedPackageImportViolations("src/published-packs/example/test/x.test.ts", importsList("bounded-example", "../packs/refused-tools/index.ts"))).toEqual([]);
+    const workspaceManifests = ["package.json", ...manifestsMatching("src/**/package.json").filter((path) => !path.split("/").some((segment) => segment === "node_modules" || segment === "dist"))];
+    expect(workspaceManifests).toContain("src/published-packs/example/package.json");
+    const naming: string[] = [];
+    for (const manifest of workspaceManifests.filter((path) => path !== "src/published-packs/example/package.json")) {
+      const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as Record<string, unknown>;
+      for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        const listed = pkg[field];
+        if (typeof listed === "object" && listed !== null && "bounded-example" in listed) naming.push(`${manifest} ${field}`);
+      }
+    }
+    expect(naming).toEqual([]);
+  });
+
+  test("an example of a published pack imports as a project does: bounded/domain, the shipped packs' own export paths and its own package's pack export paths", () => {
+    const example = `${PUBLISHED}/examples/basic.config.ts`;
+    const context = examplePackage();
+    expect(shippedPackViolations(example, importsList("bounded/domain", "bounded/prereqs", "bounded-example"), context)).toEqual([]);
+    expect(shippedPackViolations(example, importsList("../domain/rule.ts"), context)).toEqual([`${example}:1 imports "../domain/rule.ts" — an example imports only bounded's and bounded-example's export paths, as a project's configuration does`]);
+    expect(shippedPackViolations(example, importsList("bounded/adapters"), context)).toEqual([
+      `${example}:1 imports "bounded/adapters" — an example imports only bounded/domain, the shipped packs' own export paths (bounded/<pack>) and bounded-example's pack export paths, as a project's configuration does; "bounded/adapters" is not one`,
+    ]);
+  });
+
+  test("R7, R3 and R6 hold in a published pack as in a shipped one", () => {
+    const tidy = ["refused-tools.pack.ts", "refused-tools.contract.ts", "refused-tools.pack.test.ts", "index.ts", "README.md", "examples/basic.config.ts", "domain/rule.ts", "application/judge/judge.ts", "adapters/out/files/files.ts"].map((file) => `${PUBLISHED}/${file}`);
+    expect(packLayoutViolations(tidy)).toEqual([]);
+    expect(packLayoutViolations([...tidy, `${PUBLISHED}/helpers.ts`])).toEqual([
+      `${PUBLISHED}/helpers.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
+    ]);
+    expect(packLayoutViolations([`${PUBLISHED}/index.ts`])).toEqual([
+      `${PUBLISHED} — a published pack has refused-tools.pack.ts`,
+      `${PUBLISHED} — a published pack has refused-tools.contract.ts`,
+      `${PUBLISHED} — a published pack has README.md`,
+      `${PUBLISHED} — a published pack has at least one example, examples/<name>.config.ts`,
+    ]);
+    expect(conceptTripletViolations([`${PUBLISHED}/domain/loose.ts`], new Map())).toEqual([
+      `${PUBLISHED}/domain/loose.ts — a domain concept is a contract, an implementation and a test: add loose.contract.ts`,
+      `${PUBLISHED}/domain/loose.ts — a domain concept is a contract, an implementation and a test: add loose.test.ts`,
+    ]);
+    const overview = `${PUBLISHED}/refused-tools.pack.ts`;
+    const head = 'import { contribution, corePack, definePack } from "bounded/domain";\nimport { judge } from "./application/judge/judge.ts";\nimport { refusedToolsId } from "./domain/refused-tools-id.ts";\nimport type { RefusedToolsPack } from "./refused-tools.contract.ts";\n';
+    expect(packOverviewViolations([{ path: overview, text: `${head}import { files } from "./adapters/out/files/files.ts";\nexport const refusedToolsPack: RefusedToolsPack = definePack({ id: refusedToolsId });\n` }])).toEqual([
+      `${overview}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/files/files.ts"`,
+    ]);
+    const loose = { path: `${PUBLISHED}/domain/loose.ts`, text: "export function decide(raw: unknown) {\n  return Array.isArray(raw);\n}\n" };
+    expect(shapeCheckViolations([loose])).toEqual([`${loose.path}:2 — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`]);
+  });
+
+  test("R7 reads each published pack's tracked README", () => {
+    const paths = packLayoutPaths();
+    expect(paths).toContain(`${PUBLISHED}/README.md`);
+    expect(packLayoutViolations(paths)).toEqual([]);
   });
 });
 
