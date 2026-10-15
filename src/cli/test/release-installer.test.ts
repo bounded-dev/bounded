@@ -28,6 +28,8 @@ async function fixture(): Promise<{ root: string; script: string; archive: strin
   writeFileSync(binary, `#!/bin/sh\n[ "$1" = "--version" ] && { echo '${version}'; exit 0; }\necho 'bounded fixture'\n`);
   chmodSync(binary, 0o755);
   writeFileSync(join(payload, "release.json"), JSON.stringify({ version }));
+  mkdirSync(join(payload, "share", "types"), { recursive: true });
+  writeFileSync(join(payload, "share", "types", "index.d.ts"), "export type BoundedFixture = true;\n");
   const archive = join(assets, archiveName);
   const archiveBytes = await new Promise<Buffer>((resolveArchive, reject) => {
     const zip = new yazl.ZipFile();
@@ -37,6 +39,7 @@ async function fixture(): Promise<{ root: string; script: string; archive: strin
     zip.outputStream.on("end", () => resolveArchive(Buffer.concat(chunks)));
     zip.addBuffer(readFileSync(binary), `bounded-v${version}/bin/bounded`, { mode: 0o100755 });
     zip.addBuffer(readFileSync(join(payload, "release.json")), `bounded-v${version}/release.json`);
+    zip.addBuffer(readFileSync(join(payload, "share", "types", "index.d.ts")), `bounded-v${version}/share/types/index.d.ts`);
     zip.end();
   });
   writeFileSync(archive, archiveBytes);
@@ -47,7 +50,10 @@ async function fixture(): Promise<{ root: string; script: string; archive: strin
         minimumOS: "macOS 12",
         archive: { name: archiveName, size: archiveBytes.byteLength, sha256: digest(archiveBytes) },
         executable: { path: "bin/bounded", size: readFileSync(binary).byteLength, sha256: digest(readFileSync(binary)) },
-        files: [],
+        files: [
+          { path: "release.json", size: readFileSync(join(payload, "release.json")).byteLength, sha256: digest(readFileSync(join(payload, "release.json"))) },
+          { path: "share/types/index.d.ts", size: readFileSync(join(payload, "share", "types", "index.d.ts")).byteLength, sha256: digest(readFileSync(join(payload, "share", "types", "index.d.ts"))) },
+        ],
       },
     },
   };
@@ -221,4 +227,98 @@ test("published bootstrap commands buffer a pinned HTTPS installer and check tra
   expect(windows).toMatch(/curl\.exe/i);
   expect(windows).toMatch(/LASTEXITCODE/);
   expect(windows).toMatch(/(?:Invoke-Expression|iex)/);
+});
+
+test("Unix bootstrap returns to its caller after a successful install", async () => {
+  const f = await fixture();
+  try {
+    const curl = join(f.root, "fake-bin", "curl");
+    writeFileSync(curl, `#!/bin/sh
+set -eu
+out=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--output' ]; then shift; out="$1"; fi
+  shift
+done
+printf '%s\\n' 'echo installer-ran' > "$out"
+`);
+    chmodSync(curl, 0o755);
+    const unix = releaseInstallScripts.releaseBootstrapCommands(version).unix;
+    const result = Bun.spawnSync(["sh", "-c", `${unix}; printf 'caller-survived\\n'`], { env: f.env, stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("installer-ran");
+    expect(result.stdout.toString()).toContain("caller-survived");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("Unix installer refuses a control character in the persisted bin path", async () => {
+  const f = await fixture();
+  try {
+    const result = run(f.script, { ...f.env, XDG_BIN_HOME: `${f.root}/bin\nnext-command` });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toMatch(/bin directory.*control/i);
+    expect(existsSync(join(f.root, "data", "bounded", "active"))).toBe(false);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("Unix installer verifies every file of an already installed release before activation", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f.script, f.env).exitCode).toBe(0);
+    const release = join(f.root, "data", "bounded", "releases", `v${version}`, target);
+    const pointer = join(f.root, "data", "bounded", "active");
+    writeFileSync(pointer, "1.2.3\n");
+    writeFileSync(join(release, "share", "types", "index.d.ts"), "tampered\n");
+    const result = run(f.script, f.env);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toMatch(/release.*mismatch|verification/i);
+    expect(readFileSync(pointer, "utf8")).toBe("1.2.3\n");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("Unix installer refuses a modified managed launcher and refreshes its PATH profile when the bin directory moves", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f.script, f.env).exitCode).toBe(0);
+    const launcher = join(f.root, "bin", "bounded");
+    const originalLauncher = readFileSync(launcher, "utf8");
+    writeFileSync(launcher, `${originalLauncher}\necho attacker-owned\n`);
+    expect(run(f.script, f.env).exitCode).not.toBe(0);
+    writeFileSync(launcher, originalLauncher);
+    const movedBin = join(f.root, "other-bin");
+    const moved = run(f.script, { ...f.env, XDG_BIN_HOME: movedBin });
+    expect(moved.exitCode).toBe(0);
+    const profile = [join(f.root, "home", ".profile"), join(f.root, "home", ".zshrc")].find(existsSync);
+    expect(profile).toBeDefined();
+    if (profile === undefined) throw new Error("profile missing");
+    const contents = readFileSync(profile, "utf8");
+    expect(contents).toContain(movedBin);
+    expect(contents).not.toContain(`${join(f.root, "bin")}:$PATH`);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("Windows installer checks every release file and owns both launcher files before replacement", async () => {
+  const f = await fixture();
+  try {
+    const raw = JSON.parse(readFileSync(f.manifest, "utf8")) as ReleaseManifest;
+    const script = installerScripts({ ...raw, targets: { "windows-x64": {
+      minimumOS: "Windows 10 1809", archive: { name: `bounded-v${version}-windows-x64.zip`, size: 1, sha256: "a".repeat(64) },
+      executable: { path: "bin/bounded.exe", size: 1, sha256: "b".repeat(64) },
+      files: [{ path: "release.json", size: 2, sha256: "c".repeat(64) }],
+    } } }, "d".repeat(64)).windows;
+    expect(script).toMatch(/bounded-launcher\.ps1[\s\S]*unrelated|unrelated[\s\S]*bounded-launcher\.ps1/i);
+    expect(script).toContain("release.json");
+    expect(script).toContain("c".repeat(64));
+    expect(script).toMatch(/Get-ChildItem[\s\S]*Get-FileHash|Get-FileHash[\s\S]*Get-ChildItem/);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
 });
