@@ -25,9 +25,9 @@ const TOOL_USE_FORM = "{ role?, tool, effects, callId? }";
 const TOOL_RESULT_FORM = "{ role?, tool, effects, ok, callId?, delegatedAgentRuns? }";
 const EXECUTE_FORM = "a scenario's execute effect is { kind, command, cwd? }";
 const LEAVE_THE_READING_OUT = "a scenario's execute effect is a command bounded reads when the scenario runs: leave its reading out";
-const OWNED = "is where the runner or Bounded keeps its own files (the project's bounded.config.*, .bounded/, .git/, node_modules/): a scenario writes no file there";
-/** The first path segments, ignoring case, under which a scenario writes nothing: Bounded's state, git's and the installed packages, bounded among them. */
-const OWNED_DIRECTORIES: readonly string[] = [".bounded", ".git", "node_modules"];
+const OWNED = "is where Bounded keeps its own files (the project's bounded.config.* at its root, .bounded/): a scenario writes no file there";
+/** The first path segment, ignoring case, under which a scenario writes nothing: Bounded's own state. Where a runner installs packages is the runner's concern, never the domain's. */
+const BOUNDED_STATE_DIRECTORY = ".bounded";
 /** The start of the project's configuration's name at its root, ignoring case: bounded.config.ts and every other name it may have. */
 const CONFIGURATION_NAME = "bounded.config.";
 
@@ -75,14 +75,14 @@ function callIn(raw: unknown, what: "tool use" | "tool result"): Result<Call<Sce
   return callOf(withRole, `A scenario's ${what}`, scenarioEffectOf);
 }
 
-/** A file a scenario writes, by project path: never the project's root, its configuration, or under .bounded/, .git/ or node_modules/. */
+/** A file a scenario writes, by project path: never the project's root, its configuration at the root, or under .bounded/. */
 function writablePathOf(raw: string, named: string): Result<ProjectPath> {
   const path = ProjectPath.parse(raw);
   if (!path.ok) return refuse(`${named} '${raw}': ${path.error}`);
   const value = path.value.value;
   const [first = ""] = value.split("/");
   if (value === ".") return refuse(`${named} '${raw}' is the project's root, not a file`);
-  if (OWNED_DIRECTORIES.includes(first.toLowerCase()) || (!value.includes("/") && value.toLowerCase().startsWith(CONFIGURATION_NAME))) return refuse(`${named} '${raw}' ${OWNED}`);
+  if (first.toLowerCase() === BOUNDED_STATE_DIRECTORY ||(!value.includes("/") && value.toLowerCase().startsWith(CONFIGURATION_NAME))) return refuse(`${named} '${raw}' ${OWNED}`);
   return path;
 }
 

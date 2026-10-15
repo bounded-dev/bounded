@@ -87,6 +87,12 @@ const runsShellCommand = (scenario: ExampleScenarioJSON): boolean =>
     return call?.effects.some((effect) => effect.kind === "execute") === true;
   });
 
+/** Every project path a scenario writes or deletes: its project files, then each change of files. */
+const writtenPaths = (scenario: ExampleScenarioJSON): string[] => [
+  ...Object.keys(scenario.projectFiles ?? {}),
+  ...scenario.steps.flatMap((step) => ("changeFiles" in step ? Object.keys(step.changeFiles) : [])),
+];
+
 /** Writes `text` at a project path, with its directories, or deletes the file when `text` is null. */
 function writeProjectFile(projectRoot: string, path: string, text: string | null): void {
   const file = join(projectRoot, path);
@@ -144,6 +150,10 @@ async function runScenario(
   options: ExampleScenariosRunOptions,
 ): Promise<ExampleScenarioReport> {
   const reader = options.shellCommandReading;
+  const intoPackages = writtenPaths(scenario).find((path) => path.split("/")[0]?.toLowerCase() === "node_modules");
+  if (intoPackages !== undefined) {
+    return { title: scenario.title, problem: `this scenario writes '${intoPackages}', under node_modules/, where the runner installs bounded and the linked packages: write no file there`, steps: [] };
+  }
   if (reader === undefined && runsShellCommand(scenario)) return { title: scenario.title, problem: NO_READER, steps: [] };
   const projectRoot = projectFor(exampleText, linkedPackages, scenario);
   try {

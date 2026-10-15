@@ -94,7 +94,6 @@ export { Url } from "./events/url.ts";
 export type { ToolKind, ToolUseFactory, ToolUseJSON } from "./events/tool-use.contract.ts";
 export type {
   Change,
-  CommandToRead,
   DelegateEffect,
   DelegateEffectJSON,
   EffectByKind,
@@ -115,7 +114,7 @@ export type {
   WriteEffect,
   WriteEffectJSON,
 } from "./events/effect.contract.ts";
-export { describeEffect, describeExecute, Effect } from "./events/effect.ts";
+export { describeEffect, Effect } from "./events/effect.ts";
 export type {
   ReadShellCommandReading,
   ReadShellCommandReadingJSON,

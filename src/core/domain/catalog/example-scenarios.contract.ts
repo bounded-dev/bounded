@@ -65,8 +65,9 @@ export type ExampleScenarioStepJSON = ToolUseStepJSON | ToolResultStepJSON | Cha
 /**
  * One scenario: its one-line title, the files its project starts with (by
  * project path; none when left out) and its steps, at least one a tool use.
- * Its project's bounded.config.ts is the example, and bounded is installed
- * in its node_modules: no scenario writes there, in .bounded/ or in .git/.
+ * Its project's bounded.config.ts is the example: no scenario writes a
+ * configuration at the project's root, nor anything in .bounded/, Bounded's
+ * own state. Where a runner installs packages is the runner's concern.
  */
 export interface ExampleScenarioJSON {
   readonly title: string;
