@@ -5,6 +5,7 @@
     "node_modules",
     "**/fixtures/**",
     "src/dist",
+    "src/published-packs/*/dist",
     "src/hosts/claude-code/prereqs-status-band/.claude-plugin",
     "src/hosts/claude-code/prereqs-status-band/types",
     "src/hosts/claude-code/prereqs-status-band/tests"

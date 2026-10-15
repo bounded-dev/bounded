@@ -1,7 +1,8 @@
 // The layer and dependency rules (AGENTS.md "Layout"), adapted from the Bounded
 // harness's hexagonal worked example. Every import of every file of every
 // unit under src/ (ADR 2026-024: the core, the shipped packs, the libraries,
-// the hosts and the cli) is read with the TypeScript parser.
+// the hosts and the cli; ADR 2026-030: the published packs) is read with the
+// TypeScript parser.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { rmSync, writeFileSync } from "node:fs";
@@ -52,6 +53,7 @@ interface Context {
   readonly exports: Record<string, string>;
   /** Each export path's every target, every condition's: all must exist. */
   readonly exportTargets: Record<string, readonly string[]>;
+  /** What it may import: its dependencies, and its peer dependencies (a published pack's bounded, ADR 2026-030). */
   readonly dependencies: readonly string[];
   /** What only its tests may import (an app's devDependencies). */
   readonly devDependencies: readonly string[];
@@ -66,7 +68,10 @@ type ExportTarget = string | Record<string, string>;
 const sourceOf = (target: ExportTarget): string => (typeof target === "string" ? target : (target.bun ?? target.types ?? target.default ?? ""));
 const targetsOf = (target: ExportTarget): string[] => (typeof target === "string" ? [target] : Object.values(target));
 
-function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): Context {
+function contextOf(
+  manifest: string,
+  pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string>; peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> },
+): Context {
   const entries = Object.entries(pkg.exports ?? {});
   const dir = manifest.replace("/package.json", "");
   return {
@@ -75,7 +80,7 @@ function contextOf(manifest: string, pkg: { name: string; exports?: Record<strin
     name: pkg.name,
     exports: Object.fromEntries(entries.map(([path, target]) => [path, sourceOf(target)])),
     exportTargets: Object.fromEntries(entries.map(([path, target]) => [path, targetsOf(target)])),
-    dependencies: Object.keys(pkg.dependencies ?? {}),
+    dependencies: [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})],
     devDependencies: Object.keys(pkg.devDependencies ?? {}),
   };
 }
@@ -83,12 +88,20 @@ function contextOf(manifest: string, pkg: { name: string; exports?: Record<strin
 const manifestsMatching = (pattern: string): string[] => [...new Glob(pattern).scanSync({ cwd: ROOT })].sort();
 
 // The contexts: bounded (src/package.json), whose core is src/core and whose
-// shipped packs are src/packs/<name>, and each library (src/lib/<name>).
+// shipped packs are src/packs/<name>, each library (src/lib/<name>), and each
+// published pack's package (src/published-packs/<name>, ADR 2026-030), whose
+// packs are src/published-packs/<name>/packs/<pack>.
 const contexts: Context[] = [];
-for (const manifest of [...manifestsMatching("src/package.json"), ...manifestsMatching("src/lib/*/package.json")]) {
+for (const manifest of [...manifestsMatching("src/package.json"), ...manifestsMatching("src/lib/*/package.json"), ...manifestsMatching("src/published-packs/*/package.json")]) {
   contexts.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
+/** Where the published packs' packages live (ADR 2026-030). */
+const PUBLISHED_PACKS = "src/published-packs/";
+/** The published packs' packages: each a context of its own. */
+const publishedPackages: readonly Context[] = contexts.filter((context) => context.dir.startsWith(PUBLISHED_PACKS));
+/** The directory of the published pack's package a path is in (`src/published-packs/<name>`), or undefined when it is in none. */
+const publishedPackageDirOf = (path: string): string | undefined => (path.startsWith(PUBLISHED_PACKS) ? path.split("/").slice(0, 3).join("/") : undefined);
 
 // Apps (src/hosts/<name> and src/cli) are the programs built on the contexts,
 // such as host adapters. An app may do I/O and use libraries, but reaches a
@@ -161,11 +174,14 @@ function exampleImportViolations(path: string, imports: readonly { spec: string;
 }
 /** What each layer of a shipped pack may import of its own pack. */
 const PACK_LAYERS: Readonly<Record<string, readonly string[]>> = { domain: ["domain"], application: ["domain", "application"], root: ["domain", "application", "root"] };
+/** A file's pack directory (`<sourceRoot>/`), a shipped or published pack's, or undefined when it is in no pack. */
+const packDirOf = (file: string | undefined): string | undefined => {
+  const unit = file === undefined ? undefined : placedUnitOf(file);
+  return unit?.kind === "pack" ? `${unit.sourceRoot}/` : undefined;
+};
 function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
-  const packDir = (file: string | undefined): string | undefined => {
-    const unit = file === undefined ? undefined : placedUnitOf(file);
-    return unit?.kind === "pack" ? `${unit.sourceRoot}/` : undefined;
-  };
+  if (publishedPackageDirOf(path) !== undefined) return publishedPackViolations(path, imports, context);
+  const packDir = packDirOf;
   const own = packDir(path);
   const isTest = /\.test(-support)?\.ts$/.test(path);
   const unit = placedUnitOf(path);
@@ -190,7 +206,8 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
       }
       continue;
     }
-    if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
+    // A published pack is imported by nothing outside its package: publishedPackageImportViolations says so.
+    if (into !== undefined && into !== own && !rootTest && publishedPackageDirOf(into) === undefined) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
     const adapter = from === "adapters";
@@ -209,6 +226,85 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     }
   }
   return out;
+}
+
+/**
+ * A published pack (ADR 2026-030), in its own package at
+ * src/published-packs/<name>/, is an ordinary pack as a shipped one is, with
+ * the same small hexagon inside, but bounded is another package to it: its
+ * code reaches bounded only through `bounded/domain`, never by relative path
+ * and never through another export path (a shipped pack's included), its own
+ * files only by relative path within its pack (never through its package's
+ * name), and libraries only when its package declares them; only its
+ * adapters/out/ do I/O. Its examples import as a project's configuration
+ * does: bounded/domain, the shipped packs' own export paths and its own
+ * package's pack export paths. Its tests are held to the import rules only
+ * by contextImportViolations, as a shipped pack's are.
+ */
+function publishedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
+  const core = byName.get(CORE);
+  const own = packDirOf(path);
+  const isTest = /\.test(-support)?\.ts$/.test(path);
+  const from = packLayerOf(path) ?? "root";
+  const adapter = from === "adapters";
+  /** The file an export path of a package names, from the repository root, or undefined when the package has no such export path. */
+  const exportFile = (pkg: Context | undefined, spec: string): string | undefined => {
+    if (pkg === undefined) return undefined;
+    const target = pkg.exports[spec === pkg.name ? "." : `./${spec.slice(pkg.name.length + 1)}`];
+    return target === undefined ? undefined : exportFileOf(pkg, target);
+  };
+  const isPackage = (pkg: Context | undefined, spec: string): boolean => pkg !== undefined && (spec === pkg.name || spec.startsWith(`${pkg.name}/`));
+  /** Whether a file is a pack's own export: the index.ts at the root of a shipped or published pack. */
+  const isPackIndex = (file: string | undefined): boolean => file !== undefined && packDirOf(file) !== undefined && file === `${packDirOf(file)}index.ts`;
+  const out: string[] = [];
+  for (const { spec, line } of imports) {
+    const at = `${path}:${line} imports "${spec}"`;
+    const relative = spec.startsWith(".");
+    const file = relative ? new URL(spec, `file:///${path}`).pathname.slice(1) : (exportFile(core, spec) ?? exportFile(context, spec));
+    if (packDirOf(file) !== undefined && packLayerOf(file ?? "") === "examples") {
+      out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+      continue;
+    }
+    if (packLayerOf(path) === "examples") {
+      if (relative || !(isPackage(core, spec) || isPackage(context, spec))) out.push(`${at} — an example imports only ${CORE}'s and ${context.name}'s export paths, as a project's configuration does`);
+      else if (spec !== `${CORE}/domain` && !isPackIndex(file)) {
+        out.push(`${at} — an example imports only ${CORE}/domain, the shipped packs' own export paths (${CORE}/<pack>) and ${context.name}'s pack export paths, as a project's configuration does; "${spec}" is not one`);
+      }
+      continue;
+    }
+    if (own === undefined || isTest) continue;
+    if (relative) {
+      const to = packLayerOf(file ?? "") ?? "root";
+      const allowed = adapter ? ["domain", "application", "adapters"] : (PACK_LAYERS[from] ?? []);
+      if (file === undefined || !file.startsWith(own)) {
+        out.push(publishedPackageDirOf(file ?? "") === undefined ? `${at} — a published pack reaches bounded only through ${CORE}/domain, never by relative path` : `${at} — a published pack reaches only its own pack's files by relative path`);
+      } else if (!allowed.includes(to)) out.push(`${at} — a pack's ${from} may not import its ${to}`);
+    } else if (isPackage(context, spec)) out.push(`${at} — a published pack reaches its own files by relative path, never through its package's name`);
+    else if (isPackage(core, spec)) {
+      if (spec !== `${CORE}/domain`) out.push(`${at} — a published pack depends only on \`${CORE}/domain\`, the core's public exports`);
+    } else if (adapter ? !spec.startsWith("node:") && !context.dependencies.includes(spec) : IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
+      out.push(`${at} — ${adapter ? "a pack's adapter uses only node:* and libraries its package declares" : "a published pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do"}`);
+    }
+  }
+  return out;
+}
+
+const NOTHING_IMPORTS_A_PUBLISHED_PACK = "nothing outside a published pack's package imports it: bounded never depends on a published pack";
+/**
+ * Any file's imports of a published pack's package (ADR 2026-030), by name
+ * (`bounded-<name>`, `bounded-<name>/…`) or by relative path into
+ * src/published-packs/<name>/, from outside that package: every file of the
+ * repository is read for them, its tests and every unit's test/ included. A
+ * package's own files may import it.
+ */
+function publishedPackageImportViolations(path: string, imports: readonly { spec: string; line: number }[]): string[] {
+  const ownPackageDir = publishedPackageDirOf(path);
+  return imports
+    .filter(({ spec }) => {
+      const targetDir = spec.startsWith(".") ? publishedPackageDirOf(new URL(spec, `file:///${path}`).pathname.slice(1)) : publishedPackages.find((pkg) => spec === pkg.name || spec.startsWith(`${pkg.name}/`))?.dir;
+      return targetDir !== undefined && targetDir !== ownPackageDir;
+    })
+    .map(({ spec, line }) => `${path}:${line} imports "${spec}" — ${NOTHING_IMPORTS_A_PUBLISHED_PACK}`);
 }
 
 function importsOf(path: string, text: string): { spec: string; line: number; typeOnly: boolean }[] {
@@ -408,14 +504,18 @@ function contextImportViolations(path: string, text: string): string[] {
   return out;
 }
 
+/** Whether a path is build output: bounded's (src/dist/) or a published pack's package's (src/published-packs/<name>/dist/, ADR 2026-030). */
+const isBuildOutput = (path: string): boolean => path.startsWith("src/dist/") || /^src\/published-packs\/[^/]+\/dist\//.test(path);
+
 /**
- * Outside every scan: the repository's own tests (src/test/), bounded's
- * build output (src/dist/), src/'s own files (bounded's build), installed
- * packages, and the declarations Claude Code writes into a plugin folder it
- * loads (`.claude-plugin/types/`, ADR 2026-027).
+ * Outside every scan: the repository's own tests (src/test/), build output
+ * (bounded's src/dist/ and each published pack's package's dist/), src/'s
+ * own files (bounded's build and the published packs'), installed packages,
+ * and the declarations Claude Code writes into a plugin folder it loads
+ * (`.claude-plugin/types/`, ADR 2026-027).
  */
 const outsideEveryScan = (path: string): boolean =>
-  path.startsWith("src/test/") || path.startsWith("src/dist/") || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules") || path.includes("/.claude-plugin/types/");
+  path.startsWith("src/test/") || isBuildOutput(path) || !path.slice("src/".length).includes("/") || path.split("/").includes("node_modules") || path.includes("/.claude-plugin/types/");
 
 /** The prereqs status band (ADR 2026-027): a Claude Code plugin folder, shipped alone in dist, so it reaches nothing outside itself. */
 const BAND = "src/hosts/claude-code/prereqs-status-band/";
@@ -480,7 +580,7 @@ for (const path of files) {
   const layer = layerOf(path);
   const isTest = /\.test(-support)?\.ts$/.test(path);
   if (context === undefined || layer === undefined) {
-    violations.push(`${path} — every file sits in a context's domain/, application/, adapters/ or composition-root/, or in a shipped pack's directory`);
+    violations.push(`${path} — every file sits in a context's domain/, application/, adapters/ or composition-root/, or in a shipped or published pack's directory`);
     continue;
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
@@ -576,13 +676,18 @@ for (const path of appFiles.filter((file) => file.startsWith(BAND))) bandRuleVio
 
 // No file imports a pack's example: the files above are read for it by shippedPackViolations; every other file (the apps', src/test/ and every unit's test/) is read here.
 const scannedForExampleImports = new Set(files);
-for (const path of [...new Glob("src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].filter((path) => !path.startsWith("src/dist/") && !path.split("/").includes("node_modules") && !scannedForExampleImports.has(path)).sort()) {
+for (const path of [...new Glob("src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].filter((path) => !isBuildOutput(path) && !path.split("/").includes("node_modules") && !scannedForExampleImports.has(path)).sort()) {
   violations.push(...exampleImportViolations(path, importsOf(path, await Bun.file(`${ROOT}/${path}`).text())));
 }
 
-/** Every file R7 reads: the scan's TypeScript and each shipped pack's other files git tracks (its README), never an untracked or ignored one. */
+// Nothing outside a published pack's package imports it (ADR 2026-030): every TypeScript file of the repository is read for it, but build output and installed packages.
+for (const path of [...["src/**/*.ts", "scripts/**/*.ts", "*.ts"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: ROOT, dot: true })])].filter((path) => !isBuildOutput(path) && !path.split("/").includes("node_modules")).sort()) {
+  violations.push(...publishedPackageImportViolations(path, importsOf(path, await Bun.file(`${ROOT}/${path}`).text())));
+}
+
+/** Every file R7 reads: the scan's TypeScript and each shipped or published pack's other files git tracks (its README), never an untracked or ignored one. */
 function packLayoutPaths(): string[] {
-  return [...files, ...trackedFiles().filter((path) => path.startsWith("src/packs/") && !path.endsWith(".ts"))];
+  return [...files, ...trackedFiles().filter((path) => (path.startsWith("src/packs/") || /^src\/published-packs\/[^/]+\/packs\//.test(path)) && !path.endsWith(".ts"))];
 }
 
 // The contract rules R1–R7 (architecture.rules.test-support.ts): every file of every context and shipped pack, tests included; the test-support import ban reads the apps too.
