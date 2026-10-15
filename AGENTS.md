@@ -41,8 +41,10 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
   earlier red commit owns records it in `superseded-tests.json` (successor
   and reason), in the red commit of that change.
 - **Red first, never weakened.** Commit the failing tests alone before
-  implementing: test files, `*.test-support.ts` conformance suites and
-  fixtures only. Before review, run
+  implementing: test files, `*.test-support.ts` conformance suites,
+  fixtures and shipped packs' example scenarios
+  (`src/packs/<name>/examples/<slug>.scenarios.ts`, which afterwards only
+  test-only commits may change) only. Before review, run
   `bun scripts/workflow/red-first-check.ts <red-commit> [<branch>]`: it proves
   the red commit touched only tests, that its tests failed at that commit,
   and that none was later deleted, skipped, emptied or stripped of assertions,
