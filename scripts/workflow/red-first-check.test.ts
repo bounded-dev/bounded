@@ -453,6 +453,49 @@ describe("red-first-check end to end", () => {
       );
     }, 60_000);
 
+    test("a change to the configuration of a scenarios file moved after the red commit is a note", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      repo.git("mv", SCENARIOS, "src/packs/p/examples/b.scenarios.ts");
+      repo.git("commit", "--quiet", "-m", "test-only rename");
+      repo.commit({ "sum.ts": `${SUM}// touched\n`, "src/packs/p/examples/b.config.ts": "export default {};\n" }, "build");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines).toContain(
+        "note: scenarios: src/packs/p/examples/b.config.ts, the configuration src/packs/p/examples/b.scenarios.ts is judged under, changed since the red commit: read its diff",
+      );
+    }, 60_000);
+
+    test("a change to the configuration of a scenarios file the red commit did not touch is a note", () => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/packs/p/examples"), { recursive: true });
+      repo.commit({ [SCENARIOS]: scenarios("written before the red commit") }, "earlier scenarios");
+      const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+      repo.commit({ "sum.ts": SUM, "src/packs/p/examples/a.config.ts": "export default {};\n" }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines).toContain(
+        "note: scenarios: src/packs/p/examples/a.config.ts, the configuration src/packs/p/examples/a.scenarios.ts is judged under, changed since the red commit: read its diff",
+      );
+    }, 60_000);
+
+    // This case passes at the red commit already (the deletion touches the
+    // configuration's path), so the check prints its "already passes" note for
+    // it; it pins that a deleted configuration is reported too.
+    test("deleting the configuration a scenarios file is judged under is a note", () => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/packs/p/examples"), { recursive: true });
+      repo.commit({ "src/packs/p/examples/a.config.ts": "export default {};\n" }, "configuration");
+      const red = repo.commit({ "sum.test.ts": RED_TEST, [SCENARIOS]: scenarios("as written red") }, "red");
+      repo.git("rm", "--quiet", "src/packs/p/examples/a.config.ts");
+      repo.commit({ "sum.ts": SUM }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines).toContain(
+        "note: scenarios: src/packs/p/examples/a.config.ts, the configuration src/packs/p/examples/a.scenarios.ts is judged under, changed since the red commit: read its diff",
+      );
+    }, 60_000);
+
     // This case passes at the red commit: no configuration note is printed
     // there either, so the red-first check prints its "already passes" note
     // for it. It is kept as a guard against a configuration note printed
