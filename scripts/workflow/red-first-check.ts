@@ -7,9 +7,11 @@
 // commit and the branch it sits on (default HEAD), this checks four things:
 //
 //   1. scope      the red commit adds or modifies only test files (*.test.ts,
-//                 *.test.tsx), shared test code (*.test-support.ts) and test
+//                 *.test.tsx), shared test code (*.test-support.ts), test
 //                 fixtures (anything under a testdata/, fixtures/,
-//                 __fixtures__/ or __snapshots__/ directory). It deletes
+//                 __fixtures__/ or __snapshots__/ directory) and shipped
+//                 packs' example scenarios
+//                 (src/packs/<name>/examples/<slug>.scenarios.ts). It deletes
 //                 nothing, and adds at least one runnable test file.
 //   2. red        each runnable test file the red commit touches fails when
 //                 `bun test` runs it alone at the red commit, in a temporary
@@ -45,6 +47,21 @@
 // A case recorded as superseded must not still exist at the head under the
 // same id in its own file, followed through renames by git's rename
 // detection; a case moved to an unrelated file is not detected.
+//
+// Example scenarios. Scenarios are tests, so they never ride in a build
+// commit: every example scenarios file any commit after the red commit adds,
+// changes or deletes, whether or not the red commit touched it, may be changed
+// only by test-only commits. A rename counts as both its paths, so a
+// test-only move takes no file out of the guard. A merge is judged only when
+// its version of the file differs from every parent's (git log's history
+// simplification leaves out the others), by the paths it changed itself. So
+// no build commit adds, changes or deletes expectations, and a red scenarios
+// file no commit touched is byte-identical at the head. The check never reads
+// a scenarios file: a test-only commit may still change or delete one, so each
+// one changed since the red commit is printed as a note and the reviewer
+// reads its diff. A build commit's change to a scenarios file that a merge
+// then discarded (taking the other side's version) is not reported: it is
+// not in the head.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
@@ -96,9 +113,16 @@ function underFixtureDirectory(path: string): boolean {
 /** The record of superseded test cases, at the repository root. */
 export const SUPERSESSIONS = "superseded-tests.json";
 
-/** A path a red commit may touch: a test file, shared test code, a test fixture or the supersession record. */
+/**
+ * A shipped pack's example scenarios: `src/packs/<name>/examples/<slug>.scenarios.ts`,
+ * one level deep with a kebab-case slug, beside the example it states calls
+ * and expected verdicts for. Not the example itself, which is shipped configuration.
+ */
+export const EXAMPLE_SCENARIOS = /^src\/packs\/[^/]+\/examples\/[a-z0-9]+(-[a-z0-9]+)*\.scenarios\.ts$/;
+
+/** A path a red commit may touch: a test file, shared test code, a test fixture, a shipped pack's example scenarios or the supersession record. */
 export function isTestPath(path: string): boolean {
-  return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path) || path === SUPERSESSIONS;
+  return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path) || EXAMPLE_SCENARIOS.test(path) || path === SUPERSESSIONS;
 }
 
 /** Fixture directories whose files are exercised by a test elsewhere: a change to them runs that test too. */
@@ -661,25 +685,58 @@ function run(args: readonly string[], print: (line: string) => void): number {
   const runners = fixtureRunners(changes.map((c) => c.path)).filter((f) => !testFiles.includes(f) && show(repo, red, f) !== undefined);
   print(`scope: ${changes.length} path(s) in the red commit, ${testFiles.length} runnable test file(s)${runners.length > 0 ? `, plus ${runners.join(", ")} for its fixtures` : ""}`);
 
+  // The commits after the red commit that touch `path`. A merge's parents'
+  // own commits are listed and checked too, so a merge is judged only by
+  // what it did itself.
+  const commitsTouching = (path: string): string[] =>
+    git(repo, "log", "--format=%H", `${red}..${head}`, "--", path)
+      .split("\n")
+      .filter((l) => l !== "");
+  const parentsOf = (commit: string): string[] => git(repo, "rev-list", "--parents", "-n", "1", commit).trim().split(" ").slice(1);
+  // Whether every path the commit changed itself is a test path; for a merge,
+  // the paths it changed itself are those differing from every parent (--cc).
+  const isTestOnlyCommit = (commit: string, parents: readonly string[]): boolean =>
+    git(repo, "diff-tree", ...(parents.length > 1 ? ["--cc"] : ["-r", "--root"]), "--no-commit-id", "--name-only", commit)
+      .split("\n")
+      .filter((l) => l !== "")
+      .every(isTestPath);
+
   // The record may change only in test-only commits after the red commit, so
   // a build can never quietly supersede the tests it should pass.
-  for (const commit of git(repo, "log", "--format=%H", `${red}..${head}`, "--", SUPERSESSIONS).split("\n").filter((l) => l !== "")) {
-    // For a merge, the paths it changed itself: those differing from every
-    // parent (--cc). Its parents' own commits are listed and checked here too.
-    const parents = git(repo, "rev-list", "--parents", "-n", "1", commit).trim().split(" ").slice(1);
-    const merge = parents.length > 1;
+  for (const commit of commitsTouching(SUPERSESSIONS)) {
+    const parents = parentsOf(commit);
     // A merge that adds no record neither parent had adds no supersession,
     // whatever else it resolves; dropping a record only makes the check stricter.
-    if (merge) {
+    if (parents.length > 1) {
       const key = (r: Supersession) => JSON.stringify([r.file, r.case, r.successor, r.reason]);
       const inParents = new Set(parents.flatMap((parent) => recordsAt(parent).map(key)));
       const merged = recordsAt(commit).map(key);
       if (merged.every((r) => inParents.has(r))) continue;
     }
-    const paths = git(repo, "diff-tree", ...(merge ? ["--cc"] : ["-r", "--root"]), "--no-commit-id", "--name-only", commit)
-      .split("\n")
-      .filter((l) => l !== "");
-    if (!paths.every(isTestPath)) failures.push(`supersessions: ${SUPERSESSIONS} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
+    if (!isTestOnlyCommit(commit, parents)) failures.push(`supersessions: ${SUPERSESSIONS} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
+  }
+
+  // Scenarios are tests, so they never ride in a build commit: every shipped
+  // pack's example scenarios file any commit after the red commit adds,
+  // changes or deletes (each path of a rename, so a test-only move takes no
+  // file out of the guard) may be changed only by test-only commits. A merge
+  // is listed only when its version of the file differs from every parent's,
+  // as git log simplifies history, and then counts by the paths it changed
+  // itself. The check does not read them: each one changed since the red
+  // commit is a note, and the reviewer reads its diff.
+  const scenariosChangedSinceRed = [
+    ...new Set(
+      git(repo, "log", "--format=", "--name-only", "--no-renames", "-m", `${red}..${head}`)
+        .split("\n")
+        .filter((l) => EXAMPLE_SCENARIOS.test(l)),
+    ),
+  ].sort();
+  for (const path of scenariosChangedSinceRed) {
+    const touching = commitsTouching(path);
+    for (const commit of touching) {
+      if (!isTestOnlyCommit(commit, parentsOf(commit))) failures.push(`scenarios: ${path} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
+    }
+    if (touching.length > 0) notes.push(`scenarios: ${path} changed since the red commit: read its diff`);
   }
 
   // 2. red

@@ -99,8 +99,9 @@ tree.
 
 - **Scope:** the red commit only adds or modifies `*.test.ts` / `*.test.tsx`
   files, `*.test-support.ts` files, fixtures under `testdata/`,
-  `fixtures/`, `__fixtures__/` or `__snapshots__/` and `superseded-tests.json`,
-  and adds at least one runnable test file.
+  `fixtures/`, `__fixtures__/` or `__snapshots__/`, a shipped pack's example
+  scenarios (`src/packs/<name>/examples/<slug>.scenarios.ts`) and
+  `superseded-tests.json`, and adds at least one runnable test file.
 - **Red:** at the red commit, `bun test` run on each of those test files
   alone fails (a failing test or a file that does not load). A new case that
   already passes inside a failing file is a note.
@@ -129,6 +130,19 @@ tree.
   neither parent had passes, whatever else it resolves (dropping a record
   only makes the check stricter); any other merge counts by the paths it changed itself, those
   differing from every parent.
+- **Scenarios:** scenarios are tests, so they never ride in a build commit.
+  Every shipped pack's example scenarios file that any commit after the red
+  commit adds, changes or deletes, whether or not the red commit touched it,
+  may be changed only by test-only commits. A rename counts as both its
+  paths, so a test-only move takes no file out of the guard. A merge is
+  judged only when its version of the file differs from every parent's, by
+  the paths it changed itself. A red scenarios file no later commit touched
+  is byte-identical at the head. The check never reads a scenarios file, and
+  a test-only commit can still change one, weakening its expectations, or
+  delete it: the check would pass. So each scenarios file changed since the
+  red commit is printed as a note (`scenarios: <path> changed since the red
+  commit: read its diff`), and that note is where any weakening shows: the
+  final reviewer must read that file's diff from the red commit to the head.
 
 **What a supersession record cannot prove.** A record says a case was
 replaced; the check confirms the successor exists, is a single named case,

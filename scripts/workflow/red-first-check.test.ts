@@ -26,6 +26,15 @@ describe("red-first-check paths", () => {
     for (const runner of FIXTURE_RUNNERS) expect([runner.test, existsSync(join(repoRoot, runner.test))]).toEqual([runner.test, true]);
   });
 
+  test("a shipped pack's example scenarios may be in a red commit; its example and other scenarios files may not", () => {
+    expect(isTestPath("src/packs/prereqs/examples/review-plan-before-building.scenarios.ts")).toBe(true);
+    expect(isTestPath("src/packs/prereqs/examples/review-plan-before-building.config.ts")).toBe(false);
+    expect(isTestPath("src/packs/prereqs/domain/x.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/packs/prereqs/examples/nested/x.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/packs/prereqs/examples/Bad_Name.scenarios.ts")).toBe(false);
+    expect(isRunnableTestPath("src/packs/prereqs/examples/review-plan-before-building.scenarios.ts")).toBe(false);
+  });
+
   test("only test files outside fixture directories are runnable", () => {
     expect(isRunnableTestPath("a.test.ts")).toBe(true);
     expect(isRunnableTestPath("fixtures/a.test.ts")).toBe(false);
@@ -297,6 +306,105 @@ describe("red-first-check end to end", () => {
     const lines: string[] = [];
     expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
   }, 60_000);
+
+  describe("example scenarios", () => {
+    const SUM = "export const sum = (a: number, b: number): number => a + b;\n";
+    const SCENARIOS = "src/packs/p/examples/a.scenarios.ts";
+    const scenarios = (text: string) => `export default [${JSON.stringify(text)}];\n`;
+    const NOTES_TEST = `import { expect, test } from "bun:test";\ntest("n", () => { expect(1).toBe(1); });\n`;
+    /** A repository whose red commit holds sum.test.ts and the scenarios file. */
+    const redWithScenarios = (): { repo: ReturnType<typeof repository>; red: string } => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/packs/p/examples"), { recursive: true });
+      const red = repo.commit({ "sum.test.ts": RED_TEST, [SCENARIOS]: scenarios("as written red") }, "red");
+      return { repo, red };
+    };
+    const FAIL_LINE = /^FAIL scenarios: src\/packs\/p\/examples\/a\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/;
+
+    test("example scenarios in the red commit, changed later only by test-only commits, pass", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      repo.commit({ [SCENARIOS]: scenarios("changed by a test-only commit"), "notes.test.ts": NOTES_TEST }, "test-only change");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines.at(-1)).toBe("PASS red-first check");
+      expect(lines.some((l) => l.startsWith("note: scenarios: src/packs/p/examples/a.scenarios.ts changed since the red commit"))).toBe(true);
+    }, 60_000);
+
+    test("example scenarios changed by a commit that is not test-only fail", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM, [SCENARIOS]: scenarios("changed by the build") }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => FAIL_LINE.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a merge that changes example scenarios and code itself is not test-only; an ordinary merge passes", () => {
+      /** Red on main; a build branch with the code; a test-only change of the scenarios on main; then a merge of build. */
+      const branches = (): { repo: ReturnType<typeof repository>; red: string } => {
+        const { repo, red } = redWithScenarios();
+        repo.git("checkout", "--quiet", "-b", "build");
+        repo.commit({ "sum.ts": SUM }, "green");
+        repo.git("checkout", "--quiet", "main");
+        repo.commit({ [SCENARIOS]: scenarios("changed on main by a test-only commit") }, "test-only on main");
+        return { repo, red };
+      };
+
+      const ordinary = branches();
+      ordinary.repo.git("merge", "--quiet", "--no-ff", "-m", "merge build", "build");
+      const ordinaryLines: string[] = [];
+      expect(main([ordinary.red, "HEAD", "--repo", ordinary.repo.dir], (l) => ordinaryLines.push(l))).toBe(0);
+
+      const evil = branches();
+      evil.repo.git("merge", "--quiet", "--no-ff", "--no-commit", "build");
+      // The merge rewrites the scenarios to a text neither side had, and changes code.
+      writeFileSync(join(evil.repo.dir, SCENARIOS), scenarios("rewritten in the merge"));
+      writeFileSync(join(evil.repo.dir, "sum.ts"), "export const sum = (a: number, b: number): number => b + a;\n");
+      evil.repo.git("add", "-A");
+      evil.repo.git("commit", "--quiet", "--no-edit");
+      const merge = evil.repo.git("rev-parse", "HEAD");
+      const evilLines: string[] = [];
+      expect(main([evil.red, "HEAD", "--repo", evil.repo.dir], (l) => evilLines.push(l))).toBe(1);
+      expect(evilLines.some((l) => FAIL_LINE.test(l) && l.includes(merge.slice(0, 12)))).toBe(true);
+    }, 120_000);
+
+    test("a test-only rename does not take example scenarios out of the guard: a build commit changing the renamed file fails", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      repo.git("mv", SCENARIOS, "src/packs/p/examples/b.scenarios.ts");
+      repo.git("commit", "--quiet", "-m", "test-only rename");
+      repo.commit({ "src/packs/p/examples/b.scenarios.ts": scenarios("changed by the build after the rename"), "sum.ts": `${SUM}// touched\n` }, "build");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => /^FAIL scenarios: src\/packs\/p\/examples\/b\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a build commit that adds a new example scenarios file fails", () => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/packs/p/examples"), { recursive: true });
+      const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+      repo.commit({ "sum.ts": SUM, "src/packs/p/examples/new.scenarios.ts": scenarios("added by the build") }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => /^FAIL scenarios: src\/packs\/p\/examples\/new\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a merge that keeps one parent's example scenarios and resolves code itself passes", () => {
+      const { repo, red } = redWithScenarios();
+      repo.git("checkout", "--quiet", "-b", "build");
+      repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b; // build\n" }, "green on build");
+      repo.git("checkout", "--quiet", "main");
+      repo.commit({ [SCENARIOS]: scenarios("changed on main by a test-only commit") }, "test-only on main");
+      repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b; // main\n" }, "green on main");
+      // Both sides changed sum.ts: the merge stops on the conflict and resolves the code itself, keeping main's scenarios.
+      spawnSync("git", ["merge", "--quiet", "--no-ff", "--no-commit", "build"], { cwd: repo.dir });
+      writeFileSync(join(repo.dir, "sum.ts"), SUM);
+      repo.git("add", "-A");
+      repo.git("commit", "--quiet", "--no-edit");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    }, 60_000);
+  });
 
   test("a red commit may delete a test file only when every case in it is recorded as superseded", () => {
     const OLD = `import { expect, test } from "bun:test";\ntest("old", () => { expect(1).toBe(1); });\n`;
