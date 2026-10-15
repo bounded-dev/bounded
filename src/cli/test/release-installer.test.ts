@@ -304,6 +304,27 @@ test("Unix installer refuses a modified managed launcher and refreshes its PATH 
   }
 });
 
+test("Unix installer preserves an edited PATH marker and refuses to replace it", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f.script, f.env).exitCode).toBe(0);
+    const profile = [join(f.root, "home", ".profile"), join(f.root, "home", ".zshrc")].find(existsSync);
+    expect(profile).toBeDefined();
+    if (profile === undefined) throw new Error("profile missing");
+    const changed = readFileSync(profile, "utf8").replace(/^.*# bounded installer PATH v1$/m, 'export PATH="/someone/else:$PATH" # bounded installer PATH v1');
+    writeFileSync(profile, changed);
+    const pointer = join(f.root, "data", "bounded", "active");
+    writeFileSync(pointer, "1.2.3\n");
+    const result = run(f.script, { ...f.env, XDG_BIN_HOME: join(f.root, "other-bin") });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr?.toString()).toMatch(/profile.*not owned|profile.*modified|unrecognized profile/i);
+    expect(readFileSync(profile, "utf8")).toBe(changed);
+    expect(readFileSync(pointer, "utf8")).toBe("1.2.3\n");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test("Windows installer checks every release file and owns both launcher files before replacement", async () => {
   const f = await fixture();
   try {
