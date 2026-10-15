@@ -62,12 +62,13 @@
 // one changed since the red commit is printed as a note and the reviewer
 // reads its diff. A build commit's change to a scenarios file that a merge
 // then discarded (taking the other side's version) is not reported: it is
-// not in the head. A scenarios file states verdicts under its sibling configuration (the same
-// path with .config.ts for .scenarios.ts), which is shipped configuration a
-// build commit may change. For each scenarios file the red commit adds or
-// changes whose sibling configuration any commit after the red commit
-// touches, the check prints a note naming both, never a failure, and the
-// reviewer reads the configuration's diff.
+// not in the head. A scenarios file states verdicts under its sibling
+// configuration (the same path with .config.ts for .scenarios.ts), which is
+// shipped configuration a build commit may change. For every example
+// scenarios file at the head (whether or not the red commit touched it, and
+// wherever a move took it) whose sibling configuration any commit after the
+// red commit changed or deleted, the check prints a note naming both, never a
+// failure, and the reviewer reads the configuration's diff.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
@@ -747,14 +748,18 @@ function run(args: readonly string[], print: (line: string) => void): number {
     }
     if (touching.length > 0) notes.push(`scenarios: ${path} changed since the red commit: read its diff`);
   }
-  // A scenarios file the red commit adds or changes states verdicts under its
-  // sibling configuration, shipped code a build commit may change: a change
-  // to it since the red commit is a note, so the reviewer reads its diff.
-  for (const change of changes) {
-    if (change.status === "D" || !EXAMPLE_SCENARIOS.test(change.path)) continue;
-    const configurationPath = change.path.replace(/\.scenarios\.ts$/, ".config.ts");
+  // Every scenarios file at the head, whether or not the red commit touched
+  // it and wherever a move took it, states verdicts under its sibling
+  // configuration, shipped code a build commit may change: any change to it
+  // since the red commit (a deletion included) is a note, so the reviewer
+  // reads its diff.
+  const scenariosAtHead = git(repo, "ls-tree", "-r", "--name-only", head)
+    .split("\n")
+    .filter((l) => EXAMPLE_SCENARIOS.test(l));
+  for (const scenariosPath of scenariosAtHead) {
+    const configurationPath = scenariosPath.replace(/\.scenarios\.ts$/, ".config.ts");
     if (commitsTouching(configurationPath).length > 0) {
-      notes.push(`scenarios: ${configurationPath}, the configuration ${change.path} is judged under, changed since the red commit: read its diff`);
+      notes.push(`scenarios: ${configurationPath}, the configuration ${scenariosPath} is judged under, changed since the red commit: read its diff`);
     }
   }
 

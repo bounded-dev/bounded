@@ -6,7 +6,7 @@ decision is young; supersede it with a new record once code depends on it.
 
 | ADR | Decision |
 | --- | --- |
-| [2026-001](2026-001-development-lifecycle.md) | A development lifecycle: plan, plan review, red commit, build, final review (amended by `red-first-scenarios`: example scenarios may be in a red commit, and only test-only commits may change them; and by `red-first-published-scenarios`: published packs' example scenarios too, and a note when a red scenarios file's configuration changes) |
+| [2026-001](2026-001-development-lifecycle.md) | A development lifecycle: plan, plan review, red commit, build, final review (amended by `red-first-scenarios`: example scenarios may be in a red commit, and only test-only commits may change them; and by `red-first-published-scenarios`: published packs' example scenarios too, and a note when any scenarios file's configuration changes) |
 | [2026-002](2026-002-typed-extension-points.md) | Typed extension points with compile-time ownership; deviations from the example |
 | [2026-003](2026-003-packs-refer-to-packs.md) | Packs refer to each other as objects; strict typing is binding |
 | [2026-004](2026-004-namespaced-pack-ids.md) | npm-namespaced pack ids; selection by pack objects; workspace package `bounded` |

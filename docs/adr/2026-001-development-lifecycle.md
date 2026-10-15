@@ -81,7 +81,8 @@ so its scenarios are the same kind of expectation.
 A scenarios file's verdicts are judged under its sibling configuration
 (`<slug>.config.ts` beside it), which is shipped configuration a build commit
 may change. Changing it can change what the scenarios mean without touching
-them, so when the sibling configuration of a scenarios file the red commit
-adds or changes is changed after the red commit, the check prints a note
-naming both. It is a note, not a failure, and the final reviewer reads the
+them, so for every example scenarios file at the head, whether or not the red
+commit touched it and wherever a move took it, the check prints a note naming
+both when any commit after the red commit changed or deleted its sibling
+configuration. It is a note, not a failure, and the final reviewer reads the
 configuration's diff.

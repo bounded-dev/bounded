@@ -146,8 +146,9 @@ tree.
   final reviewer must read that file's diff from the red commit to the head.
   A scenarios file states verdicts under its sibling configuration
   (`<slug>.config.ts` beside it), shipped configuration a build commit may
-  change. When a commit after the red commit changes the sibling
-  configuration of a scenarios file the red commit adds or changes, the check
+  change. For every example scenarios file at the head, whether or not the
+  red commit touched it and wherever a move took it, when any commit after
+  the red commit changed or deleted its sibling configuration, the check
   prints a note, not a failure (`scenarios: <config path>, the configuration
   <scenarios path> is judged under, changed since the red commit: read its
   diff`), and the final reviewer reads that configuration's diff.

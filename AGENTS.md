@@ -45,7 +45,9 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
   fixtures and shipped and published packs' example scenarios
   (`src/packs/<name>/examples/<slug>.scenarios.ts` and
   `src/published-packs/<name>/packs/<pack>/examples/<slug>.scenarios.ts`,
-  which only test-only commits may ever add, change or delete) only. Before review, run
+  which only test-only commits may ever add, change or delete; a change to a
+  scenarios file's sibling `<slug>.config.ts` since the red commit is printed
+  as a note for the reviewer) only. Before review, run
   `bun scripts/workflow/red-first-check.ts <red-commit> [<branch>]`: it proves
   the red commit touched only tests, that its tests failed at that commit,
   and that none was later deleted, skipped, emptied or stripped of assertions,
