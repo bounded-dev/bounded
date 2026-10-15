@@ -35,6 +35,17 @@ describe("red-first-check paths", () => {
     expect(isRunnableTestPath("src/packs/prereqs/examples/review-plan-before-building.scenarios.ts")).toBe(false);
   });
 
+  test("a published pack's example scenarios may be in a red commit; its example and other scenarios files may not", () => {
+    expect(isTestPath("src/published-packs/example/packs/refused-tools/examples/refuse-a-tool.scenarios.ts")).toBe(true);
+    expect(isTestPath("src/published-packs/example/packs/refused-tools/examples/refuse-a-tool.config.ts")).toBe(false);
+    expect(isTestPath("src/published-packs/example/test/x.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/published-packs/example/packs/refused-tools/domain/x.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/published-packs/example/packs/refused-tools/examples/nested/x.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/published-packs/example/packs/refused-tools/examples/Bad_Name.scenarios.ts")).toBe(false);
+    expect(isTestPath("src/published-packs/example/examples/x.scenarios.ts")).toBe(false);
+    expect(isRunnableTestPath("src/published-packs/example/packs/refused-tools/examples/refuse-a-tool.scenarios.ts")).toBe(false);
+  });
+
   test("only test files outside fixture directories are runnable", () => {
     expect(isRunnableTestPath("a.test.ts")).toBe(true);
     expect(isRunnableTestPath("fixtures/a.test.ts")).toBe(false);
@@ -403,6 +414,55 @@ describe("red-first-check end to end", () => {
       repo.git("commit", "--quiet", "--no-edit");
       const lines: string[] = [];
       expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    }, 60_000);
+
+    const PUBLISHED_SCENARIOS = "src/published-packs/x/packs/p/examples/a.scenarios.ts";
+    /** A repository whose red commit holds sum.test.ts and a published pack's scenarios file. */
+    const redWithPublishedScenarios = (): { repo: ReturnType<typeof repository>; red: string } => {
+      const repo = repository();
+      mkdirSync(join(repo.dir, "src/published-packs/x/packs/p/examples"), { recursive: true });
+      const red = repo.commit({ "sum.test.ts": RED_TEST, [PUBLISHED_SCENARIOS]: scenarios("as written red") }, "red");
+      return { repo, red };
+    };
+
+    test("a published pack's example scenarios changed by a commit that is not test-only fail", () => {
+      const { repo, red } = redWithPublishedScenarios();
+      repo.commit({ "sum.ts": SUM, [PUBLISHED_SCENARIOS]: scenarios("changed by the build") }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+      expect(lines.some((l) => /^FAIL scenarios: src\/published-packs\/x\/packs\/p\/examples\/a\.scenarios\.ts was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+
+    test("a published pack's example scenarios changed later only by test-only commits pass, with a note", () => {
+      const { repo, red } = redWithPublishedScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      repo.commit({ [PUBLISHED_SCENARIOS]: scenarios("changed by a test-only commit"), "notes.test.ts": NOTES_TEST }, "test-only change");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines.at(-1)).toBe("PASS red-first check");
+      expect(lines.some((l) => l.startsWith("note: scenarios: src/published-packs/x/packs/p/examples/a.scenarios.ts changed since the red commit"))).toBe(true);
+    }, 60_000);
+
+    test("a change to the configuration a red scenarios file is judged under is a note, not a failure", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM, "src/packs/p/examples/a.config.ts": "export default {};\n" }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines).toContain(
+        "note: scenarios: src/packs/p/examples/a.config.ts, the configuration src/packs/p/examples/a.scenarios.ts is judged under, changed since the red commit: read its diff",
+      );
+    }, 60_000);
+
+    // This case passes at the red commit: no configuration note is printed
+    // there either, so the red-first check prints its "already passes" note
+    // for it. It is kept as a guard against a configuration note printed
+    // whether or not the configuration changed.
+    test("no configuration note when the sibling configuration is untouched", () => {
+      const { repo, red } = redWithScenarios();
+      repo.commit({ "sum.ts": SUM }, "green");
+      const lines: string[] = [];
+      expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+      expect(lines.some((l) => l.includes("the configuration"))).toBe(false);
     }, 60_000);
   });
 
