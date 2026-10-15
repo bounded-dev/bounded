@@ -117,7 +117,16 @@ case "\${SHELL:-}" in */zsh) profile="$HOME/.zshrc" ;; esac
 escaped_bin_dir=$(printf '%s' "$bin_dir" | sed 's/[\\$"__BACKTICK__]/\\&/g')
 profile_line="export PATH=\"$escaped_bin_dir:\$PATH\" # bounded installer PATH v1"
 if [ -L "$profile" ]; then echo "Refusing to replace a linked shell profile: $profile" >&2; exit 1; fi
-if [ -f "$profile" ] && grep -Fxq "$profile_line" "$profile"; then
+profile_state="$root/profile-line"
+if [ -L "$profile_state" ]; then echo "Bounded profile ownership record is linked" >&2; exit 1; fi
+marker_lines=''
+if [ -f "$profile" ]; then marker_lines=$(grep -F '# bounded installer PATH v1' "$profile" || true); fi
+if [ -n "$marker_lines" ]; then
+  if [ ! -f "$profile_state" ] || [ "$marker_lines" != "$(cat "$profile_state")" ]; then
+    echo "Bounded profile marker is modified or not owned; update PATH manually" >&2; exit 1
+  fi
+fi
+if [ "$marker_lines" = "$profile_line" ]; then
   :
 else
   profile_stage=$(mktemp "$HOME/.bounded-profile.XXXXXXXX")
@@ -125,6 +134,8 @@ else
   printf '\n%s\n' "$profile_line" >> "$profile_stage"
   mv "$profile_stage" "$profile"
 fi
+printf '%s\n' "$profile_line" > "$root/.profile-line.$$"
+mv "$root/.profile-line.$$" "$profile_state"
 printf '%s\n' "$version" > "$root/.active.$$"
 mv "$root/.active.$$" "$root/active"
 trap - EXIT HUP INT TERM
