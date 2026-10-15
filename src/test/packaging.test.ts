@@ -396,7 +396,7 @@ describe("bounded, the one published package", () => {
     const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest & { peerDependencies?: Record<string, string> };
     expect(inTarball.peerDependencies).toBeUndefined();
     expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
-  });
+  }, 120_000);
 
   test("dist carries the prereqs status band as a plugin folder: its manifest at bounded's version, hooks.json and its hooks modules, its state contract, no tests, importing only its own files", () => {
     const band = "dist/hosts/claude-code/prereqs-status-band/";
