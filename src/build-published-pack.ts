@@ -24,7 +24,7 @@ import { join, resolve } from "node:path";
 import { importsOf } from "./build-dist.ts";
 
 /** bounded's directory, src/: this build, bounded's built declarations and the workspace's tsconfig.base.json above it. */
-const HERE = import.meta.dir;
+const BOUNDED_DIR = import.meta.dir;
 
 type Target = string | Record<string, string>;
 interface Manifest {
@@ -47,7 +47,7 @@ export function missingBoundedDeclarations(boundedDir: string): string | undefin
 
 /** The package's declarations in dist/types, emitted by tsc from its export entries against bounded's built declarations. */
 async function buildDeclarations(packageDir: string, entries: readonly string[]): Promise<void> {
-  const missing = missingBoundedDeclarations(HERE);
+  const missing = missingBoundedDeclarations(BOUNDED_DIR);
   if (missing !== undefined) throw new Error(missing);
   // A package holds only package.json, README.md, LICENSE, packs/ and test/ at its root, so its tsconfig is written elsewhere.
   const configDir = mkdtempSync(join(tmpdir(), "bounded-published-pack-types-"));
@@ -55,13 +55,13 @@ async function buildDeclarations(packageDir: string, entries: readonly string[])
   writeFileSync(
     config,
     JSON.stringify({
-      extends: join(resolve(HERE, ".."), "tsconfig.base.json"),
+      extends: join(resolve(BOUNDED_DIR, ".."), "tsconfig.base.json"),
       compilerOptions: { declaration: true, emitDeclarationOnly: true, noEmit: false, rootDir: packageDir, outDir: join(packageDir, "dist", "types"), customConditions: [], types: [] },
       files: entries,
     }),
   );
   try {
-    const tsc = Bun.resolveSync("typescript/bin/tsc", HERE);
+    const tsc = Bun.resolveSync("typescript/bin/tsc", BOUNDED_DIR);
     const emitted = Bun.spawnSync([process.execPath, tsc, "-p", config], { cwd: packageDir, stdout: "pipe", stderr: "pipe" });
     if (emitted.exitCode !== 0) throw new Error(`${packageDir}'s declarations could not be emitted:\n${emitted.stdout.toString()}${emitted.stderr.toString()}`);
   } finally {
@@ -82,8 +82,8 @@ export async function buildPublishedPack(packageDir: string): Promise<void> {
   if (packageName === "") throw new Error(`${join(packageDir, "package.json")} names no package: give it a name`);
   await rm(join(packageDir, "dist"), { recursive: true, force: true });
 
-  const library = Object.values(manifest.exports ?? {}).flatMap((target) => (typeof target === "object" && target.default?.startsWith("./dist/") && target.bun !== undefined ? [target] : []));
-  const entries = library.map((target) => join(packageDir, target.bun ?? ""));
+  const builtExportTargets = Object.values(manifest.exports ?? {}).flatMap((target) => (typeof target === "object" && target.default?.startsWith("./dist/") && target.bun !== undefined ? [target] : []));
+  const entries = builtExportTargets.map((target) => join(packageDir, target.bun ?? ""));
   if (entries.length === 0) throw new Error(`${packageName} has no export to build: give each export a bun source and a default under ./dist/`);
   const built = await Bun.build({
     entrypoints: entries,

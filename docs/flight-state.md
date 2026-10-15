@@ -612,7 +612,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   nor protect published packs; a published pack may not depend on a
   shipped pack or another published package; every `bun test` invocation
   runs one declaration emit per published package in the preload, and
-  `bun run check` packs each one.
+  `bun run check` packs each one. The architecture test's import scans,
+  shared with the shipped packs' rules, read only `*.ts` files and see
+  import and export declarations, `import()` calls with a literal
+  specifier and `require(...)` calls, but not an `import("x").T` type node
+  nor `import x = require("x")`: a published package reached only through
+  one of those is not refused.
 
 ## 3. Not built yet
 

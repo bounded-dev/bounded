@@ -12,7 +12,9 @@ describe("RefusedTool laws", () => {
       const again = RefusedTool.parse(parsed.value.toJSON());
       expect({ form, ok: again.ok, equal: again.ok && again.value.equals(parsed.value) }).toEqual({ form, ok: true, equal: true });
       expect({ form, frozen: Object.isFrozen(parsed.value) }).toEqual({ form, frozen: true });
-      const other = RefusedTool.parse({ tool: `${parsed.value.tool}-other`, redirect: parsed.value.redirect });
+      // Another valid tool kind, so the comparison is of two refused tools: a tool that is no kind would not parse.
+      const other = RefusedTool.parse({ tool: parsed.value.tool === "web" ? "shell" : "web", redirect: parsed.value.redirect });
+      expect({ form, otherParsed: other.ok }).toEqual({ form, otherParsed: true });
       expect({ form, equal: other.ok && other.value.equals(parsed.value) }).toEqual({ form, equal: false });
     }
   });

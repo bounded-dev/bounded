@@ -11,6 +11,7 @@ import { Glob } from "bun";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { missingBoundedDeclarations, unknownPublishedPackImport } from "../build-published-pack.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const CORE = join(ROOT, "src");
@@ -150,6 +151,20 @@ describe("the published packs, each its own npm package", () => {
       expect({ dir, peer: manifest.peerDependencies?.bounded }).toEqual({ dir, peer: `~${major}.${minor}.0` });
       expect({ dir, dependency: manifest.dependencies?.bounded }).toEqual({ dir, dependency: undefined });
     }
+  });
+
+  test("build-published-pack refuses, naming the package, a built import that is not node's, bounded's, the package's own or its dependency's, and refuses to run before bounded's declarations are built", () => {
+    expect(unknownPublishedPackImport("dist/packs/a/index.js", "picomatch", "bounded-x", [])).toBe(
+      "dist/packs/a/index.js imports picomatch, which is neither node's, bounded's, bounded-x's nor one of bounded-x's dependencies: add it to bounded-x's dependencies",
+    );
+    for (const spec of ["node:fs", "bounded", "bounded/domain", "bounded-x", "bounded-x/other", "picomatch", "picomatch/posix"]) {
+      expect({ spec, problem: unknownPublishedPackImport("dist/packs/a/index.js", spec, "bounded-x", ["picomatch"]) }).toEqual({ spec, problem: undefined });
+    }
+    expect(unknownPublishedPackImport("dist/packs/a/index.js", "bounded-xy", "bounded-x", [])).toBeDefined();
+    expect(missingBoundedDeclarations(mkdtempSync(join(tmpdir(), "bounded-no-declarations-")))).toBe(
+      "bounded's declarations are not built (src/dist/types is missing): build bounded first with bun src/build-dist.ts",
+    );
+    expect(missingBoundedDeclarations(CORE)).toBeUndefined();
   });
 
   test("the example is a fixture: private, so it is never published", () => {
