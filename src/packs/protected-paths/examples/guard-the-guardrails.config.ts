@@ -4,15 +4,9 @@ import { protectedPathsPack } from "bounded/protected-paths";
 /**
  * Guard the guardrails, and what is generated or already applied
  *
- * Agents may not change this configuration, Bounded's own state, the hooks
- * that run Bounded (Claude Code's settings and pi's loader), Bounded's
- * installed code, or git's hooks and config: every path `bounded init`'s
- * defaults protect. Generated code is changed through its generator, with
- * the generator's own notes left editable, and applied migrations are
- * history: a new migration may be added, an existing one is never changed
- * or deleted. Drift puts back what a shell command changes in the
- * configuration, Claude Code's settings, pi's loader, generated code and
- * migrations; it never watches `.bounded/`, `.git` or `node_modules`.
+ * For any project: agents are kept off what keeps Bounded in place, every
+ * path `bounded init`'s defaults protect, and off generated code and
+ * applied migrations.
  */
 export default defineConfig({
   packs: [protectedPathsPack],

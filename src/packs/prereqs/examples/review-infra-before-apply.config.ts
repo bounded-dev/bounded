@@ -5,12 +5,9 @@ import { protectedPathsPack } from "bounded/protected-paths";
 /**
  * Review infrastructure changes before applying them
  *
- * A shell command that runs `terraform apply` (with any options, through
- * `sudo`, `env` or `bash -c`) is refused until infra-reviewer has succeeded
- * over the current `infra/` files. A command whose program only the shell
- * can name (`$TF apply`) is refused as one bounded cannot see, until the
- * review holds. The protected-paths pack keeps agents off the records in
- * `.bounded/` and off the agent definitions.
+ * For a project whose agents run Terraform: changes to the
+ * infrastructure are applied only once a reviewer agent has approved the
+ * current `infra/` files.
  */
 export default defineConfig({
   packs: [protectedPathsPack, prereqs],

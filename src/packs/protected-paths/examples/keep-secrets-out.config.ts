@@ -4,12 +4,8 @@ import { protectedPathsPack } from "bounded/protected-paths";
 /**
  * Keep secrets out of the agent's reach
  *
- * Agents may not read, create, change or delete the project's environment
- * files and private keys, nor anything under `secrets/`. A file rule
- * (`file: true`) covers the named file alone, so a search filtered to other
- * names (`*.ts`) is still allowed where it cannot reach `secrets/`, such as
- * under `src/`. The example file that lists the variables' names stays
- * readable.
+ * For a project that keeps credentials in its tree: agents are kept away
+ * from its environment files, private keys and `secrets/`.
  */
 export default defineConfig({
   packs: [protectedPathsPack],

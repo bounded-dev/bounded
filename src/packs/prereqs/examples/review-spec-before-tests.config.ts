@@ -5,11 +5,8 @@ import { protectedPathsPack } from "bounded/protected-paths";
 /**
  * Review the spec and contracts before writing tests
  *
- * A delegation to the test-writer agent is allowed only once spec-reviewer
- * has succeeded over the current spec and every contract file. Changing
- * the spec or a contract after the review makes it stale, so the tests are
- * always written against a reviewed spec. The protected-paths pack keeps
- * agents off the records in `.bounded/` and off the agent definitions.
+ * For a spec-first workflow: tests are written only against a spec and
+ * contracts a reviewer agent has approved.
  */
 export default defineConfig({
   packs: [protectedPathsPack, prereqs],
