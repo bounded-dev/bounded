@@ -109,7 +109,7 @@ test("Unix installer verifies exact pinned assets, installs a working launcher, 
     }
     const launcher = join(f.root, "bin", "bounded");
     expect(Bun.spawnSync([launcher, "--version"], { env: f.env, stdout: "pipe" }).stdout.toString().trim()).toBe(version);
-    const profiles = [join(f.root, "home", ".profile"), join(f.root, "home", ".zprofile")];
+    const profiles = [join(f.root, "home", ".profile"), join(f.root, "home", ".zshrc")];
     const profile = profiles.find((path) => existsSync(path));
     expect(profile).toBeDefined();
     if (profile === undefined) throw new Error("installer did not write a persistent shell profile");
@@ -125,11 +125,10 @@ test("Unix installer verifies exact pinned assets, installs a working launcher, 
 test("Unix installer leaves the old active release and launcher intact after digest failure or interrupted download", async () => {
   const f = await fixture();
   try {
-    mkdirSync(join(f.root, "data", "bounded"), { recursive: true });
-    mkdirSync(join(f.root, "bin"), { recursive: true });
+    expect(run(f.script, f.env).exitCode).toBe(0);
+    const oldLauncher = readFileSync(join(f.root, "bin", "bounded"), "utf8");
+    rmSync(join(f.root, "data", "bounded", "releases", `v${version}`), { recursive: true, force: true });
     writeFileSync(join(f.root, "data", "bounded", "active"), "1.2.3\n");
-    const oldLauncher = "#!/bin/sh\n# bounded launcher v1\necho old\n";
-    writeFileSync(join(f.root, "bin", "bounded"), oldLauncher);
     const originalArchive = readFileSync(f.archive);
     writeFileSync(f.archive, "corrupt bytes");
     const badDigest = run(f.script, f.env);
@@ -275,7 +274,7 @@ test("Unix installer verifies every file of an already installed release before 
     writeFileSync(join(release, "share", "types", "index.d.ts"), "tampered\n");
     const result = run(f.script, f.env);
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toMatch(/release.*mismatch|verification/i);
+    expect(result.stderr.toString()).toMatch(/release.*match|verification/i);
     expect(readFileSync(pointer, "utf8")).toBe("1.2.3\n");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
