@@ -17,12 +17,13 @@ its own worktree).
 
 The builder commits the plan's failing tests alone as the red commit.
 `scripts/workflow/red-first-check.ts` checks mechanically that the red commit
-touches only test files, shared test code, fixtures and shipped packs'
-example scenarios, that each of its test files fails under `bun test` at that
+touches only test files, shared test code, fixtures and shipped and
+published packs' example scenarios, that each of its test files fails under `bun test` at that
 commit, that at the branch head none of its test cases is deleted, skipped,
 emptied or left with fewer assertions, and each still runs, passes and makes
 an assertion, and that only test-only commits added, changed or deleted any
-example scenarios since (amended by `red-first-scenarios`, below). The planner's write and
+example scenarios since (amended by `red-first-scenarios` and
+`red-first-published-scenarios`, below). The planner's write and
 shell limits are enforced by a PreToolUse hook in its definition
 (`scripts/workflow/planner-gate.ts`). The orchestrator merges with `--no-ff`
 so the red commit stays in history.
@@ -67,3 +68,20 @@ every parent's, by the paths it changed itself. The limits: the check never
 reads a scenarios file, so a test-only commit may still change or delete
 one; each one changed since the red commit is printed as a note, and the
 final reviewer reads its diff from the red commit.
+
+## Amended by `red-first-published-scenarios`
+
+A published pack's example scenarios
+(`src/published-packs/<name>/packs/<pack>/examples/<slug>.scenarios.ts`,
+ADR 2026-030) are treated exactly as a shipped pack's: they may be in a red
+commit, and afterwards only test-only commits may add, change or delete one.
+A published pack is laid out exactly as a shipped pack, examples included,
+so its scenarios are the same kind of expectation.
+
+A scenarios file's verdicts are judged under its sibling configuration
+(`<slug>.config.ts` beside it), which is shipped configuration a build commit
+may change. Changing it can change what the scenarios mean without touching
+them, so when the sibling configuration of a scenarios file the red commit
+adds or changes is changed after the red commit, the check prints a note
+naming both. It is a note, not a failure, and the final reviewer reads the
+configuration's diff.
