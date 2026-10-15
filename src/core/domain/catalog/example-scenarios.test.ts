@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "../events/effect.ts";
+import { ProjectPath } from "../events/project-path.ts";
 import { Verdict } from "../verdicts/verdict.ts";
+import type { ExampleScenariosJSON } from "./example-scenarios.contract.ts";
 import { defineExampleScenarios, ExampleScenarios } from "./example-scenarios.ts";
 
 /** A whole set of scenarios in the normal form: every step kind, a search (a list and a read) and an execute command. */
@@ -160,8 +162,8 @@ describe("ExampleScenarios — an example's scenarios as data (ADR 2026-031)", (
     }
     for (const path of ["/etc/x", "../x"]) {
       const error = refusal(oneScenario([readStep], { projectFiles: { [path]: "x" } }));
-      expect({ path, error }).toEqual({ path, error: expect.stringStartingWith(`Scenario 1 ('t')'s project file '${path}': Path '${path}'`) });
-      expect({ path, error: refusal(oneScenario([readStep, { changeFiles: { [path]: "x" } }])) }).toEqual({ path, error: expect.stringStartingWith(`Scenario 1 ('t'), step 2: changed file '${path}': Path '${path}'`) });
+      expect({ path, error }).toEqual({ path, error: `Scenario 1 ('t')'s project file '${path}': ${errorOf(ProjectPath.parse(path))}` });
+      expect({ path, error: refusal(oneScenario([readStep, { changeFiles: { [path]: "x" } }])) }).toEqual({ path, error: `Scenario 1 ('t'), step 2: changed file '${path}': ${errorOf(ProjectPath.parse(path))}` });
     }
     for (const path of ["src/bounded.config.ts", "docs/.git-notes"]) {
       expect({ path, error: refusal(oneScenario([readStep], { projectFiles: { [path]: "x" } })) }).toEqual({ path, error: "accepted" });
@@ -240,7 +242,7 @@ describe("ExampleScenarios — an example's scenarios as data (ADR 2026-031)", (
   });
 
   test("defineExampleScenarios returns plain data, frozen all the way down", () => {
-    const given = oneScenario([{ toolUse: { tool: "shell", effects: [{ kind: "execute", command: "make" }] }, verdict: { kind: "allow" } }], { projectFiles: { "a.txt": "a\n" } });
+    const given: ExampleScenariosJSON = { scenarios: [{ title: "t", projectFiles: { "a.txt": "a\n" }, steps: [{ toolUse: { tool: "shell", effects: [{ kind: "execute", command: "make" }] }, verdict: { kind: "allow" } }] }] };
     const defined = defineExampleScenarios(given);
     expect(defined).toBe(given);
     const frozenAllTheWay = (value: unknown): boolean =>

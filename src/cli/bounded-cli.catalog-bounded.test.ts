@@ -91,7 +91,7 @@ describe("bounded's own catalogue", () => {
       if (!fromFile.ok) continue;
       expect({ path: example.path, scenarios: example.scenarios }).toEqual({ path: example.path, scenarios: fromFile.value.toJSON().scenarios });
       const catalogued = ExampleScenarios.parse({ scenarios: example.scenarios });
-      expect({ path: example.path, normal: catalogued.ok ? catalogued.value.toJSON().scenarios : catalogued.error }).toEqual({ path: example.path, normal: example.scenarios });
+      expect<unknown>({ path: example.path, normal: catalogued.ok ? catalogued.value.toJSON().scenarios : catalogued.error }).toEqual({ path: example.path, normal: example.scenarios });
       expect({ path: example.path, scenarios: Array.isArray(example.scenarios) && example.scenarios.length > 0 }).toEqual({ path: example.path, scenarios: true });
     }
   });
