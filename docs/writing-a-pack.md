@@ -8,6 +8,38 @@ structure, which rule R7 of the architecture test keeps
 The two shipped packs, `src/packs/protected-paths/` and `src/packs/prereqs/`,
 are worked examples.
 
+## Shipped or published
+
+A pack is **shipped** in `bounded` when it is generic and needs no heavy or
+vendor library, as `bounded/protected-paths` and `bounded/prereqs` are. A pack
+tied to one vendor or one language (the planned `bounded-jev` and
+`bounded-ts-lint`) is **published** as an npm package of its own, so a
+project installs its libraries only when it wants the pack and `bounded`'s
+releases do not follow that library's
+([ADR 2026-030](adr/2026-030-published-packs.md)).
+
+In this repository a published pack sits in its own package,
+`src/published-packs/<name>/`, named `bounded-<name>`:
+
+```
+src/published-packs/<name>/
+  package.json            bounded-<name>: bounded as a peerDependency (~<major>.<minor>.0) and a workspace:* devDependency
+  README.md               the npm page
+  LICENSE
+  packs/<pack>/           each pack, laid out exactly as a shipped pack's directory (below)
+  test/                   the package's end-to-end tests: its examples opened as projects' configurations, its READMEs and schemas checked
+```
+
+Its code reaches `bounded` through `bounded/domain` only, its own files by
+relative path, and libraries its `package.json` declares; nothing outside
+the package imports it. Each export has `bun`, `types` and `default`
+conditions, and the package's prepack is
+`bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build`:
+the repository's shared build, then this checkout's built CLI. A package
+outside this repository runs `bounded catalog build` instead (see the
+package catalogue, below). `src/published-packs/example/` (`bounded-example`,
+a private fixture) is a worked example.
+
 ## The directory
 
 ```

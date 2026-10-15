@@ -129,7 +129,8 @@ hosts:
   run Bounded and git's hooks and config (ADR 2026-009).
 
 The code lives in `src/` (the `bounded` package, ADR 2026-024), in the layered layout
-described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
+described in [AGENTS.md](AGENTS.md); packs published as packages of their own
+are in `src/published-packs/` (ADR 2026-030). Decisions are in [docs/adr/](docs/adr/).
 
 ## Installing
 
@@ -137,6 +138,9 @@ One package, `bounded`, carries everything: the library, the protected-paths pac
 `bounded` command and the hooks for Claude Code and pi. It runs on Node 22.18
 or later (which loads `bounded.config.ts` by stripping its types), with npm,
 pnpm, yarn or bun. Bun is needed only to build and publish Bounded itself.
+Packs tied to one vendor or one language are separate packages,
+`bounded-<name>`, installed beside `bounded`, which is their peer dependency
+([ADR 2026-030](docs/adr/2026-030-published-packs.md)).
 
 In your project (it needs a `package.json`):
 

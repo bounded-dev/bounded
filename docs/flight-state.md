@@ -105,6 +105,18 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `$TF apply` forms are covered with the real shell reader in
   `src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts`;
   drift is not exercised for examples. Examples ship in the package, without declarations.
+- **Published packs** (issue #69;
+  [ADR 2026-030](adr/2026-030-published-packs.md)): a vendor- or
+  language-specific pack is its own npm package, `bounded-<name>` in
+  `src/published-packs/<name>/`, with `bounded` as a peer at
+  `~<major>.<minor>.0`; its packs (`packs/<pack>/`) follow every pack rule,
+  reach `bounded` only through `bounded/domain`, and nothing outside the
+  package imports them. One build, `src/build-published-pack.ts`, makes its
+  `dist/` for Node and its declarations; its prepack also builds its
+  catalogue; `src/test/published-pack-packaging.test.ts` packs it and
+  installs it beside `bounded`. The only one so far is the fixture
+  `bounded-example` (private, never published), whose pack
+  `bounded-example/refused-tools` refuses tool uses of listed tool kinds.
 - **The package catalogue** (issue #68, step 1 (B);
   [ADR 2026-029](adr/2026-029-package-catalogue.md),
   [writing a pack](writing-a-pack.md)): `bounded catalog build` writes a
@@ -419,8 +431,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
     project.
   - Not covered: the modules the configuration imports
     ([configuration](configuration.md); ADR 2026-009, "the configuration's
-    imports"; protecting the import closure is planned), and the user-level
-    `~/.claude/settings.json`, outside the project.
+    imports"; protecting the import closure is planned), among them a
+    published pack's installed code (`node_modules/bounded-<name>/**`, ADR
+    2026-030), and the user-level `~/.claude/settings.json`, outside the
+    project.
 - **The Claude Code hook command must stay identical across versions.**
   Drift does not watch `node_modules`, so after an upgrade only the command
   in `.claude/settings.json`, which drift does watch, names the hook. A
@@ -591,6 +605,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
   a pack fetched from git carries no catalogue until it is built there; the
   wire-form lists the schema tests use are copies of the concept tests'
   literals.
+- **Published packs' limits** (ADR 2026-030): a published pack's ports
+  cannot be provided yet (the hosts provide only the shipped packs'
+  adapters; a project selecting a pack with ports has every event refused,
+  naming the port); `bounded init` and `update` neither install, upgrade
+  nor protect published packs; a published pack may not depend on a
+  shipped pack or another published package; every `bun test` invocation
+  runs one declaration emit per published package in the preload, and
+  `bun run check` packs each one.
 
 ## 3. Not built yet
 

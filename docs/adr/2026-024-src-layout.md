@@ -13,6 +13,12 @@ ADRs [2026-002](2026-002-typed-extension-points.md),
 [2026-017](2026-017-adapters-by-port.md),
 [2026-020](2026-020-shell-command-reading.md) and
 [2026-021](2026-021-protected-paths-rename.md) where they state paths.
+Amended by [ADR 2026-030](2026-030-published-packs.md) (published packs):
+`src/` gains `published-packs/` (each `src/published-packs/<name>/` an npm
+package of its own) and `build-published-pack.ts`; the unit model gains a
+published pack (a `pack` unit whose package is
+`src/published-packs/<name>`) and a published pack's package's `test/` (a
+unit of kind `package`); the workspaces gain `src/published-packs/*`.
 
 ## Context
 
