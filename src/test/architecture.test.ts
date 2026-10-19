@@ -804,7 +804,7 @@ describe("architecture", () => {
     const app = apps.find((a) => a.name === "bounded-claude-code");
     expect(app?.dir).toBe("src/hosts/claude-code");
     // The core, bounded's shell command reader, and picomatch to split a search filter's fixed part from its pattern.
-    expect(app?.dependencies).toEqual(["bounded", "bounded-shell-command-reader", "picomatch"]);
+    expect(app?.dependencies).toEqual(["bounded", "bounded-shell-command-reader", "picomatch", "typescript"]);
     expect(appFiles.some((path) => path.startsWith("src/hosts/claude-code/"))).toBe(true);
   });
 
