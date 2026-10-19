@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -38,7 +38,7 @@ async function fixture(): Promise<Fixture> {
   const root = mkdtempSync(join(tmpdir(), "bounded-standalone-cli-routing-"));
   const source = join(root, "build-checkout");
   const release = join(root, "release");
-  const project = join(root, "python project");
+  const project = join(root, "python project's space");
   const fakeBin = join(root, "fake-bin");
   const managerLog = join(root, "package-manager.log");
   mkdirSync(fakeBin, { recursive: true });
@@ -110,7 +110,7 @@ test("archive-only executable routes each distribution command locally or refuse
     expect(run(f, ["--version"])).toMatchObject({ exitCode: 0, stdout: `${f.version}\n`, stderr: "" });
     const before = projectBytes(f);
     for (const args of [
-      ["init", "--host", "claude-code"], ["init", "--host", "pi"], ["update"], ["check"],
+      ["init", "--host", "pi"], ["update"], ["check"],
       ["host", "pi"], ["catalog", "build"], ["unknown"], ["init", "--no-install"],
     ]) {
       const answer = run(f, args);
@@ -125,19 +125,97 @@ test("archive-only executable routes each distribution command locally or refuse
   }
 }, 240_000);
 
-test("an unavailable requested host in a Python project refuses before writing config, pin or hooks", async () => {
+test("archive-only init installs Claude Code hooks and pins its executable in a Python project without package managers", async () => {
   const f = await fixture();
   try {
     expect(existsSync(join(f.project, "package.json"))).toBe(false);
-    const before = projectBytes(f);
     const answer = run(f, ["init", "--host", "claude-code"]);
-    expect(answer.exitCode).not.toBe(0);
-    expect(answer.stderr).toMatch(/claude-code.*(?:installer|unavailable)|(?:installer|unavailable).*claude-code/i);
-    expect(projectBytes(f)).toEqual(before);
+    expect(answer.exitCode).toBe(0);
+    expect(answer.stderr).toBe("");
+    expect(existsSync(join(f.project, "bounded.config.ts"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(f.project, ".bounded", "version.json"), "utf8"))).toEqual({ schema: "bounded-project-version/1", version: f.version });
+    const settings = JSON.parse(readFileSync(join(f.project, ".claude", "settings.json"), "utf8")) as { custom: boolean; hooks: Record<string, { hooks: { command: string }[] }[]> };
+    expect(settings.custom).toBe(true);
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop"]) {
+      const entries = settings.hooks[event] ?? [];
+      expect(entries).toHaveLength(1);
+      const command = entries[0]?.hooks[0]?.command ?? "";
+      expect(command).toContain("hook claude-code");
+      expect(command).not.toMatch(/\b(?:node|bun|npm|npx)\b/);
+      if (event === "SubagentStop") expect(command).not.toContain("exit 2");
+      else expect(command).toContain("exit 2");
+    }
     expect(existsSync(f.managerLog)).toBe(false);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
+}, 240_000);
+
+test("standalone Claude Code init replaces only owned legacy hooks, keeps user settings and is byte-idempotent", async () => {
+  const f = await fixture();
+  try {
+    const legacy = 'node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"';
+    const wrapped = `{\n${legacy}\n} || { echo "bounded hook failed" >&2; exit 2; }`;
+    const entry = (command: string) => ({ matcher: "", hooks: [{ type: "command", command, timeout: 30 }] });
+    const role = entry(`${legacy} --role reviewer`);
+    const lookalike = entry('node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js.bak"');
+    const unrelated = entry("lint");
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({ model: "opus", custom: { key: [1, 2] }, hooks: {
+      PreToolUse: [entry(wrapped), role, lookalike, unrelated],
+      PostToolUse: [entry(wrapped)], PostToolUseFailure: [entry(wrapped)], SubagentStop: [entry(legacy)], Stop: [unrelated],
+    } }));
+    chmodSync(settingsPath, 0o640);
+    expect(run(f, ["init", "--host", "claude-code"]).exitCode).toBe(0);
+    const first = readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(first) as { model: string; custom: unknown; hooks: Record<string, { hooks: { command: string }[] }[]> };
+    expect(settings.model).toBe("opus");
+    expect(settings.custom).toEqual({ key: [1, 2] });
+    expect(settings.hooks.Stop).toEqual([unrelated]);
+    expect(settings.hooks.PreToolUse).toContainEqual(role);
+    expect(settings.hooks.PreToolUse).toContainEqual(lookalike);
+    expect(settings.hooks.PreToolUse).toContainEqual(unrelated);
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop"]) {
+      const commands = (settings.hooks[event] ?? []).flatMap((hook) => hook.hooks.map((item) => item.command));
+      expect(commands.filter((command) => command.includes("hook claude-code"))).toHaveLength(1);
+      expect(commands).not.toContain(wrapped);
+      expect(commands).not.toContain(legacy);
+    }
+    if (process.platform !== "win32") expect(statSync(settingsPath).mode & 0o777).toBe(0o640);
+    const again = run(f, ["init", "--host", "claude-code"]);
+    expect(again.exitCode).not.toBe(0); // init is write-once; update owns a later refresh.
+    expect(readFileSync(settingsPath, "utf8")).toBe(first);
+    expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("installed standalone Claude Code command judges a real tool call and fails closed when its executable is missing", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code"]).exitCode).toBe(0);
+    const settings = JSON.parse(readFileSync(join(f.project, ".claude", "settings.json"), "utf8")) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+    const command = settings.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "";
+    const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: join(f.project, "bounded.config.ts"), old_string: "x", new_string: "y" }, cwd: f.project, session_id: "session", tool_use_id: "tool" });
+    const shell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command] : ["/bin/sh", "-c", command];
+    const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
+    const judged = invoke();
+    expect(judged.exitCode).toBe(0);
+    expect(judged.stdout.toString()).toContain("deny");
+    expect(judged.stdout.toString()).toContain("bounded.config.ts");
+    for (const event of ["PostToolUse", "PostToolUseFailure", "SubagentStop"]) {
+      const eventCommand = settings.hooks[event]?.[0]?.hooks[0]?.command ?? "";
+      const eventShell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", eventCommand] : ["/bin/sh", "-c", eventCommand];
+      const eventPayload = JSON.stringify({ hook_event_name: event, tool_name: "Edit", tool_input: { file_path: join(f.project, "main.py"), old_string: "hello", new_string: "hi" }, tool_response: {}, cwd: f.project, session_id: "session", tool_use_id: "tool", agent_id: "agent" });
+      const answered = Bun.spawnSync(eventShell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(eventPayload), stdout: "pipe", stderr: "pipe" });
+      expect(answered.exitCode).toBe(0);
+      expect(answered.stderr.toString()).not.toContain("bounded hook failed");
+    }
+    renameSync(f.binary, `${f.binary}.missing`);
+    const missing = invoke();
+    expect(missing.exitCode).not.toBe(0);
+    expect(missing.stderr.toString()).toContain("bounded hook failed");
+    expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
 test("init rejects missing or malformed executable release identity before changing a Python project", async () => {
