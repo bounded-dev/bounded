@@ -6691,5 +6691,14 @@
       "case": "pin root precedence, strict shape, one-hop and standalone refusals fail closed"
     },
     "reason": "an unpinned compiled executable no longer enters the npm CLI: init checks the standalone release identity before setup, so its missing release.json refusal replaces the old package.json diagnostic while the pin and one-hop assertions stay intact"
+  },
+  {
+    "file": "src/cli/managed-pack-artifact.test.ts",
+    "case": "managed published pack artifact, lock and store contract > installs one exact version with registry integrity, tarball SHA-256, complete file inventory and an atomic project lock",
+    "successor": {
+      "file": "src/cli/managed-pack-artifact.test.ts",
+      "case": "managed published pack artifact, lock and store contract > installs one exact version with registry integrity, inventory binding, complete file hashes and a plural-root atomic lock"
+    },
+    "reason": "The lock moves to plural directly selected roots and binds the exact inventory.json bytes with inventorySha256; the successor retains the archive integrity, store inventory and atomic-lock assertions."
   }
 ]

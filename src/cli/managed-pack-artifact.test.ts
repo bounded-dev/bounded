@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installManagedPack } from "./managed-pack-installer.ts";
+import * as managedPackInstaller from "./managed-pack-installer.ts";
 import { catalogue, manifest, packageArchive, packageEntries, sha256, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
 type Reply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
@@ -20,6 +21,10 @@ type Install = (input: {
 }) => Promise<InstallResult>;
 
 const install: Install = installManagedPack;
+type VerifyResult = { readonly ok: true; readonly value: { readonly roots: Readonly<Record<string, string>> } } | { readonly ok: false; readonly error: string };
+type Verify = (input: { readonly boundedVersion: string; readonly boundedExportPaths: readonly string[]; readonly projectRoot: string; readonly storeRoot: string }) => Promise<VerifyResult>;
+// The verifier is the missing production seam under test; this cast keeps the red commit test-only and typecheckable.
+const verify: Verify = (managedPackInstaller as unknown as { readonly verifyManagedPackLock: Verify }).verifyManagedPackLock;
 
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 const JSON_REPLY = { "content-type": "application/json" };
@@ -72,7 +77,8 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
   };
   const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
   const lockPath = join(projectRoot, ".bounded", "packs.lock.json");
-  return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath };
+  const verifyInstalled = () => verify({ boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], projectRoot, storeRoot });
+  return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath, verifyInstalled };
 }
 
 const refused = async (run: () => Promise<InstallResult>, phrase: string): Promise<string> => {
@@ -82,6 +88,16 @@ const refused = async (run: () => Promise<InstallResult>, phrase: string): Promi
   expect(result.error.toLowerCase()).toContain(phrase.toLowerCase());
   return result.error;
 };
+
+const verifyRefused = async (run: () => Promise<VerifyResult>, phrase: string): Promise<void> => {
+  const result = await run();
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.toLowerCase()).toContain(phrase.toLowerCase());
+};
+
+const pack = (name: string, version = "1.0.0"): PublishedPackage => ({ name, version, peerDependencies: { bounded: "~3.3.0" } });
+const readLock = (path: string): { schema: string; boundedVersion: string; roots: Record<string, string>; nodes: Record<string, { id: string; name: string; version: string; sha256: string; inventorySha256: string; dependencies: Record<string, string> }> } => JSON.parse(readFileSync(path, "utf8"));
+const writeLock = (path: string, lock: unknown): void => writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`);
 
 const filesUnder = (root: string): string[] => existsSync(root)
   ? readdirSync(root).flatMap((name) => {
@@ -101,14 +117,22 @@ const plainPackageWithPeers = (name: string, version: string, peers: Readonly<Re
 ];
 
 describe("managed published pack artifact, lock and store contract", () => {
-  test("installs one exact version with registry integrity, tarball SHA-256, complete file inventory and an atomic project lock", async () => {
+  test("installs one exact version with registry integrity, inventory binding, complete file hashes and a plural-root atomic lock", async () => {
     const given = fixture();
     const result = await given.run();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.lockPath).toBe(given.lockPath);
     const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as Record<string, unknown>;
-    expect(lock.schema).toBe("bounded-packs-lock/1");
+    expect(lock.schema).toBe("bounded-packs-lock/2");
+    const roots = lock.roots as Record<string, string>;
+    const nodes = lock.nodes as Record<string, { inventorySha256: string }>;
+    expect(Object.keys(roots)).toEqual(["bounded-example"]);
+    const rootId = roots["bounded-example"];
+    expect(rootId).toBeDefined();
+    if (rootId === undefined) return;
+    const node = nodes[rootId];
+    expect(node).toBeDefined();
     expect(JSON.stringify(lock)).toContain("bounded-example");
     expect(JSON.stringify(lock)).toContain("1.0.0");
     const archive = given.replies.get(tarUrl("bounded-example", "1.0.0"))?.body;
@@ -117,6 +141,10 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(JSON.stringify(lock)).toContain(sha256(archive));
     expect(JSON.stringify(lock)).toContain(sha512Integrity(archive));
     const storeFiles = filesUnder(given.storeRoot);
+    const inventoryPath = storeFiles.find((path) => path.endsWith("inventory.json"));
+    expect(inventoryPath).toBeDefined();
+    if (inventoryPath === undefined) return;
+    expect(node?.inventorySha256).toBe(sha256(readFileSync(inventoryPath)));
     expect(storeFiles.some((path) => path.endsWith("dist/index.js"))).toBe(true);
     expect(storeFiles.some((path) => readFileSync(path).includes(sha256(utf8("export const refusedToolsPack = {};\n"))))).toBe(true);
   });
@@ -307,7 +335,7 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     const priorLock = readFileSync(linkedDigest.lockPath, "utf8");
-    const digest = (JSON.parse(priorLock) as { root: string }).root.split("#")[1];
+    const digest = (JSON.parse(priorLock) as { roots: Record<string, string> }).roots["bounded-example"]?.split("#")[1];
     expect(digest).toBeDefined();
     if (digest === undefined) return;
     const realStore = join(linkedDigest.root, "moved-store");
@@ -351,5 +379,181 @@ describe("managed published pack artifact, lock and store contract", () => {
       expect(existsSync(given.lockPath)).toBe(false);
       expect(existsSync(sentinel)).toBe(false);
     }
+  });
+});
+
+describe("managed pack offline verification and plural roots", () => {
+  test("verifies an intact selected graph entirely offline, including the exact inventory bytes", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
+    given.calls.length = 0;
+    const result = await given.verifyInstalled();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(Object.keys(result.value.roots).sort()).toEqual(["bounded-example", "bounded-second"]);
+    expect(given.calls).toEqual([]);
+  });
+
+  test("a lock node must bind inventory.json exact bytes with a valid SHA-256", async () => {
+    for (const replacement of [undefined, "invalid", "0".repeat(64)]) {
+      const given = fixture();
+      expect((await given.run()).ok).toBe(true);
+      const lock = readLock(given.lockPath);
+      const root = lock.roots["bounded-example"];
+      expect(root).toBeDefined();
+      if (root === undefined) continue;
+      const node = lock.nodes[root];
+      expect(node).toBeDefined();
+      if (node === undefined) continue;
+      if (replacement === undefined) delete (node as Partial<typeof node>).inventorySha256;
+      else node.inventorySha256 = replacement;
+      writeLock(given.lockPath, lock);
+      await verifyRefused(given.verifyInstalled, "inventory");
+    }
+  });
+
+  test("refuses mutated inventory, changed, missing or extra package files, and a linked file", async () => {
+    for (const mutation of ["inventory", "changed", "missing", "extra", "link"] as const) {
+      const given = fixture();
+      expect((await given.run()).ok).toBe(true);
+      const root = readLock(given.lockPath).roots["bounded-example"];
+      expect(root).toBeDefined();
+      if (root === undefined) continue;
+      const digest = root.split("#")[1];
+      expect(digest).toBeDefined();
+      if (digest === undefined) continue;
+      const stored = join(given.storeRoot, digest);
+      const js = join(stored, "package", "dist", "index.js");
+      if (mutation === "inventory") writeFileSync(join(stored, "inventory.json"), `${readFileSync(join(stored, "inventory.json"), "utf8")} `);
+      if (mutation === "changed") writeFileSync(js, "export const refusedToolsPack = { changed: true };\n");
+      if (mutation === "missing") rmSync(js);
+      if (mutation === "extra") writeFileSync(join(stored, "package", "extra.js"), "extra\n");
+      if (mutation === "link") { rmSync(js); symlinkSync(join(given.root, "outside.js"), js); }
+      await verifyRefused(given.verifyInstalled, mutation === "link" ? "link" : "bounded-example");
+    }
+  });
+
+  test("refuses missing graph nodes, wrong dependency edges, duplicate identities and Bounded version mismatch", async () => {
+    const variants = ["missing", "edge", "duplicate", "version"] as const;
+    for (const variant of variants) {
+      const given = fixture([
+        { ...pack("bounded-example"), dependencies: { "plain-helper": "1.0.0" } },
+        { name: "plain-helper", version: "1.0.0", entries: plainPackageEntries("plain-helper", "1.0.0") },
+      ]);
+      expect((await given.run()).ok).toBe(true);
+      const lock = readLock(given.lockPath);
+      const root = lock.roots["bounded-example"];
+      expect(root).toBeDefined();
+      if (root === undefined) continue;
+      const helper = lock.nodes[root]?.dependencies["plain-helper"];
+      expect(helper).toBeDefined();
+      if (helper === undefined) continue;
+      const rootNode = lock.nodes[root];
+      const helperNode = lock.nodes[helper];
+      expect(rootNode).toBeDefined();
+      expect(helperNode).toBeDefined();
+      if (rootNode === undefined || helperNode === undefined) continue;
+      if (variant === "missing") delete lock.nodes[helper];
+      if (variant === "edge") rootNode.dependencies["plain-helper"] = root;
+      if (variant === "duplicate") lock.nodes[`${helper}-duplicate`] = { ...helperNode };
+      if (variant === "version") lock.boundedVersion = "9.9.9";
+      writeLock(given.lockPath, lock);
+      await verifyRefused(given.verifyInstalled, variant === "version" ? "bounded" : "plain-helper");
+    }
+  });
+
+  test("refuses package identity, catalogue or export changes even when inventory and lock digests are recomputed", async () => {
+    for (const mutation of ["identity", "catalogue", "export"] as const) {
+      const given = fixture();
+      expect((await given.run()).ok).toBe(true);
+      const lock = readLock(given.lockPath);
+      const root = lock.roots["bounded-example"];
+      expect(root).toBeDefined();
+      if (root === undefined) continue;
+      const digest = root.split("#")[1];
+      expect(digest).toBeDefined();
+      if (digest === undefined) continue;
+      const stored = join(given.storeRoot, digest);
+      const file = mutation === "catalogue" ? "bounded.catalog.json" : "package.json";
+      const path = join(stored, "package", file);
+      const bytes = readFileSync(path, "utf8");
+      writeFileSync(path, mutation === "identity" ? bytes.replace('"1.0.0"', '"2.0.0"') : mutation === "catalogue" ? bytes.replace("bounded-example/refused-tools", "bounded-example/other") : bytes.replace("./dist/index.js", "./dist/missing.js"));
+      const inventoryPath = join(stored, "inventory.json");
+      const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as { files: Record<string, { size: number; sha256: string }> };
+      const changed = readFileSync(path);
+      inventory.files[file] = { size: changed.length, sha256: sha256(changed) };
+      writeFileSync(inventoryPath, `${JSON.stringify(inventory)}\n`);
+      const node = lock.nodes[root];
+      expect(node).toBeDefined();
+      if (node === undefined) continue;
+      node.inventorySha256 = sha256(readFileSync(inventoryPath));
+      writeLock(given.lockPath, lock);
+      await verifyRefused(given.verifyInstalled, mutation === "identity" ? "version" : mutation === "catalogue" ? "catalog" : "export");
+    }
+  });
+
+  test("keeps both direct roots through a later add and an upgrade of one root", async () => {
+    const given = fixture([pack("bounded-example", "1.0.0"), pack("bounded-example", "1.0.1"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    const originalA = readLock(given.lockPath).roots["bounded-example"];
+    expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
+    const both = readLock(given.lockPath);
+    expect(both.roots["bounded-example"]).toBe(originalA);
+    expect(both.roots["bounded-second"]).toBeDefined();
+    expect((await given.run("bounded-example@1.0.1")).ok).toBe(true);
+    const upgraded = readLock(given.lockPath);
+    expect(upgraded.roots["bounded-example"]).toContain("@1.0.1#");
+    expect(upgraded.roots["bounded-second"]).toBe(both.roots["bounded-second"]);
+    expect(upgraded.nodes[originalA ?? ""]).toBeUndefined();
+    expect((await given.verifyInstalled()).ok).toBe(true);
+  });
+
+  test("a failed later add preserves the exact earlier lock and its offline-verifiable store", async () => {
+    const given = fixture([pack("bounded-example"), { ...pack("bounded-second"), integrity: `sha512-${"A".repeat(88)}` }]);
+    expect((await given.run()).ok).toBe(true);
+    const original = readFileSync(given.lockPath);
+    await refused(() => given.run("bounded-second@1.0.0"), "integrity");
+    expect(readFileSync(given.lockPath)).toEqual(original);
+    expect((await given.verifyInstalled()).ok).toBe(true);
+  });
+
+  test("an existing lock that fails offline verification is never replaced by a later add", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    const root = readLock(given.lockPath).roots["bounded-example"];
+    expect(root).toBeDefined();
+    if (root === undefined) return;
+    const digest = root.split("#")[1];
+    expect(digest).toBeDefined();
+    if (digest === undefined) return;
+    writeFileSync(join(given.storeRoot, digest, "package", "dist", "index.js"), "tampered\n");
+    const oldBytes = readFileSync(given.lockPath);
+    await refused(() => given.run("bounded-second@1.0.0"), "bounded-example");
+    expect(readFileSync(given.lockPath)).toEqual(oldBytes);
+  });
+
+  test("refuses a legacy single-root lock with a re-add repair action before mutation", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    const modern = readLock(given.lockPath);
+    writeLock(given.lockPath, { schema: "bounded-packs-lock/1", boundedVersion: modern.boundedVersion, root: modern.roots["bounded-example"], nodes: modern.nodes });
+    const oldBytes = readFileSync(given.lockPath);
+    await verifyRefused(given.verifyInstalled, "re-add");
+    await refused(() => given.run("bounded-second@1.0.0"), "re-add");
+    expect(readFileSync(given.lockPath)).toEqual(oldBytes);
+  });
+
+  test("two simultaneous additions preserve both roots or refuse one without overwriting the winner", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    const [first, second] = await Promise.all([given.run(), given.run("bounded-second@1.0.0")]);
+    const lock = readLock(given.lockPath);
+    const successful = [first, second].filter((result) => result.ok).length;
+    if (successful === 2) expect(Object.keys(lock.roots).sort()).toEqual(["bounded-example", "bounded-second"]);
+    else {
+      expect(successful).toBe(1);
+      const failed = first.ok ? second : first;
+      if (!failed.ok) expect(failed.error.toLowerCase()).toContain("retry");
+    }
+    expect((await given.verifyInstalled()).ok).toBe(true);
   });
 });
