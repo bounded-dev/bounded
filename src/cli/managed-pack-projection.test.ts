@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -541,6 +541,15 @@ describe("managed pack type-only projection and publication", () => {
     await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
       boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
       releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "128 pinned nodes");
+  });
+
+  test("capture refuses an oversized sparse lock before reading or parsing it", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    truncateSync(given.lockPath, 16 * 1024 * 1024 + 1);
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "lock byte bound");
   });
 
   test("capture refuses an inventory byte bound before opening its advertised missing file", async () => {
