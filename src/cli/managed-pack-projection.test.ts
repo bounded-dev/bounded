@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,7 +77,7 @@ function fixture(published: readonly Published[] = [pack("bounded-example")]) {
   mkdirSync(join(releaseTypesRoot, "core", "domain"), { recursive: true });
   const domainDeclaration = utf8('export declare const boundedWord: "bounded";\n');
   writeFileSync(join(releaseTypesRoot, "core", "domain", "index.d.ts"), domainDeclaration);
-  const releaseTypeFilesFromVerifiedManifest = { "core/domain/index.d.ts": digest(domainDeclaration) };
+  const releaseTypeFilesFromVerifiedManifest: Record<string, string> = { "core/domain/index.d.ts": digest(domainDeclaration) };
   const responses = new Map<string, Reply>();
   const versions = new Map<string, Record<string, unknown>>();
   const calls: string[] = [];
@@ -196,6 +196,29 @@ describe("managed pack type-only projection and publication", () => {
     expect((await given.check()).ok).toBe(true);
   });
 
+  test("the real built release declaration tree resolves bounded/domain in a Python inferred project", async () => {
+    const given = fixture();
+    const builtTypes = join(import.meta.dir, "..", "dist", "types");
+    expect(existsSync(join(builtTypes, "core", "domain", "index.d.ts"))).toBe(true);
+    for (const source of allEntries(builtTypes).filter((path) => lstatSync(path).isFile() && path.endsWith(".d.ts"))) {
+      const name = relative(builtTypes, source).replaceAll("\\", "/");
+      const target = join(given.releaseTypesRoot, name);
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(source, target);
+      given.releaseTypeFilesFromVerifiedManifest[name] = digest(readFileSync(target));
+    }
+    const result = await given.run();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const file = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(file, 'import { defineConfig } from "bounded/domain";\nconst wrong: number = defineConfig;\ndefineConfi\n');
+    const language = await tsserver(given.projectRoot, file, { completionLine: 3, completionOffset: 12 });
+    expect(language.diagnostics.filter((item) => item.code === 2307)).toHaveLength(0);
+    expect(language.diagnostics.filter((item) => item.code === 2322)).toHaveLength(1);
+    expect(language.completions).toContain("defineConfig");
+    expect((await given.check()).ok).toBe(true);
+  });
+
   test("refuses a missing declaration even when the runtime export is valid", async () => {
     const broken = pack("bounded-example");
     const given = fixture([{ ...broken, entries: (broken.entries ?? []).filter((entry) => entry.name !== "package/dist/extra.d.ts") }]);
@@ -237,17 +260,27 @@ describe("managed pack type-only projection and publication", () => {
   });
 
   test("unowned package managers' directories and links are left byte-identical, even with equivalent declarations", async () => {
-    for (const owner of ["npm", "bun", "pnpm", "yarn", "equivalent", "link"] as const) {
+    for (const owner of ["npm", "bun", "pnpm", "yarn", "equivalent", "link", "dangling-link"] as const) {
       const given = fixture();
       const target = given.projected("bounded-example");
       mkdirSync(dirname(target), { recursive: true });
-      if (owner === "link") { const outside = join(given.root, "outside"); mkdirSync(outside); symlinkSync(outside, target, "dir"); }
+      if (owner === "link" || owner === "dangling-link") { const outside = join(given.root, "outside"); if (owner === "link") mkdirSync(outside); symlinkSync(outside, target, "dir"); }
       else { mkdirSync(target); writeFileSync(join(target, "package.json"), owner === "equivalent" ? JSON.stringify({ name: "bounded-example", types: "./dist/index.d.ts" }) : owner); }
-      const before = owner === "link" ? lstatSync(target).isSymbolicLink() : snapshot(target);
+      const before = (owner === "link" || owner === "dangling-link") ? lstatSync(target).isSymbolicLink() : snapshot(target);
       await refused(() => given.run(), "unowned");
-      expect(owner === "link" ? lstatSync(target).isSymbolicLink() : snapshot(target)).toEqual(before);
+      expect((owner === "link" || owner === "dangling-link") ? lstatSync(target).isSymbolicLink() : snapshot(target)).toEqual(before);
       expect(existsSync(given.lockPath)).toBe(false);
     }
+  });
+
+  test("a dangling node_modules parent link refuses without writing through it", async () => {
+    const given = fixture();
+    mkdirSync(given.projectRoot, { recursive: true });
+    const linked = join(given.projectRoot, "node_modules");
+    symlinkSync(join(given.root, "missing-outside"), linked, "dir");
+    await refused(() => given.run(), "link");
+    expect(lstatSync(linked).isSymbolicLink()).toBe(true);
+    expect(existsSync(given.lockPath)).toBe(false);
   });
 
   test("an unowned parent package blocks a nested dependency projection", async () => {
