@@ -9,6 +9,6 @@ if (!dispatched.answered) {
     process.stdout.write(`${packageManifest.version}\n`);
   } else {
     const { runStandaloneRuntime } = await import("./standalone-runtime.ts");
-    await runStandaloneRuntime(args, dispatched.hostProjectRoot);
+    await runStandaloneRuntime(args, packageManifest.version, dispatched.hostProjectRoot);
   }
 }

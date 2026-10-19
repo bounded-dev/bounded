@@ -207,6 +207,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     Node. The bun run sends that Bash call through the installed hook too,
     and `src/hosts/pi/test/bundle.e2e.test.ts` loads the built pi host under
     Node: both read the command with `bounded/shell-command-reader`.
+- **The standalone executable's command boundary** (issue #67,
+  [ADR 2026-033](adr/2026-033-standalone-command-routing.md)) runs
+  `--version` and `hook claude-code` in the compiled archive. Its `init`
+  validates the adjacent release identity, then refuses because no
+  executable-carried host installer has landed. Other distribution commands
+  refuse locally. None falls into the npm CLI or writes project setup files.
+  The published Node CLI above remains available for npm projects.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository

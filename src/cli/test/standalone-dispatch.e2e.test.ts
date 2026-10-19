@@ -321,7 +321,7 @@ test("dispatch refuses every changed installed artifact before invoking the pinn
   }
 }, 180_000);
 
-test("pin root precedence, strict shape, one-hop and missing targets fail closed", async () => {
+test("pin root precedence, strict shape, one-hop and standalone refusals fail closed", async () => {
   const f = await fixture();
   try {
     if (process.platform === "win32") {
@@ -359,7 +359,8 @@ test("pin root precedence, strict shape, one-hop and missing targets fail closed
     mkdirSync(nestedBoundary);
     const missingNestedPin = runCurrent(f, ["init"]);
     expect(missingNestedPin.exitCode).not.toBe(37);
-    expect(missingNestedPin.stderr).toMatch(/package\.json/i);
+    expect(missingNestedPin.stderr).toMatch(/release\.json/i);
+    expect(missingNestedPin.stderr).not.toMatch(/package\.json/i);
     writeFileSync(join(nestedBoundary, "version.json"), "malformed");
     expect(runCurrent(f, ["check"]).stderr).toMatch(/pin|version\.json|schema/i);
     writeFileSync(join(nestedBoundary, "version.json"), JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
