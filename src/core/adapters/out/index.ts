@@ -13,6 +13,7 @@ export { FileSystemProjectSetupFiles } from "./project-setup-files/project-setup
 export { FileSystemPackageCatalogFiles } from "./package-catalog-files/package-catalog-files.ts";
 export { MarkedMarkdownSections } from "./markdown-sections/markdown-sections.ts";
 export { BunPackModules } from "./pack-modules/pack-modules.ts";
+export { packageExportsResolve } from "./pack-modules/node-import-export-target.ts";
 export { TypeScriptPackSourceApi } from "./pack-source-api/pack-source-api.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
