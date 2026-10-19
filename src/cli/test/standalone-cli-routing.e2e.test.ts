@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -58,7 +58,7 @@ async function fixture(): Promise<Fixture> {
   cpSync(join(REPO, "bun.lock"), join(source, "bun.lock"), { force: true });
   // Compile against the checked-out workspace dependencies, then remove this
   // build checkout before executing the archive's binary.
-  symlinkSync(join(REPO, "node_modules"), join(source, "node_modules"), process.platform === "win32" ? "junction" : "dir");
+  successful([process.execPath, "install", "--frozen-lockfile", "--offline"], source);
   const target = nativeTarget();
   successful([process.execPath, join(source, "src", "build-release.ts"), "--target", target, "--smoke", "--out", release], source);
   const version = (JSON.parse(readFileSync(join(source, "src", "package.json"), "utf8")) as { version: string }).version;
