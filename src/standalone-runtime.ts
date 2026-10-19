@@ -8,8 +8,12 @@ import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
 import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
 import { lstatSync, readFileSync } from "node:fs";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { buildStandaloneConfigModule } from "./hosts/claude-code/standalone-config-as-module.ts";
+import { prepareStandaloneClaudeHooks } from "./hosts/claude-code/standalone-install.ts";
+import { INITIAL_CONFIG } from "./cli/initial-config.ts";
 
 const commandRoutes = {
   hook: "host-hook",
@@ -59,15 +63,63 @@ function requestedHosts(args: readonly string[]): string[] | null {
   return [...new Set(named)];
 }
 
-function initStandalone(args: readonly string[], version: string): void {
+async function initStandalone(args: readonly string[], version: string): Promise<void> {
   if (!releaseIdentity(version)) return;
   const hosts = requestedHosts(args);
   if (hosts === null) return;
-  // No executable-carried host installer has landed yet. Setup must refuse
-  // before the core writes a config or a pin that no host can run.
-  refusal(hosts.length > 0
-    ? `${hosts.join(", ")} host installer is unavailable in this standalone release; install a release carrying that host before init`
-    : "no host installer is available in this standalone release; install a release carrying your host before init");
+  const projectRoot = process.cwd();
+  const selectedHosts = hosts.length > 0 ? hosts : (() => {
+    try { return lstatSync(join(projectRoot, ".claude")).isDirectory() ? ["claude-code"] : []; }
+    catch { return []; }
+  })();
+  if (selectedHosts.length !== 1 || selectedHosts[0] !== "claude-code") {
+    refusal(selectedHosts.length > 0
+      ? `${selectedHosts.join(", ")} host installer is unavailable in this standalone release; install a release carrying that host before init`
+      : "no host installer is available in this standalone release; install a release carrying your host before init");
+    return;
+  }
+  const { FileSystemProjectSetupFiles } = adapters;
+  const { InitProjectHandler } = application;
+  const files = new FileSystemProjectSetupFiles();
+  const existing = await files.configFileNames(projectRoot);
+  if (!existing.ok) { refusal(existing.error); return; }
+  if (existing.value.length > 0) {
+    refusal(`${projectRoot} already has ${existing.value.join(", ")}: init never overwrites a configuration. Run bounded update to refresh its hooks`);
+    return;
+  }
+  const pinPath = join(projectRoot, ".bounded", "version.json");
+  try { lstatSync(pinPath); refusal(`${pinPath} already exists; init will not replace its version pin`); return; }
+  catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) { refusal(`${pinPath} cannot be inspected`); return; } }
+  const prepared = await prepareStandaloneClaudeHooks(projectRoot, process.execPath);
+  if (!prepared.ok) { refusal(prepared.error); return; }
+  const installed = await prepared.value.install();
+  if (!installed.ok) { refusal(installed.error); return; }
+  const setup = await new InitProjectHandler(files, { load: async () => ({ ok: true, value: [{ host: "claude-code", install: async () => installed }] }) }, INITIAL_CONFIG).execute(projectRoot);
+  if (!setup.ok) {
+    try { await prepared.value.restore(); }
+    catch (error) { refusal(`${setup.error}; settings rollback failed: ${error instanceof Error ? error.message : String(error)}`); return; }
+    refusal(setup.error);
+    return;
+  }
+  const staged = join(projectRoot, ".bounded", `.version-${randomUUID()}.tmp`);
+  try {
+    await mkdir(dirname(pinPath), { recursive: true });
+    await writeFile(staged, `${JSON.stringify({ schema: "bounded-project-version/1", version })}\n`, { flag: "wx" });
+    await rename(staged, pinPath);
+  } catch (error) {
+    await rm(staged, { force: true });
+    const reason = error instanceof Error ? error.message : String(error);
+    try {
+      await rm(join(projectRoot, setup.value.configWritten ?? "bounded.config.ts"));
+      await prepared.value.restore();
+    } catch (rollbackError) {
+      refusal(`the project version pin could not be written: ${reason}; setup rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}; the installed hook stays fail closed`);
+      return;
+    }
+    refusal(`the project version pin could not be written: ${reason}; settings and configuration were restored`);
+    return;
+  }
+  process.stdout.write(`Bounded ${version} initialized for Claude Code\n`);
 }
 
 function embeddedWasmPath(name: "tree-sitter" | "tree-sitter-bash"): string {
@@ -119,7 +171,7 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
   }
   const route = commandRoutes[command as keyof typeof commandRoutes];
   if (route === "project-setup") {
-    initStandalone(args, version);
+    await initStandalone(args, version);
     return;
   }
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);

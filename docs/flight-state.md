@@ -224,10 +224,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - **The standalone executable's command boundary** (issue #67,
   [ADR 2026-033](adr/2026-033-standalone-command-routing.md)) runs
   `--version` and `hook claude-code` in the compiled archive. Its `init`
-  validates the adjacent release identity, then refuses because no
-  executable-carried host installer has landed. Other distribution commands
-  refuse locally. None falls into the npm CLI or writes project setup files.
-  The published Node CLI above remains available for npm projects.
+  validates the adjacent release identity and installs Claude Code's four
+  hooks from the same executable, replacing recognized older Node hooks
+  while preserving other settings. It writes configuration and a project
+  version pin last, in a Python project without package managers
+  ([ADR 2026-037](adr/2026-037-standalone-claude-code-hooks.md)). Pi and other
+  distribution commands still refuse locally. None falls into the npm CLI.
+  The published Node CLI remains available for npm projects. The executable
+  running a same-version hook is not rehashed from an installation receipt
+  on every invocation; a different pinned version uses the verified locator.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
   declares the 3.3.0 target set before a tag, refuses stable builds on the
   wrong OS, CPU or Linux libc, and requires verified attestations from the
