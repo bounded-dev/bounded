@@ -567,7 +567,7 @@ describe("managed pack offline verification and plural roots", () => {
     expect(readFileSync(given.lockPath)).toEqual(oldBytes);
   });
 
-  test("overlapping additions cannot overwrite a root observed in the same prior lock snapshot", async () => {
+  test("two simultaneous additions preserve both roots or refuse one without overwriting the winner", async () => {
     const given = fixture([pack("bounded-example"), pack("bounded-second"), pack("bounded-third")]);
     expect((await given.run()).ok).toBe(true);
     const originalLock = readFileSync(given.lockPath);
