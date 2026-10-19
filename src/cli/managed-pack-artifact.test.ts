@@ -9,6 +9,7 @@ type InstallResult = { readonly ok: true; readonly value: { readonly lockPath: s
 type Install = (input: {
   readonly request: string;
   readonly boundedVersion: string;
+  readonly boundedExportPaths: readonly string[];
   readonly registryUrl: string;
   readonly projectRoot: string;
   readonly storeRoot: string;
@@ -73,7 +74,7 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
     calls.push(url);
     return replies.get(url) ?? { status: 404, headers: JSON_REPLY, body: utf8("missing") };
   };
-  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
+  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
   const lockPath = join(projectRoot, ".bounded", "packs.lock.json");
   return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath };
 }
@@ -284,6 +285,15 @@ describe("managed published pack artifact, lock and store contract", () => {
       { name: "plain-helper", version: "1.0.0", entries: plainPackageEntries("plain-helper", "1.0.0") },
     ]);
     await refused(given.run, "export");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
+  test("rejects a bounded subpath absent from the executable's embedded exports", async () => {
+    const rootEntries = packageEntries().map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'import "bounded/ghost"; export const refusedToolsPack = {};\n' }
+      : entry);
+    const given = fixture([{ name: "bounded-example", version: "1.0.0", entries: rootEntries }]);
+    await refused(given.run, "bounded/ghost");
     expect(existsSync(given.lockPath)).toBe(false);
   });
 
