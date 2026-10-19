@@ -59,7 +59,7 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
     const url = item.url ?? tarUrl(item.name, item.version);
     const versions = metadataByName.get(item.name) ?? {};
     versions[item.version] = { name: item.name, version: item.version,
-      dependencies: item.dependencies ?? {}, peerDependencies: item.peerDependencies ?? { bounded: "~3.3.0" },
+      dependencies: item.dependencies ?? {}, peerDependencies: item.peerDependencies ?? (item.name === "bounded-example" ? { bounded: "~3.3.0" } : {}),
       dist: { tarball: url, integrity: item.integrity ?? sha512Integrity(archive) },
     };
     metadataByName.set(item.name, versions);
