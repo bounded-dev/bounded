@@ -396,7 +396,7 @@ describe("bounded, the one published package", () => {
     expect(ran.exitCode).toBe(0);
     const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest & { peerDependencies?: Record<string, string> };
     expect(inTarball.peerDependencies).toBeUndefined();
-    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "resolve.exports", "zod"]);
+    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
   }, 120_000);
 
   test("dist carries the prereqs status band as a plugin folder: its manifest at bounded's version, hooks.json and its hooks modules, its state contract, no tests, importing only its own files", () => {
@@ -432,14 +432,14 @@ describe("bounded, the one published package", () => {
     expect(readFileSync(join(CORE, "dist/hosts/claude-code/prereqs-status-band/.claude-plugin/plugin.json"), "utf8")).toBe(readFileSync(join(CORE, "hosts/claude-code/prereqs-status-band/.claude-plugin/plugin.json"), "utf8"));
   });
 
-  test("packed, its manifest names the version, the bin and bounded's four runtime dependencies, with no workspace:* left", () => {
+  test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
     const into = mkdtempSync(join(tmpdir(), "bounded-packaging-"));
     const ran = Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
     expect(ran.exitCode).toBe(0);
     const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest;
     expect(inTarball.version).toBe(VERSION);
     expect(inTarball.bin).toEqual({ bounded: "dist/cli.js" });
-    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "resolve.exports", "zod"]);
+    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
     expect(JSON.stringify(inTarball)).not.toContain("workspace:");
   });
 });

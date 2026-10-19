@@ -6600,7 +6600,7 @@
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
       "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
     },
-    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
@@ -6609,7 +6609,7 @@
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
       "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
     },
-    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
@@ -6618,7 +6618,7 @@
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
       "case": "BunPackModules > refuses a require-only entry, which import() cannot reach, in full"
     },
-    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/cli/bounded-cli.catalog.test.ts",
@@ -6627,15 +6627,15 @@
       "file": "src/cli/bounded-cli.catalog.test.ts",
       "case": "bounded catalog build > refuses an export entry with only a require condition, naming the path and the fix"
     },
-    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/test/packaging.test.ts",
-    "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left",
+    "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's four runtime dependencies, with no workspace:* left",
     "successor": {
       "file": "src/test/packaging.test.ts",
-      "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's four runtime dependencies, with no workspace:* left"
+      "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left"
     },
-    "reason": "bounded gains resolve.exports, pinned, so the catalogue build resolves exports as a host's import() does under Node rather than by hand (ADR 2026-032, final review)"
+    "reason": "re-review: resolve.exports diverges from Node's exports resolution, so the adapter implements Node's ESM algorithm itself and bounded keeps its three runtime dependencies (ADR 2026-032)"
   }
 ]

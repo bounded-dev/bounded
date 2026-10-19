@@ -38,12 +38,55 @@ describe("BunPackModules", () => {
     expect(underNode.loadDefaultExport.error).toContain("under bun");
   });
 
-  /** The refusal of an export path whose entry gives a host's import() under Node no target. */
+  /** The refusal of an export path package.json lists but a host's import() under Node gets no target from. */
   const notExported = (exportPath: string): string =>
-    `demo-package's export path ${exportPath} gives a host's import() under Node no target: none of its node, import or default conditions names one, or the one it names is null: add a \`default\` condition naming its JavaScript, which hosts load under Node and the catalogue build loads too`;
-  /** The refusal of an export path whose every target Node refuses as a package target. */
-  const invalidTarget = (targets: string): string =>
-    `demo-package's export path ./demo names ${targets}, which Node refuses as a package target: a target starts with ./ and has no empty, ., .. or node_modules segment after it`;
+    `demo-package's export path ${exportPath} is not exported to a host's import() under Node: it is null, or none of its node, import, module-sync or default conditions gives a target: add a \`default\` condition naming its JavaScript, which hosts load under Node and the catalogue build loads too`;
+  /** The refusal of an export path whose target Node refuses as a package target. */
+  const invalidTarget = (target: string): string =>
+    `demo-package's export path ./demo names ${target}, which Node refuses as a package target: a target starts with ./ and has no ., .. or node_modules segment after it`;
+  /** The refusal of an export path package.json's exports does not list. */
+  const noExportPath = (exportPath: string): string =>
+    `demo-package has no export path ${exportPath}: add it to package.json's exports, or list in bounded.packs the export path its pack is exported from`;
+
+  test("goes on to the next key when a matched condition gives no target, as Node does", async () => {
+    const packageDir = await packageWith({ node: { require: "./dist/demo/index.js" }, default: "./dist/demo/index.js" });
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("takes the module-sync condition, as a host's import() does on Node 22.18 and later, and refuses its target when it was never built", async () => {
+    const packageDir = await packageWith({ "module-sync": "./dist/demo/missing.js", default: "./dist/demo/index.js" });
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({
+      ok: false,
+      error: `demo-package/demo's target ./dist/demo/missing.js does not exist in ${packageDir}: build the package first, so its export path's target exists`,
+    });
+  });
+
+  test("loads a target whose only flaw is an empty segment, which Node only warns about", async () => {
+    const packageDir = await packageWith("./dist//demo/index.js");
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("refuses an export path listed as null as not exported, never as unlisted", async () => {
+    const packageDir = await packageWith(null);
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({ ok: false, error: notExported("./demo") });
+  });
+
+  test("treats exports of null as no exports, loading the package root through main", async () => {
+    const packageDir = await demoPackage({ manifest: (manifest) => ({ ...manifest, exports: null, main: "./dist/demo/index.js" }) });
+    const loaded = await new BunPackModules().load(packageDir, ".");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("does not resolve a folder mapping, which Node removed", async () => {
+    const packageDir = await packageWith(undefined, { "./demo/": "./dist/demo/" });
+    expect(await new BunPackModules().load(packageDir, "./demo/index.js")).toEqual({ ok: false, error: noExportPath("./demo/index.js") });
+    expect(await new BunPackModules().load(packageDir, "./demo/")).toEqual({ ok: false, error: noExportPath("./demo/") });
+  });
 
   test("refuses a target with no leading ./, as Node does", async () => {
     const packageDir = await packageWith({ default: "dist/demo/index.js" });
