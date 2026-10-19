@@ -99,7 +99,7 @@ function fixture(published: readonly Published[] = [pack("bounded-example")]) {
     add({ ...base, request, registryUrl: registry, get, ...options });
   const check = () => verify(base);
   const restart = (faultAfterRecoveryStep?: string) => recover({ ...base, ...(faultAfterRecoveryStep === undefined ? {} : { faultAfterRecoveryStep }) });
-  return { root, projectRoot, storeRoot, releaseTypesRoot, releaseTypeFilesFromVerifiedManifest, get, run, check, restart, calls,
+  return { root, projectRoot, storeRoot, releaseTypesRoot, releaseTypeFilesFromVerifiedManifest, get, responses, run, check, restart, calls,
     lockPath: join(projectRoot, ".bounded", "packs.lock.json"),
     receiptPath: join(projectRoot, ".bounded", "types-receipt.json"),
     journalPath: join(projectRoot, ".bounded", "types-journal.json"),
@@ -430,6 +430,37 @@ describe("managed pack type-only projection and publication", () => {
     expect(snapshot(join(given.projectRoot, "node_modules"))).toEqual(oldProjection);
     expect((await given.check()).ok).toBe(true);
   });
+
+  test("a real killed writer is reclaimed before journal recovery", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    const oldLock = readFileSync(given.lockPath);
+    const childInput = join(given.root, "child-input.json");
+    writeFileSync(childInput, JSON.stringify({
+      base: { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], projectRoot: given.projectRoot,
+        storeRoot: given.storeRoot, releaseTypesRoot: given.releaseTypesRoot,
+        releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest },
+      responses: Object.fromEntries([...given.responses].map(([url, response]) => [url,
+        { status: response.status, headers: response.headers, body: Buffer.from(response.body).toString("base64") }])),
+    }));
+    const childScript = join(given.root, "kill-writer.ts");
+    const installer = fileURLToPath(new URL("./managed-pack-installer.ts", import.meta.url));
+    writeFileSync(childScript, `import { readFileSync } from "node:fs";\nimport { addManagedPackWithProjection } from ${JSON.stringify(installer)};\nconst data = JSON.parse(readFileSync(${JSON.stringify(childInput)}, "utf8"));\nawait addManagedPackWithProjection({ ...data.base, request: "bounded-second@1.0.0", registryUrl: ${JSON.stringify(registry)}, faultAfter: "journal-hang", get: async (url: string) => { const reply = data.responses[url]; return reply ? { status: reply.status, headers: reply.headers, body: Uint8Array.from(Buffer.from(reply.body, "base64")) } : { status: 404, headers: {}, body: new Uint8Array() }; } });\n`);
+    const child = spawn(process.execPath, [childScript], { stdio: ["ignore", "pipe", "pipe"] });
+    let childErrors = "";
+    child.stderr.setEncoding("utf8").on("data", (part: string) => { childErrors += part; });
+    try {
+      for (let attempt = 0; attempt < 200 && !existsSync(given.journalPath); attempt++) await Bun.sleep(25);
+      expect(childErrors).toBe("");
+      expect(existsSync(given.journalPath)).toBe(true);
+    } finally {
+      child.kill("SIGKILL");
+      if (child.exitCode === null && child.signalCode === null) await new Promise<void>((resolveExit) => child.once("exit", () => resolveExit()));
+    }
+    expect((await given.restart()).ok).toBe(true);
+    expect(readFileSync(given.lockPath)).toEqual(oldLock);
+    expect(existsSync(given.journalPath)).toBe(false);
+  }, 30_000);
 
   test("a restart retries after active projection is renamed away during recovery", async () => {
     for (const cut of ["rename-active", "restore-old"]) {
