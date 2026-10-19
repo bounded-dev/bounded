@@ -26,7 +26,8 @@ type Input = {
   /** Test-only observation under the one shared project writer. */
   readonly afterExistingStateVerified?: (lockSha256: string | null) => Promise<void>;
 };
-type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonly receiptPath: string }>>;
+type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonly receiptPath: string;
+  readonly catalogueImports: readonly { readonly importPath: string; readonly exportName: string }[] }>>;
 type Prepare = (input: Input) => Promise<Result<{ readonly lock: { readonly roots: Readonly<Record<string, string>> } }>>;
 const prepare = (projectionModule as unknown as { readonly prepareManagedPackAddition: Prepare }).prepareManagedPackAddition;
 type Verify = (input: Pick<Input, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">) => Promise<Result<unknown>>;
@@ -165,6 +166,26 @@ async function tsserver(projectRoot: string, file: string, position = { completi
 }
 
 describe("managed pack type-only projection and publication", () => {
+  test("an overbound proposed runtime graph refuses before publishing lock, receipt or projection", async () => {
+    const helperNames = Array.from({ length: 128 }, (_, index) => `helper-${index}`);
+    const dependencies = Object.fromEntries(helperNames.map((name) => [name, "1.0.0"]));
+    const given = fixture([pack("bounded-example", "1.0.0", dependencies), ...helperNames.map((name) => library(name, "1.0.0"))]);
+    await refused(() => given.run(), "128 pinned nodes");
+    expect(existsSync(given.lockPath)).toBe(false);
+    expect(existsSync(given.receiptPath)).toBe(false);
+    expect(existsSync(given.projected("bounded-example"))).toBe(false);
+  });
+
+  test("a successful add returns its requested catalogue imports from the writer-held transaction", async () => {
+    const given = fixture();
+    const added = await given.run();
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(added.value.catalogueImports).toEqual([{ importPath: "bounded-example", exportName: "refusedToolsPack" }]);
+    expect(existsSync(given.lockPath)).toBe(true);
+    expect(existsSync(given.receiptPath)).toBe(true);
+  });
+
   test("preparation verifies the proposed graph without publishing a lock or projection", async () => {
     const given = fixture();
     const proposed = await prepare({ request: "bounded-example@1.0.0", boundedVersion: "3.3.0",
