@@ -12,6 +12,8 @@ type Install = (input: {
   readonly projectRoot: string;
   readonly storeRoot: string;
   readonly get: (url: string) => Promise<Reply>;
+  /** File-port fault seam: production writes the lock atomically only after all store entries are verified. */
+  readonly publishLock?: (path: string, contents: string) => Promise<void>;
 }) => Promise<InstallResult>;
 
 // This module is supplied by the green implementation. Keep the red tests typecheckable.
@@ -70,7 +72,7 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
     calls.push(url);
     return replies.get(url) ?? { status: 404, headers: JSON_REPLY, body: utf8("missing") };
   };
-  const run = (request = "bounded-example@1.0.0") => install({ request, boundedVersion: "3.3.0", projectRoot, storeRoot, get });
+  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
   const lockPath = join(projectRoot, ".bounded", "packs.lock.json");
   return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath };
 }
@@ -89,6 +91,11 @@ const filesUnder = (root: string): string[] => existsSync(root)
     return statSync(path).isDirectory() ? filesUnder(path) : [path];
   })
   : [];
+
+const plainPackageEntries = (name: string, version: string, dependencies: Readonly<Record<string, string>> = {}): TarEntry[] => [
+  { name: "package/package.json", body: JSON.stringify({ name, version, type: "module", exports: { ".": "./index.js" }, dependencies }) },
+  { name: "package/index.js", body: `export const version = ${JSON.stringify(version)};\n` },
+];
 
 describe("managed published pack artifact, lock and store contract", () => {
   test("installs one exact version with registry integrity, tarball SHA-256, complete file inventory and an atomic project lock", async () => {
@@ -126,6 +133,31 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(readFileSync(given.lockPath, "utf8")).toBe("prior lock\n");
   });
 
+  test("a late lock publication failure preserves the previous lock after the new store entry is verified", async () => {
+    const given = fixture([{ name: "bounded-example", version: "1.0.0" }, { name: "bounded-example", version: "1.0.1" }]);
+    const first = await given.run();
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const previousLock = readFileSync(given.lockPath, "utf8");
+    const previousFiles = filesUnder(given.storeRoot);
+    const nextArchive = given.replies.get(tarUrl("bounded-example", "1.0.1"))?.body;
+    expect(nextArchive).toBeDefined();
+    if (nextArchive === undefined) return;
+    let reachedLockPublication = false;
+    await refused(() => given.run("bounded-example@1.0.1", async (path, contents) => {
+      reachedLockPublication = true;
+      expect(path).toBe(given.lockPath);
+      expect(contents).toContain(sha256(nextArchive));
+      const stored = filesUnder(given.storeRoot);
+      expect(stored.length).toBeGreaterThan(previousFiles.length);
+      expect(stored.some((file) => file.endsWith("package.json") && readFileSync(file, "utf8").includes('"version":"1.0.1"'))).toBe(true);
+      expect(stored.some((file) => readFileSync(file).includes(sha256(utf8("export const refusedToolsPack = {};\n"))))).toBe(true);
+      throw new Error("injected lock write failure");
+    }), "injected lock write failure");
+    expect(reachedLockPublication).toBe(true);
+    expect(readFileSync(given.lockPath, "utf8")).toBe(previousLock);
+  });
+
   test("rejects HTTP metadata, tarball URLs and every redirect downgrade", async () => {
     const given = fixture();
     given.replies.set(`${REGISTRY}/bounded-example`, { status: 302, headers: { location: "http://registry.example.test/package" }, body: new Uint8Array() });
@@ -137,6 +169,12 @@ describe("managed published pack artifact, lock and store contract", () => {
     await refused(insecure.run, "https");
     expect(insecure.calls).not.toContain("http://registry.example.test/bounded-example.tgz");
     expect(existsSync(insecure.lockPath)).toBe(false);
+
+    const tarRedirect = fixture();
+    tarRedirect.replies.set(tarUrl("bounded-example", "1.0.0"), { status: 302, headers: { location: "http://cdn.example.test/archive.tgz" }, body: new Uint8Array() });
+    await refused(tarRedirect.run, "https");
+    expect(tarRedirect.calls).not.toContain("http://cdn.example.test/archive.tgz");
+    expect(existsSync(tarRedirect.lockPath)).toBe(false);
   });
 
   test("rejects path escape, absolute entry, link and case-fold collision before publishing", async () => {
@@ -144,7 +182,10 @@ describe("managed published pack artifact, lock and store contract", () => {
       [[...packageEntries(), { name: "package/../outside.js", body: "x" }], "path"],
       [[...packageEntries(), { name: "/outside.js", body: "x" }], "path"],
       [[...packageEntries(), { name: "package/escape", type: "symlink", linkName: "../../outside" }], "link"],
+      [[...packageEntries(), { name: "package/escape", type: "hardlink", linkName: "package/dist/index.js" }], "link"],
+      [[...packageEntries(), { name: "package/dist/index.js", body: "different" }], "duplicate"],
       [[...packageEntries(), { name: "package/DIST/index.js", body: "different" }], "collision"],
+      [[...packageEntries(), { name: "package/device", type: "character" }], "type"],
     ];
     for (const [entries, phrase] of cases) {
       const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
@@ -165,7 +206,7 @@ describe("managed published pack artifact, lock and store contract", () => {
     }
   });
 
-  test("pins a complete closure and resolves each imported dependency from its own declaring node", async () => {
+  test("pins a complete dependency closure", async () => {
     const given = fixture([
       { name: "bounded-example", version: "1.0.0", dependencies: { "plain-helper": "1.0.0" } },
       { name: "plain-helper", version: "1.0.0", entries: [
@@ -183,6 +224,35 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(given.calls).toContain(tarUrl("plain-helper", "1.0.0"));
   });
 
+  test("keeps separate per-importer edges when two parents need different helper versions", async () => {
+    const given = fixture([
+      { name: "bounded-example", version: "1.0.0", dependencies: { "parent-a": "1.0.0", "parent-b": "1.0.0" } },
+      { name: "parent-a", version: "1.0.0", dependencies: { "plain-helper": "1.0.0" }, entries: plainPackageEntries("parent-a", "1.0.0", { "plain-helper": "1.0.0" }) },
+      { name: "parent-b", version: "1.0.0", dependencies: { "plain-helper": "2.0.0" }, entries: plainPackageEntries("parent-b", "1.0.0", { "plain-helper": "2.0.0" }) },
+      { name: "plain-helper", version: "1.0.0", entries: plainPackageEntries("plain-helper", "1.0.0") },
+      { name: "plain-helper", version: "2.0.0", entries: plainPackageEntries("plain-helper", "2.0.0") },
+    ]);
+    const result = await given.run();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { nodes: Record<string, { id?: string; name: string; version: string; dependencies: Record<string, string> }> };
+    const nodes = Object.entries(lock.nodes).map(([key, node]) => ({ ...node, identity: node.id ?? key }));
+    const only = (name: string, version: string) => {
+      const matches = nodes.filter((node) => node.name === name && node.version === version);
+      expect(matches).toHaveLength(1);
+      return matches[0];
+    };
+    const parentA = only("parent-a", "1.0.0");
+    const parentB = only("parent-b", "1.0.0");
+    const helper1 = only("plain-helper", "1.0.0");
+    const helper2 = only("plain-helper", "2.0.0");
+    expect(parentA?.dependencies["plain-helper"]).toBe(helper1?.identity);
+    expect(parentB?.dependencies["plain-helper"]).toBe(helper2?.identity);
+    expect(parentA?.dependencies["plain-helper"]).not.toBe(parentB?.dependencies["plain-helper"]);
+    expect(given.calls).toContain(tarUrl("plain-helper", "1.0.0"));
+    expect(given.calls).toContain(tarUrl("plain-helper", "2.0.0"));
+  });
+
   test("rejects an incompatible Bounded peer, nested Bounded dependency and missing closure node", async () => {
     for (const [item, phrase] of [
       [{ name: "bounded-example", version: "1.0.0", peerDependencies: { bounded: "^4.0.0" } }, "bounded"],
@@ -196,14 +266,18 @@ describe("managed published pack artifact, lock and store contract", () => {
   });
 
   test("rejects install lifecycle scripts, native addons and nonliteral dynamic imports in the closure", async () => {
+    const scriptRoot = mkdtempSync(join(tmpdir(), "bounded-managed-pack-script-"));
+    directories.push(scriptRoot);
+    const sentinel = join(scriptRoot, "script-ran");
     for (const [item, phrase] of [
-      [{ name: "bounded-example", version: "1.0.0", scripts: { postinstall: "node setup.js" } }, "postinstall"],
+      [{ name: "bounded-example", version: "1.0.0", scripts: { postinstall: `touch ${sentinel}` } }, "postinstall"],
       [{ name: "bounded-example", version: "1.0.0", entries: [...packageEntries(), { name: "package/build/addon.node", body: "native" }] }, ".node"],
       [{ name: "bounded-example", version: "1.0.0", entries: packageEntries().map((entry) => entry.name === "package/dist/index.js" ? { ...entry, body: "export const refusedToolsPack = import(moduleName);\n" } : entry) }, "dynamic import"],
     ] as const) {
       const given = fixture([item]);
       await refused(given.run, phrase);
       expect(existsSync(given.lockPath)).toBe(false);
+      expect(existsSync(sentinel)).toBe(false);
     }
   });
 });

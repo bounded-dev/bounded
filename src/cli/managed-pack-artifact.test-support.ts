@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 export interface TarEntry {
   readonly name: string;
   readonly body?: Uint8Array | string;
-  readonly type?: "file" | "directory" | "symlink" | "hardlink";
+  readonly type?: "file" | "directory" | "symlink" | "hardlink" | "character" | "block" | "fifo";
   readonly linkName?: string;
 }
 
@@ -27,7 +27,7 @@ export function tarball(entries: readonly TarEntry[]): Uint8Array {
     put(header, 124, 12, octal(body.length, 12));
     put(header, 136, 12, octal(0, 12));
     header.fill(32, 148, 156);
-    put(header, 156, 1, { file: "0", directory: "5", symlink: "2", hardlink: "1" }[entry.type ?? "file"]);
+    put(header, 156, 1, { file: "0", directory: "5", symlink: "2", hardlink: "1", character: "3", block: "4", fifo: "6" }[entry.type ?? "file"]);
     put(header, 157, 100, entry.linkName ?? "");
     put(header, 257, 6, "ustar\0");
     put(header, 263, 2, "00");
