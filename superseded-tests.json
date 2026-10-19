@@ -6799,5 +6799,14 @@
       "case": "managed published pack artifact, lock and store contract > refuses a CommonJS catalogue pack export before publishing the lock"
     },
     "reason": "the former fixture used require, which the artifact verifier already rejects; catalogue pack exports must use statically imported ESM and a CommonJS export is refused during installation"
+  },
+  {
+    "file": "src/test/packaging.test.ts",
+    "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left",
+    "successor": {
+      "file": "src/test/packaging.test.ts",
+      "case": "bounded, the one published package > packed, its manifest names the version, the bin and four runtime dependencies including TypeScript"
+    },
+    "reason": "the carried Node host now declares the pinned TypeScript parser as a fourth runtime dependency"
   }
 ]

@@ -524,6 +524,44 @@ describe("managed pack type-only projection and publication", () => {
     expect(readFileSync(source, "utf8")).toContain('"tampered"');
   });
 
+  test("capture refuses an overbound graph before opening any store", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, Record<string, unknown>> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined || lock.nodes[root] === undefined) throw new Error("missing test root");
+    const original = lock.nodes[root];
+    for (let index = 0; index < 128; index++) {
+      const name = `extra-${index}`;
+      const id = `${name}@1.0.0#${original.sha256}`;
+      lock.nodes[id] = { ...original, id, name, version: "1.0.0" };
+    }
+    writeFileSync(given.lockPath, `${JSON.stringify(lock)}\n`);
+    rmSync(join(given.storeRoot, String(original.sha256)), { recursive: true, force: true });
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "128 pinned nodes");
+  });
+
+  test("capture refuses an inventory byte bound before opening its advertised missing file", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string; inventorySha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined || lock.nodes[root] === undefined) throw new Error("missing test root");
+    const node = lock.nodes[root];
+    const inventoryPath = join(given.storeRoot, node.sha256, "inventory.json");
+    const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as { files: Record<string, { size: number; sha256: string }> };
+    inventory.files["huge.bin"] = { size: 256 * 1024 * 1024 + 1, sha256: "0".repeat(64) };
+    const inventoryBytes = utf8(`${JSON.stringify(inventory)}\n`);
+    writeFileSync(inventoryPath, inventoryBytes);
+    node.inventorySha256 = digest(inventoryBytes);
+    writeFileSync(given.lockPath, `${JSON.stringify(lock)}\n`);
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "byte bound");
+  });
+
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
     const given = fixture([pack("bounded-example"), pack("bounded-second"), pack("bounded-third")]);
     expect((await given.run()).ok).toBe(true);
