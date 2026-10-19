@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as domain from "bounded/domain";
+import { openProject } from "bounded/open-project";
 import { buildStandaloneConfigModule, standaloneManagedConfigSource } from "../standalone-config-as-module.ts";
 
 type Node = {
@@ -58,6 +59,19 @@ describe("standalone managed config from a verified snapshot", () => {
     const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(domain.PackDescription.of(loaded.value.listedPacks[0]!).id).toBe("bounded-example/selected");
+  });
+
+  test("a selected managed pack with a required port refuses until the project provides that port", async () => {
+    const id = domain.packIdsFor("bounded-example")("port-bearing");
+    const published = domain.definePack({ id, dependsOn: [domain.corePack],
+      ports: { managedNotes: domain.portKeysFor(id)<{ save(text: string): Promise<void> }>("managedNotes") } });
+    const selected = node("bounded-example", "1.0.0", 'import { corePack, definePack, packIdsFor, portKeysFor } from "bounded/domain";\nconst id = packIdsFor("bounded-example")("port-bearing");\nexport const portBearingPack = definePack({ id, dependsOn: [corePack], ports: { managedNotes: portKeysFor(id)("managedNotes") } });\n');
+    selected.catalogue = { packs: [cataloguePack(published, "bounded-example", "portBearingPack")] };
+    const { root } = project('import { defineConfig } from "bounded/domain";\nimport { portBearingPack } from "bounded-example";\nexport default defineConfig({ packs: [portBearingPack] });\n');
+    const opened = await openProject(root, { configSource: standaloneManagedConfigSource((file, projectRoot) =>
+      buildStandaloneConfigModule(file, projectRoot, graph([selected], { "bounded-example": selected.id }))) });
+    expect(opened.problem).toMatch(/bounded-example\/port-bearing/i);
+    expect(opened.problem).toMatch(/managedNotes|managed-notes/i);
   });
 
   test("direct roots resolve distinct importer-local dependency versions and leave an unselected installed pack inert", async () => {
