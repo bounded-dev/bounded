@@ -249,6 +249,13 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(existsSync(given.lockPath)).toBe(false);
   });
 
+  test("refuses a .js catalogue pack export when package type is CommonJS", async () => {
+    const entries = packageEntries({ ...manifest(), type: "commonjs" });
+    const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
+    await refused(given.run, "ESM");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
   test("a null Node import condition blocks a later default target", async () => {
     const entries = packageEntries({ ...manifest(), exports: { ".": { import: null, default: "./dist/index.js" } } });
     const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
