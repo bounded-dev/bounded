@@ -56,6 +56,7 @@ test("the archive alone loads a TypeScript project config, nested local pack and
     successful(["git", "clone", "--quiet", "--no-hardlinks", REPO, source], REPO);
     // Exercise the working tree during development as well as committed HEAD.
     cpSync(join(REPO, "src"), join(source, "src"), { recursive: true, force: true });
+    cpSync(join(REPO, "bun.lock"), join(source, "bun.lock"), { force: true });
     successful([process.execPath, "install", "--frozen-lockfile", "--offline"], source);
     const targetId = nativeTarget();
     successful([process.execPath, join(source, "src", "build-release.ts"), "--target", targetId, "--smoke", "--out", release], source);

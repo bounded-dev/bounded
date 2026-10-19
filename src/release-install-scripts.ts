@@ -64,6 +64,10 @@ root="\${XDG_DATA_HOME:-$HOME/.local/share}/bounded"
 bin_dir="\${XDG_BIN_HOME:-$HOME/.local/bin}"
 case "$bin_dir" in *[![:print:]]*) echo "Bounded bin directory contains control characters" >&2; exit 1 ;; esac
 release="$root/releases/v$version/$target"
+receipt_dir="$root/receipts/v$version/$target"
+manifest_blob_dir="$receipt_dir/manifests"
+manifest_blob="$manifest_blob_dir/$manifest_sha.json"
+receipt="$receipt_dir/receipt-v1.json"
 mkdir -p "$root/releases/v$version" "$bin_dir"
 stage=$(mktemp -d "$root/releases/v$version/.stage.XXXXXXXX")
 trap 'rm -rf "$stage"' EXIT
@@ -110,6 +114,22 @@ fi
 if ! verify_release "$release" || [ ! -x "$release/bin/bounded" ] || [ "$("$release/bin/bounded" --version)" != "$version" ]; then
   echo "Existing release is incomplete or does not match the manifest" >&2; exit 1
 fi
+if [ -L "$receipt_dir" ] || [ -L "$manifest_blob_dir" ] || [ -L "$manifest_blob" ] || [ -L "$receipt" ]; then
+  echo "Bounded release receipt contains a link" >&2; exit 1
+fi
+mkdir -p "$manifest_blob_dir"
+receipt_expected="$stage/receipt-v1.json"
+printf '{"schema":"bounded-install-receipt/1","version":"%s","target":"%s","manifestSha256":"%s"}\n' "$version" "$target" "$manifest_sha" > "$receipt_expected"
+if [ -e "$receipt" ] && ! cmp -s "$receipt" "$receipt_expected"; then
+  echo "An installed Bounded version has a different manifest receipt" >&2; exit 1
+fi
+if [ -e "$manifest_blob" ]; then
+  if [ ! -f "$manifest_blob" ] || [ "$(digest "$manifest_blob")" != "$manifest_sha" ]; then echo "Installed manifest blob SHA-256 mismatch" >&2; exit 1; fi
+else
+  cp "$stage/$manifest" "$stage/manifest-blob.json"
+  mv "$stage/manifest-blob.json" "$manifest_blob"
+fi
+if [ ! -e "$receipt" ]; then mv "$receipt_expected" "$receipt"; fi
 chmod 755 "$launcher"
 mv "$launcher" "$bin_dir/bounded"
 profile="$HOME/.profile"
@@ -165,6 +185,10 @@ __WINDOWS_TARGETS__
 $root = Join-Path $env:LOCALAPPDATA "Bounded"
 $binDir = Join-Path $root "bin"
 $release = Join-Path $root "releases/v$version/$target"
+$receiptDirectory = Join-Path $root "receipts/v$version/$target"
+$manifestBlobDirectory = Join-Path $receiptDirectory "manifests"
+$manifestBlob = Join-Path $manifestBlobDirectory ($manifestSha + ".json")
+$receipt = Join-Path $receiptDirectory "receipt-v1.json"
 $launcher = Join-Path $binDir "bounded.cmd"
 New-Item -ItemType Directory -Force (Split-Path $release), $binDir | Out-Null
 $stage = Join-Path (Split-Path $release) (".stage." + [guid]::NewGuid().ToString("N"))
@@ -205,6 +229,27 @@ try {
   $installedBinary = Join-Path $release "bin/bounded.exe"
   Verify-Release $release
   if ((& $installedBinary --version) -ne $version -or $LASTEXITCODE -ne 0) { throw "Existing release is incomplete or does not match the manifest" }
+  foreach ($receiptPath in @($receiptDirectory, $manifestBlobDirectory, $manifestBlob, $receipt)) {
+    if (Test-Path -LiteralPath $receiptPath) {
+      $receiptItem = Get-Item -LiteralPath $receiptPath -Force
+      if ($receiptItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Bounded release receipt contains a link" }
+    }
+  }
+  New-Item -ItemType Directory -Force $manifestBlobDirectory | Out-Null
+  $receiptExpected = '{"schema":"bounded-install-receipt/1","version":"' + $version + '","target":"' + $target + '","manifestSha256":"' + $manifestSha + '"}' + [Environment]::NewLine
+  if ((Test-Path -LiteralPath $receipt) -and [IO.File]::ReadAllText($receipt) -cne $receiptExpected) { throw "An installed Bounded version has a different manifest receipt" }
+  if (Test-Path -LiteralPath $manifestBlob) {
+    if ((Get-FileHash -LiteralPath $manifestBlob -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifestSha) { throw "Installed manifest blob SHA-256 mismatch" }
+  } else {
+    $stagedBlob = Join-Path $stage "manifest-blob.json"
+    [IO.File]::WriteAllBytes($stagedBlob, [IO.File]::ReadAllBytes($manifestPath))
+    Move-Item $stagedBlob $manifestBlob
+  }
+  if (-not (Test-Path -LiteralPath $receipt)) {
+    $stagedReceipt = Join-Path $stage "receipt-v1.json"
+    [IO.File]::WriteAllText($stagedReceipt, $receiptExpected)
+    Move-Item $stagedReceipt $receipt
+  }
   $launcherText = "@REM bounded launcher v1" + [Environment]::NewLine + "@echo off" + [Environment]::NewLine + 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0bounded-launcher.ps1" %*' + [Environment]::NewLine + 'exit /b %ERRORLEVEL%' + [Environment]::NewLine
   $launcherPowerShell = @'
 # bounded launcher PowerShell v1
