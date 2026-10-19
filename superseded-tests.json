@@ -6775,6 +6775,15 @@
   },
   {
     "file": "src/cli/managed-pack-projection.test.ts",
+    "case": "managed pack type-only projection and publication > a changed verified store refuses before a managed module executes",
+    "successor": {
+      "file": "src/cli/managed-pack-projection.test.ts",
+      "case": "managed pack type-only projection and publication > a store mutation before snapshot refuses before a managed module executes"
+    },
+    "reason": "the corrected test mutates the real store before graph capture, which must refuse before any managed module executes"
+  },
+  {
+    "file": "src/cli/managed-pack-projection.test.ts",
     "case": "managed pack type-only projection and publication > a journal appearing after byte capture refuses before managed execution",
     "successor": {
       "file": "src/hosts/claude-code/test/standalone-managed-config.test.ts",

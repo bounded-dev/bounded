@@ -245,7 +245,9 @@ describe("managed published pack artifact, lock and store contract", () => {
       ? { ...entry, name: "package/dist/index.cjs", body: "module.exports = { selectedPack: {} };\n" }
       : entry);
     const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
-    await refused(given.run, "ESM");
+    const result = await given.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("ESM");
     expect(existsSync(given.lockPath)).toBe(false);
   });
 

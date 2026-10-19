@@ -129,7 +129,10 @@ describe("standalone managed config from a verified snapshot", () => {
     const { root } = project('import { defineConfig } from "bounded/domain";\nimport { parentPack } from "bounded-example";\nexport default defineConfig({ packs: [parentPack] });\n');
     const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
     expect(loaded.ok).toBe(false);
-    if (!loaded.ok) expect(loaded.error).toMatch(/child|catalogue|descriptor/i);
+    if (!loaded.ok) {
+      expect(loaded.error).toContain("bounded-example/child");
+      expect(loaded.error).toMatch(/catalogue|descriptor/i);
+    }
   });
 
   test("a selected pack must come from its locked import path and export name", async () => {
