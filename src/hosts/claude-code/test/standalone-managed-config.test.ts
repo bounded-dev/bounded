@@ -58,7 +58,27 @@ describe("standalone managed config from a verified snapshot", () => {
     const { root } = project('import { defineConfig } from "bounded/domain";\nimport { selectedPack } from "bounded-example";\nexport default defineConfig({ packs: [selectedPack] });\n');
     const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
     expect(loaded.ok).toBe(true);
-    if (loaded.ok) expect(domain.PackDescription.of(loaded.value.listedPacks[0]!).id).toBe("bounded-example/selected");
+    if (loaded.ok) {
+      const [selectedPack] = loaded.value.listedPacks;
+      if (selectedPack === undefined) throw new Error("configuration selected no pack");
+      expect(domain.PackDescription.of(selectedPack).id).toBe("bounded-example/selected");
+    }
+  });
+
+  test("a selected named export from a CommonJS package opens", async () => {
+    const published = domain.definePack({ id: domain.packIdsFor("bounded-example")("commonjs"), dependsOn: [domain.corePack] });
+    const selected = node("bounded-example", "1.0.0", 'const { definePack, packIdsFor, corePack } = require("bounded/domain");\nmodule.exports = { selectedPack: definePack({ id: packIdsFor("bounded-example")("commonjs"), dependsOn: [corePack] }) };\n');
+    selected.exports = { ".": { import: "./dist/index.cjs" } };
+    selected.files = { "dist/index.cjs": selected.files["dist/index.js"] ?? bytes("") };
+    selected.catalogue = { packs: [cataloguePack(published, "bounded-example", "selectedPack")] };
+    const { root } = project('import { defineConfig } from "bounded/domain";\nimport { selectedPack } from "bounded-example";\nexport default defineConfig({ packs: [selectedPack] });\n');
+    const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
+    expect(loaded).toMatchObject({ ok: true });
+    if (loaded.ok) {
+      const [selectedPack] = loaded.value.listedPacks;
+      if (selectedPack === undefined) throw new Error("configuration selected no CommonJS pack");
+      expect(domain.PackDescription.of(selectedPack).id).toBe("bounded-example/commonjs");
+    }
   });
 
   test("a selected managed pack with a required port refuses until the project provides that port", async () => {
@@ -81,10 +101,14 @@ describe("standalone managed config from a verified snapshot", () => {
     const chosen = graph([first, second, unused, node("plain-helper", "1.0.0", 'export const version = "one";\n'),
       node("plain-helper", "2.0.0", 'export const version = "two";\n')],
     { "bounded-first": first.id, "bounded-second": second.id, "bounded-unused": unused.id });
-    const { root } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(`${firstVersion}-${secondVersion}`) })] });\n');
+    const { root } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(firstVersion + "-" + secondVersion) })] });\n');
     const loaded = await load(root, chosen);
     expect(loaded.ok).toBe(true);
-    if (loaded.ok) expect(domain.PackDescription.of(loaded.value.listedPacks[0]!).id).toBe("local/one-two");
+    if (loaded.ok) {
+      const [selectedPack] = loaded.value.listedPacks;
+      if (selectedPack === undefined) throw new Error("configuration selected no pack");
+      expect(domain.PackDescription.of(selectedPack).id).toBe("local/one-two");
+    }
     expect(Reflect.get(globalThis, "__boundedManagedUnselectedExecuted")).toBeUndefined();
     const outside = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { version } from "plain-helper";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(version) })] });\n');
     const refused = await load(outside.root, chosen);
@@ -98,9 +122,11 @@ describe("standalone managed config from a verified snapshot", () => {
     const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { word } from "bounded-selected";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(word) })] });\n');
     const storeFile = join(root, "store", selected.id, "package", "dist", "index.js");
     mkdirSync(join(root, "store", selected.id, "package", "dist"), { recursive: true });
-    writeFileSync(storeFile, selected.files["dist/index.js"]!);
+    const capturedBytes = selected.files["dist/index.js"];
+    if (capturedBytes === undefined) throw new Error("selected fixture has no built module");
+    writeFileSync(storeFile, capturedBytes);
     selected.files["dist/index.js"] = Uint8Array.from(readFileSync(storeFile));
-    const oldBytes = Uint8Array.from(selected.files["dist/index.js"]!);
+    const oldBytes = Uint8Array.from(capturedBytes);
     writeFileSync(storeFile, 'globalThis.__boundedManagedSelectedExecuted = "tampered"; export const word = "tampered";\n');
     expect(readFileSync(storeFile, "utf8")).toContain("tampered");
     expect(selected.files["dist/index.js"]).toEqual(oldBytes);
