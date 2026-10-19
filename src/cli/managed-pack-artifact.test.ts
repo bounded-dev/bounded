@@ -18,6 +18,8 @@ type Install = (input: {
   readonly get: (url: string) => Promise<Reply>;
   /** File-port fault seam: production writes the lock atomically only after all store entries are verified. */
   readonly publishLock?: (path: string, contents: string) => Promise<void>;
+  /** Test seam after the existing lock has been fully verified, before publishing a replacement. */
+  readonly afterExistingLockVerified?: (lockSha256: string) => Promise<void>;
 }) => Promise<InstallResult>;
 
 const install: Install = installManagedPack;
@@ -75,7 +77,7 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
     calls.push(url);
     return replies.get(url) ?? { status: 404, headers: JSON_REPLY, body: utf8("missing") };
   };
-  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
+  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>, afterExistingLockVerified?: (lockSha256: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }), ...(afterExistingLockVerified === undefined ? {} : { afterExistingLockVerified }) });
   const lockPath = join(projectRoot, ".bounded", "packs.lock.json");
   const verifyInstalled = () => verify({ boundedVersion: "3.3.0", boundedExportPaths: ["./domain", "./application"], projectRoot, storeRoot });
   return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath, verifyInstalled };
@@ -432,8 +434,26 @@ describe("managed pack offline verification and plural roots", () => {
       if (mutation === "changed") writeFileSync(js, "export const refusedToolsPack = { changed: true };\n");
       if (mutation === "missing") rmSync(js);
       if (mutation === "extra") writeFileSync(join(stored, "package", "extra.js"), "extra\n");
-      if (mutation === "link") { rmSync(js); symlinkSync(join(given.root, "outside.js"), js); }
+      if (mutation === "link") { writeFileSync(join(given.root, "outside.js"), "outside\n"); rmSync(js); symlinkSync(join(given.root, "outside.js"), js); }
       await verifyRefused(given.verifyInstalled, mutation === "link" ? "link" : "bounded-example");
+    }
+  });
+
+  test("offline verification refuses linked store and project path components even when their targets exist", async () => {
+    for (const boundary of ["store", "project"] as const) {
+      const given = fixture();
+      expect((await given.run()).ok).toBe(true);
+      if (boundary === "store") {
+        const outside = join(given.root, "real-store");
+        renameSync(given.storeRoot, outside);
+        symlinkSync(outside, given.storeRoot, "dir");
+      } else {
+        const bounded = join(given.projectRoot, ".bounded");
+        const outside = join(given.root, "real-bounded");
+        renameSync(bounded, outside);
+        symlinkSync(outside, bounded, "dir");
+      }
+      await verifyRefused(given.verifyInstalled, "link");
     }
   });
 
@@ -547,17 +567,44 @@ describe("managed pack offline verification and plural roots", () => {
     expect(readFileSync(given.lockPath)).toEqual(oldBytes);
   });
 
-  test("two simultaneous additions preserve both roots or refuse one without overwriting the winner", async () => {
-    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
-    const [first, second] = await Promise.all([given.run(), given.run("bounded-second@1.0.0")]);
-    const lock = readLock(given.lockPath);
-    const successful = [first, second].filter((result) => result.ok).length;
-    if (successful === 2) expect(Object.keys(lock.roots).sort()).toEqual(["bounded-example", "bounded-second"]);
-    else {
-      expect(successful).toBe(1);
-      const failed = first.ok ? second : first;
-      if (!failed.ok) expect(failed.error.toLowerCase()).toContain("retry");
+  test("overlapping additions cannot overwrite a root observed in the same prior lock snapshot", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second"), pack("bounded-third")]);
+    expect((await given.run()).ok).toBe(true);
+    const originalLock = readFileSync(given.lockPath);
+    const snapshots: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let firstPaused: (() => void) | undefined;
+    const firstAtSnapshot = new Promise<void>((resolve) => { firstPaused = resolve; });
+    let secondSeen: (() => void) | undefined;
+    const secondAtSnapshot = new Promise<void>((resolve) => { secondSeen = resolve; });
+    const afterSnapshot = async (digest: string): Promise<void> => {
+      snapshots.push(digest);
+      if (snapshots.length === 1) { firstPaused?.(); await firstBlocked; }
+      else secondSeen?.();
+    };
+    const first = given.run("bounded-second@1.0.0", undefined, afterSnapshot);
+    await Promise.race([firstAtSnapshot, Bun.sleep(1000)]);
+    expect(snapshots.length).toBeGreaterThan(0);
+    if (snapshots.length === 0) return;
+    const second = given.run("bounded-third@1.0.0", undefined, afterSnapshot);
+    // An exclusive writer may hold the second call before this seam. An optimistic writer
+    // reaches it with the same snapshot while the first is held, exposing a lost update.
+    await Promise.race([secondAtSnapshot, Bun.sleep(1000)]);
+    releaseFirst?.();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(snapshots.length).toBeGreaterThanOrEqual(2);
+    expect(snapshots[0]).toBe(sha256(originalLock));
+    if (snapshots[1] === snapshots[0]) expect(snapshots).toHaveLength(2);
+    if (!firstResult.ok) {
+      expect(firstResult.error.toLowerCase()).toContain("retry");
+      expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
     }
+    if (!secondResult.ok) {
+      expect(secondResult.error.toLowerCase()).toContain("retry");
+      expect((await given.run("bounded-third@1.0.0")).ok).toBe(true);
+    }
+    expect(Object.keys(readLock(given.lockPath).roots).sort()).toEqual(["bounded-example", "bounded-second", "bounded-third"]);
     expect((await given.verifyInstalled()).ok).toBe(true);
   });
 });
