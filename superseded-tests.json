@@ -6790,5 +6790,14 @@
       "case": "a compiled archive adds and executes a published pack with no ambient package runtime"
     },
     "reason": "verified managed runtime loading completes the public bounded add route; the compiled archive now proves successful add and execution without ambient package runtimes"
+  },
+  {
+    "file": "src/hosts/claude-code/test/standalone-managed-config.test.ts",
+    "case": "standalone managed config from a verified snapshot > a selected named export from a CommonJS package opens",
+    "successor": {
+      "file": "src/cli/managed-pack-artifact.test.ts",
+      "case": "managed published pack artifact, lock and store contract > refuses a CommonJS catalogue pack export before publishing the lock"
+    },
+    "reason": "the former fixture used require, which the artifact verifier already rejects; catalogue pack exports must use statically imported ESM and a CommonJS export is refused during installation"
   }
 ]

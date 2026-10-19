@@ -65,22 +65,6 @@ describe("standalone managed config from a verified snapshot", () => {
     }
   });
 
-  test("a selected named export from a CommonJS package opens", async () => {
-    const published = domain.definePack({ id: domain.packIdsFor("bounded-example")("commonjs"), dependsOn: [domain.corePack] });
-    const selected = node("bounded-example", "1.0.0", 'const { definePack, packIdsFor, corePack } = require("bounded/domain");\nmodule.exports = { selectedPack: definePack({ id: packIdsFor("bounded-example")("commonjs"), dependsOn: [corePack] }) };\n');
-    selected.exports = { ".": { import: "./dist/index.cjs" } };
-    selected.files = { "dist/index.cjs": selected.files["dist/index.js"] ?? bytes("") };
-    selected.catalogue = { packs: [cataloguePack(published, "bounded-example", "selectedPack")] };
-    const { root } = project('import { defineConfig } from "bounded/domain";\nimport { selectedPack } from "bounded-example";\nexport default defineConfig({ packs: [selectedPack] });\n');
-    const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
-    expect(loaded).toMatchObject({ ok: true });
-    if (loaded.ok) {
-      const [selectedPack] = loaded.value.listedPacks;
-      if (selectedPack === undefined) throw new Error("configuration selected no CommonJS pack");
-      expect(domain.PackDescription.of(selectedPack).id).toBe("bounded-example/commonjs");
-    }
-  });
-
   test("a selected managed pack with a required port refuses until the project provides that port", async () => {
     const id = domain.packIdsFor("bounded-example")("port-bearing");
     const published = domain.definePack({ id, dependsOn: [domain.corePack],

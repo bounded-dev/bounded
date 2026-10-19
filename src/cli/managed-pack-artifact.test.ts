@@ -239,6 +239,16 @@ describe("managed published pack artifact, lock and store contract", () => {
     }
   });
 
+  test("refuses a CommonJS catalogue pack export before publishing the lock", async () => {
+    const packageManifest = { ...manifest(), exports: { ".": { import: "./dist/index.cjs" } } };
+    const entries = packageEntries(packageManifest).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, name: "package/dist/index.cjs", body: "module.exports = { selectedPack: {} };\n" }
+      : entry);
+    const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
+    await refused(given.run, "ESM");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
   test("a null Node import condition blocks a later default target", async () => {
     const entries = packageEntries({ ...manifest(), exports: { ".": { import: null, default: "./dist/index.js" } } });
     const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
