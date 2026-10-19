@@ -8,7 +8,7 @@ import * as prereqs from "bounded/prereqs";
 import * as prereqsAdapters from "bounded/prereqs/adapters";
 import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
-import * as shellCommandReader from "bounded/shell-command-reader";
+import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
 import { join } from "node:path";
 import { buildStandaloneConfigModule } from "./hosts/claude-code/standalone-config-as-module.ts";
 
