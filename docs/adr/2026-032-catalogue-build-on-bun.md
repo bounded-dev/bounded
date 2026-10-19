@@ -54,26 +54,40 @@ package whose `default` target was never built.
   bun through `process.versions.bun` and uses no Bun API (runtime code uses
   none, `src/test/architecture.test.ts`), so the module still loads under
   Node, where hosts run the core.
-- **It loads the JavaScript Node's require would pick, never a `bun`
-  source.** From the package's own package.json it takes the export path's
-  entry and its target under Node's conditions: a string is itself; a list,
-  its first entry that gives a target; conditions, their keys in written
-  order, the first of `default`, `require` or `node` that gives a target, at
-  any depth. It joins that target to the package's directory, refuses a
-  target outside the package, refuses a target that does not exist with
-  "build the package first", and imports that file. A package with no
-  `exports` still loads its root through `main`, as Node's require resolves
-  it. The export path is no longer resolved by self-reference.
+- **It resolves each export exactly as a host's `import()` does under
+  Node, never to a `bun` source** (final review). Hosts load packs with
+  `import()`, so the conditions are `node`, `import` and `default`, never
+  `require` or `bun`. The resolution is a well-maintained library's,
+  `resolve.exports` (pinned, a dependency of bounded), not hand-rolled, and
+  Node's own rules for a target apply on top of it: a target starts with
+  `./` and has no empty, `.`, `..` or `node_modules` segment after it (Node's
+  own pattern), `null` means not exported, and within a list the invalid
+  entries are skipped. It joins the target to the package's directory,
+  refuses a target outside the package, refuses one that does not exist
+  with "build the package first", and imports that file. The export path is
+  no longer resolved by self-reference, whose `bun` condition would load
+  the source.
+- **Without `exports`**, the package root loads through `main`, read from
+  package.json (never bun's `require.resolve`, which may prefer other
+  fields), and refused when it climbs out of the package or does not exist;
+  with no `main`, through `index.js`.
+- **Containment is checked by path.** A target or `main` is inside the
+  package when its path, joined to the package's directory, stays inside it;
+  a symlink inside the package is followed, just as Node follows it.
 - **The export-entry rule (B1) stays**, refused before anything beyond
   package.json is read, reworded:
-  `<name>'s export path <path> has no target Node's require picks (default,
-  require or node): add a \`default\` condition naming its JavaScript, which
-  hosts load under Node and the catalogue build loads too`.
+  `<name>'s export path <path> gives a host's import() under Node no
+  target: none of its node, import or default conditions names one, or the
+  one it names is null: add a \`default\` condition naming its JavaScript,
+  which hosts load under Node and the catalogue build loads too`. An entry
+  whose every target breaks Node's rules is refused naming them:
+  `… names <targets>, which Node refuses as a package target: a target
+  starts with ./ and has no empty, ., .. or node_modules segment after it`.
 - **Scenarios load as bun loads TypeScript**, `node_modules` included, so
   ADR 2026-031's limit under `node_modules` is gone.
 - **The application port names no runtime.** `PackModules` loads "the
-  JavaScript each export path's entry names for `default`, `require` or
-  `node`, loaded by the runtime the build runs in"; the condition names are
+  JavaScript each export path resolves to under the conditions `node`,
+  `import` and `default`, loaded by the runtime the build runs in"; the condition names are
   package.json's vocabulary, bounded's transport format, not a runtime.
 - **`engines` gains no `bun`.** engines govern a consumer's install, and
   only someone building bounded or a package's catalogue needs bun. ADR
@@ -85,8 +99,9 @@ package whose `default` target was never built.
 ### What still needs Node
 
 Nothing, to build a catalogue. Node remains the runtime the build's checks
-serve: hosts load packs under Node, which is why the build loads each
-export's Node target and refuses one never built. The bin's `node` shebang
+serve: hosts load packs under Node, which is why the build resolves each
+export as a host's `import()` does under Node and refuses a target never
+built. The bin's `node` shebang
 only means a bare `bounded catalog build` is refused, with the command to
 run.
 

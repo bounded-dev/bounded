@@ -1,26 +1,34 @@
 // The modules a package's export paths name, loaded under bun (ADRs 2026-029 and 2026-032).
-// Hosts load packs under Node, so the build loads the JavaScript Node's require would pick: the
-// package's own package.json says what each export path's entry is, and its target under
-// default, require or node (never a `bun` source) is joined to the package's directory and
-// imported; an entry with no such target is refused before anything else is read, and a target
-// that does not exist is refused with "build the package first". With no exports, the package
-// root loads through main, as Node's require resolves it. A module by its package-relative path
-// (an example's scenarios, ADR 2026-031) is imported as bun imports TypeScript, under
-// node_modules too. Under any other runtime both refuse before reading anything: the build runs
-// under bun only. It detects bun through process.versions and uses no Bun API, so the module
-// still loads under Node, where hosts run the core.
+// Hosts load packs under Node with import(), so the build resolves each export path exactly as
+// a host's import() does under Node: resolve.exports reads the package's own package.json with
+// the conditions node, import and default (never bun, never require), and Node's own rules for
+// a target apply (it starts with ./ and has no empty, ., .. or node_modules segment after it; a
+// list's invalid entries are skipped). The target is joined to the package's directory, checked
+// by path to stay inside it, refused with "build the package first" when it does not exist, and
+// imported. With no exports, the package root loads through main (read from package.json, kept
+// inside the package), or index.js. A module by its package-relative path (an example's
+// scenarios, ADR 2026-031) is imported as bun imports TypeScript, under node_modules too. Under
+// any other runtime both refuse before reading anything: the build runs under bun only. It
+// detects bun through process.versions and uses no Bun API, so the module still loads under
+// Node, where hosts run the core.
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ModuleExport, PackModules } from "bounded/application";
 import type { Result } from "bounded/domain";
+import { exports as exportTargets } from "resolve.exports";
 
-/** The conditions Node's require picks a target by. */
-const NODE_CONDITIONS: readonly string[] = ["default", "require", "node"];
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A segment Node refuses in a package target after its leading `./`: empty, `.`, `..` or `node_modules`, in any case
+ * and percent-encoded; Node's own pattern (lib/internal/modules/esm/resolve.js, invalidSegmentRegEx).
+ */
+const INVALID_SEGMENT = /(^|\\|\/)((\.|%2e)(\.|%2e)?|(n|%6e|%4e)(o|%6f|%4f)(d|%64|%44)(e|%65|%45)(_|%5f)(m|%6d|%4d)(o|%6f|%4f)(d|%64|%44)(u|%75|%55)(l|%6c|%4c)(e|%65|%45)(s|%73|%53))?(\\|\/|$)/i;
+/** Whether Node takes `target` as a package target: it starts with `./` and has no invalid segment after it. */
+const isPackageTarget = (target: string): boolean => target.startsWith("./") && !INVALID_SEGMENT.test(target.slice(2));
 
 /** The refusal under any runtime but bun, or undefined under bun. */
 function notUnderBun(): string | undefined {
@@ -29,39 +37,7 @@ function notUnderBun(): string | undefined {
   return `the catalogue build loads packs under bun, and this is ${found}: run it under bun, with bunx --bun bounded catalog build`;
 }
 
-/**
- * The target Node's require picks from an export entry, or undefined when it picks none: a string is itself; a list,
- * its first entry that gives a target; conditions, their keys in written order, the first of default, require or node
- * that gives a target, at any depth.
- */
-function nodeTargetOf(entry: unknown): string | undefined {
-  if (typeof entry === "string") return entry;
-  if (Array.isArray(entry)) {
-    for (const item of entry) {
-      const target = nodeTargetOf(item);
-      if (target !== undefined) return target;
-    }
-    return undefined;
-  }
-  if (!isRecord(entry)) return undefined;
-  for (const [condition, value] of Object.entries(entry)) {
-    if (!NODE_CONDITIONS.includes(condition)) continue;
-    const target = nodeTargetOf(value);
-    if (target !== undefined) return target;
-  }
-  return undefined;
-}
-
-/**
- * The entry package.json's `exports` gives an export path, or undefined when it gives none. `exports` is a map of
- * export paths (its keys begin with `.`), or else the package root's own entry: a path, a list, or conditions.
- */
-function entryOf(exports: unknown, exportPath: string): unknown {
-  if (isRecord(exports) && Object.keys(exports).some((key) => key.startsWith("."))) return Object.hasOwn(exports, exportPath) ? exports[exportPath] : undefined;
-  return exports === undefined || exports === null || exportPath !== "." ? undefined : exports;
-}
-
-/** Whether `path`, resolved from the package's directory, names a file inside it. */
+/** Whether `path`, resolved from the package's directory, names a file inside it; checked by path, so a symlink is followed as Node follows it. */
 function isInside(packageDir: string, path: string): boolean {
   if (isAbsolute(path)) return false;
   const within = relative(resolve(packageDir), resolve(packageDir, path));
@@ -80,6 +56,19 @@ async function exportsOf(file: string, specifier: string): Promise<Result<readon
   return { ok: true, value: Object.keys(module).map((exportName) => Object.freeze({ name: exportName, value: module[exportName] })) };
 }
 
+/** The package root of a package with no exports: its main, or else index.js, as Node loads it. */
+async function loadThroughMain(packageDir: string, name: string, main: string | undefined): Promise<Result<readonly ModuleExport[]>> {
+  if (main === undefined) {
+    const index = join(packageDir, "index.js");
+    if (!existsSync(index)) return { ok: false, error: `${name} has no exports, and neither a main nor an index.js: add main or exports to its package.json, naming the pack's built JavaScript` };
+    return exportsOf(index, name);
+  }
+  if (!isInside(packageDir, main)) return { ok: false, error: `${name}'s main ${main} is not a file in the package at ${packageDir}: name the package's own JavaScript` };
+  const file = resolve(packageDir, main);
+  if (!existsSync(file)) return { ok: false, error: `${name}'s main ${main} does not exist in ${packageDir}: build the package first, so its main exists` };
+  return exportsOf(file, name);
+}
+
 export class BunPackModules implements PackModules {
   async load(packageDir: string, exportPath: string): Promise<Result<readonly ModuleExport[]>> {
     const refusal = notUnderBun();
@@ -91,24 +80,31 @@ export class BunPackModules implements PackModules {
     } catch (thrown) {
       return { ok: false, error: `${manifestPath} cannot be read: ${message(thrown)}` };
     }
-    const name = isRecord(manifest) && typeof manifest.name === "string" ? manifest.name : undefined;
-    const exports = isRecord(manifest) ? manifest.exports : undefined;
-    if (name === undefined) return { ok: false, error: `${manifestPath} names no package: give it a name` };
-    if (exports === undefined && exportPath === ".") {
-      // With no exports, Node's require resolves the package root through main (or index.js), and nothing else.
-      let resolved: string;
-      try {
-        resolved = createRequire(manifestPath).resolve(packageDir);
-      } catch (thrown) {
-        return { ok: false, error: `${name} has no exports, and neither a main nor an index.js resolves (${message(thrown)}): add main or exports to its package.json, naming the pack's built JavaScript` };
-      }
-      return exportsOf(resolved, packageDir);
+    if (!isRecord(manifest) || typeof manifest.name !== "string") return { ok: false, error: `${manifestPath} names no package: give it a name` };
+    const name = manifest.name;
+    const noExportPath = `${name} has no export path ${exportPath}: add it to package.json's exports, or list in bounded.packs the export path its pack is exported from`;
+    if (manifest.exports === undefined) {
+      // With no exports, Node resolves the package root through main (or index.js), and nothing else.
+      if (exportPath !== ".") return { ok: false, error: noExportPath };
+      return loadThroughMain(packageDir, name, typeof manifest.main === "string" ? manifest.main : undefined);
     }
-    const entry = entryOf(exports, exportPath);
-    if (entry === undefined) return { ok: false, error: `${name} has no export path ${exportPath}: add it to package.json's exports, or list in bounded.packs the export path its pack is exported from` };
-    const target = nodeTargetOf(entry);
+    let targets: readonly string[];
+    try {
+      targets = exportTargets(manifest, exportPath, { browser: false, require: false }) ?? [];
+    } catch (thrown) {
+      // resolve.exports throws `Missing "<path>" specifier …` for a path exports does not list, and otherwise when no condition matches.
+      if (message(thrown).startsWith("Missing ")) return { ok: false, error: noExportPath };
+      targets = [];
+    }
+    if (targets.length === 0) {
+      return {
+        ok: false,
+        error: `${name}'s export path ${exportPath} gives a host's import() under Node no target: none of its node, import or default conditions names one, or the one it names is null: add a \`default\` condition naming its JavaScript, which hosts load under Node and the catalogue build loads too`,
+      };
+    }
+    const target = targets.find(isPackageTarget);
     if (target === undefined) {
-      return { ok: false, error: `${name}'s export path ${exportPath} has no target Node's require picks (default, require or node): add a \`default\` condition naming its JavaScript, which hosts load under Node and the catalogue build loads too` };
+      return { ok: false, error: `${name}'s export path ${exportPath} names ${targets.join(", ")}, which Node refuses as a package target: a target starts with ./ and has no empty, ., .. or node_modules segment after it` };
     }
     // The package root, `.`, is the bare package name; any other export path is `<name>/<subpath>`.
     const specifier = exportPath === "." ? name : `${name}${exportPath.slice(1)}`;

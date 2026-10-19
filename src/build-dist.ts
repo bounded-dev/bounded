@@ -1,5 +1,6 @@
-// Builds bounded's dist/: JavaScript for Node, so nothing needs bun at run
-// time (ADR 2026-016). Run by the package's prepack (so `bun pm pack` and
+// Builds bounded's dist/: JavaScript for Node, so the hooks, `init`, `update`
+// and the library need no bun (ADR 2026-016); bun builds bounded and runs any
+// package's catalogue build (ADR 2026-032). Run by the package's prepack (so `bun pm pack` and
 // `bun publish` always ship a fresh build) and before the workspace's tests.
 //
 // - The library: every export path whose `default` condition is under dist/

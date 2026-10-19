@@ -137,8 +137,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   its examples verbatim, each with its scenarios in their normal form (ADR
   2026-031; `ExampleScenarios.markdown()` is the one rendering for a
   reader). It fails closed and writes nothing on a refusal. It runs under
-  bun only ([ADR 2026-032](adr/2026-032-catalogue-build-on-bun.md)), loads
-  each export's Node target and refuses one never built.
+  bun only ([ADR 2026-032](adr/2026-032-catalogue-build-on-bun.md)),
+  resolves each export exactly as a host's `import()` does under Node
+  (`resolve.exports`, with Node's target rules) and refuses a target never
+  built.
   bounded's prepack runs it, so its tarball carries the catalogue of
   `bounded/prereqs` and `bounded/protected-paths`; the catalogue is
   generated, never committed. The README test runs the build's own rules
