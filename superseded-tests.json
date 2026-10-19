@@ -6655,5 +6655,14 @@
       "case": "a native smoke archive contains a verified, self-running Bounded executable and is not a stable release"
     },
     "reason": "a local binary build on a development checkout is explicitly a smoke artifact; its development channel cannot be accepted as a stable release. Stable release assembly uses separate clean native jobs and verifies their smoke records. The executable and hook assertions remain in the successor."
+  },
+  {
+    "file": "src/test/architecture.test.ts",
+    "case": "architecture > an app's test file may import its devDependencies; its other files may not",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > the CLI bridge imports its declared reader dependency; devDependencies remain test-only"
+    },
+    "reason": "the standalone CLI uses the private shell reader in production, so the CLI declares it as a dependency; the successor retains the original devDependency-only rule through an isolated app fixture"
   }
 ]
