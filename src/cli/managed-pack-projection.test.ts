@@ -211,9 +211,9 @@ describe("managed pack type-only projection and publication", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const file = join(given.projectRoot, "bounded.config.ts");
-    writeFileSync(file, 'import { defineConfig } from "bounded/domain";\nconst wrong: number = defineConfig;\ndefineConfi\n');
-    const language = await tsserver(given.projectRoot, file, { completionLine: 3, completionOffset: 12 });
-    expect(language.diagnostics.filter((item) => item.code === 2307)).toHaveLength(0);
+    writeFileSync(file, 'import { defineConfig } from "bounded/domain";\nconst wrong: number = defineConfig;\nimport { noRoot } from "bounded";\ndefineConfi\n');
+    const language = await tsserver(given.projectRoot, file, { completionLine: 4, completionOffset: 12 });
+    expect(language.diagnostics.filter((item) => item.code === 2307)).toHaveLength(1);
     expect(language.diagnostics.filter((item) => item.code === 2322)).toHaveLength(1);
     expect(language.completions).toContain("defineConfig");
     expect((await given.check()).ok).toBe(true);
