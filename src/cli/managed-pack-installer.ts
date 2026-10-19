@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, parse, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, parse, posix, relative, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { parse as parseJavaScript } from "acorn";
 import { packageExportsResolve } from "bounded/adapters";
 import { PackageCatalog, PackageManifest } from "bounded/domain";
 import tar from "tar-stream";
+import ts from "typescript";
 
 interface Reply { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array }
 interface InstallInput {
@@ -533,25 +534,62 @@ async function atomicLock(path: string, contents: string): Promise<void> {
 
 async function acquireProjectWriter(lockPath: string): Promise<Result<() => Promise<void>>> {
   const writerPath = join(lockPath, "..", ".packs-lock-writer");
+  const reclaimPath = join(lockPath, "..", ".packs-lock-reclaim");
   const safe = await noLinkedComponents(writerPath);
   if (!safe.ok) return safe;
   await mkdir(join(lockPath, ".."), { recursive: true });
   for (let attempt = 0; attempt < 300; attempt++) {
     try {
       await mkdir(writerPath);
-      return { ok: true, value: () => rm(writerPath, { recursive: true, force: true }) };
+      const nonce = randomUUID();
+      try { await writeFile(join(writerPath, "owner.json"), `${JSON.stringify({ pid: process.pid, nonce })}\n`, { flag: "wx" }); }
+      catch (error) { await rm(writerPath, { recursive: true, force: true }); throw error; }
+      return { ok: true, value: async () => {
+        const owner: unknown = JSON.parse(await readFile(join(writerPath, "owner.json"), "utf8"));
+        if (!record(owner) || owner.nonce !== nonce || owner.pid !== process.pid) throw new Error("Project pack writer ownership changed before release");
+        await rm(writerPath, { recursive: true, force: true });
+      } };
     } catch (error) {
       if (!record(error) || error.code !== "EEXIST") return refusal(`Cannot acquire project pack writer: ${errorText(error)}`);
       const checked = await noLinkedComponents(writerPath);
       if (!checked.ok) return checked;
+      // The exclusive guard serializes post-mortem takeovers. If its own
+      // owner died, refuse; no age-based guess can prove it is safe to take.
+      try {
+        await mkdir(reclaimPath);
+      } catch (guardError) {
+        if (!record(guardError) || guardError.code !== "EEXIST") return refusal(`Cannot inspect project pack writer: ${errorText(guardError)}`);
+        await Bun.sleep(50);
+        continue;
+      }
+      try {
+        if (existsSync(writerPath)) {
+          let names = await readdir(writerPath);
+          // A live writer can be between mkdir and its owner-file write.
+          for (let ownerWait = 0; names.length === 0 && ownerWait < 20; ownerWait++) {
+            await Bun.sleep(50);
+            if (!existsSync(writerPath)) break;
+            names = await readdir(writerPath);
+          }
+          if (!existsSync(writerPath)) continue;
+          if (names.length !== 1 || names[0] !== "owner.json") return refusal(`Project pack writer ownership is uncertain at ${writerPath}; repair manually`);
+          const owner: unknown = JSON.parse(await readFile(join(writerPath, "owner.json"), "utf8"));
+          if (!record(owner) || !Number.isSafeInteger(owner.pid) || typeof owner.nonce !== "string" || !/^[a-f0-9-]{36}$/.test(owner.nonce))
+            return refusal(`Project pack writer ownership is uncertain at ${writerPath}; repair manually`);
+          let dead = false;
+          try { process.kill(owner.pid as number, 0); }
+          catch (probeError) { if (record(probeError) && probeError.code === "ESRCH") dead = true; else return refusal(`Cannot prove project pack writer has exited: ${errorText(probeError)}`); }
+          if (dead) await rm(writerPath, { recursive: true, force: true });
+        }
+      } catch (inspectError) { return refusal(`Cannot inspect project pack writer: ${errorText(inspectError)}`); }
+      finally { await rm(reclaimPath, { recursive: true, force: true }); }
       await Bun.sleep(50);
     }
   }
   return refusal(`Project pack writer is busy at ${writerPath}; retry the add or repair the stale writer directory`);
 }
 
-/** Installs the verified npm-compatible artifact graph without running a package manager or package scripts. */
-export async function installManagedPack(input: InstallInput): Promise<Result<{ readonly lockPath: string }>> {
+async function prepareAdditionUnderWriter(input: InstallInput, publish: boolean, writerHeld: boolean): Promise<Result<{ readonly lockPath: string; readonly lock: PackLock; readonly contents: string }>> {
   const request = exactRequest(input.request);
   if (!request.ok) return request;
   const nodes: Record<string, LockNode> = {};
@@ -650,7 +688,7 @@ export async function installManagedPack(input: InstallInput): Promise<Result<{ 
     const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
     const safeLock = await noLinkedComponents(lockPath);
     if (!safeLock.ok) return safeLock;
-    const writer = await acquireProjectWriter(lockPath);
+    const writer = writerHeld ? { ok: true as const, value: async () => {} } : await acquireProjectWriter(lockPath);
     if (!writer.ok) return writer;
     try {
       let prior: PackLock | undefined;
@@ -673,9 +711,604 @@ export async function installManagedPack(input: InstallInput): Promise<Result<{ 
       for (const id of Object.values(roots)) retain(id);
       const contents = `${JSON.stringify({ schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion,
         roots, nodes: kept }, null, 2)}\n`;
-      try { await (input.publishLock ?? atomicLock)(lockPath, contents); }
-      catch (error) { return refusal(`Cannot publish project lock: ${errorText(error)}`); }
+      if (publish) {
+        try { await (input.publishLock ?? atomicLock)(lockPath, contents); }
+        catch (error) { return refusal(`Cannot publish project lock: ${errorText(error)}`); }
+      }
+      return { ok: true, value: { lockPath, lock: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes: kept }, contents } };
     } finally { await writer.value(); }
-    return { ok: true, value: { lockPath } };
   } catch (error) { return refusal(`Cannot install ${input.request}: ${errorText(error)}`); }
+}
+
+/** Prepares a complete verified graph and content-addressed stores without changing the active project lock. */
+export async function prepareManagedPackAddition(input: InstallInput): Promise<Result<{ readonly lock: PackLock; readonly lockPath: string; readonly contents: string }>> {
+  const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
+  const writer = await acquireProjectWriter(lockPath);
+  if (!writer.ok) return writer;
+  try { return await prepareAdditionUnderWriter(input, false, true); }
+  finally { await writer.value(); }
+}
+
+/** Installs the verified npm-compatible artifact graph without running a package manager or package scripts. */
+export async function installManagedPack(input: InstallInput): Promise<Result<{ readonly lockPath: string }>> {
+  const result = await prepareAdditionUnderWriter(input, true, false);
+  return result.ok ? { ok: true, value: { lockPath: result.value.lockPath } } : result;
+}
+
+export interface ProjectionInput extends InstallInput {
+  /** Root of share/types from a verified installed release. */
+  readonly releaseTypesRoot: string;
+  /** Manifest-pinned SHA-256 values, supplied by the installed-release verifier. */
+  readonly releaseTypeFilesFromVerifiedManifest: Readonly<Record<string, string>>;
+  readonly faultAfter?: string;
+  readonly afterExistingStateVerified?: (lockSha256: string | null) => Promise<void>;
+}
+type ProjectionVerifyInput = Pick<ProjectionInput, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">;
+interface ProjectionReceipt {
+  readonly schema: "bounded-types-receipt/1";
+  readonly lockSha256: string;
+  readonly packages: readonly string[];
+  readonly files: Readonly<Record<string, string>>;
+}
+interface ProjectionJournal {
+  readonly schema: "bounded-types-journal/1";
+  readonly oldLockBackup: string | null;
+  readonly oldLockSha256: string | null;
+  readonly oldReceiptBackup: string | null;
+  readonly oldReceiptSha256: string | null;
+  readonly oldPackages: Readonly<Record<string, string | null>>;
+  readonly newPackages: readonly string[];
+  readonly newFiles: Readonly<Record<string, string>>;
+  readonly stage: string;
+}
+const boundedTypeTargets: Readonly<Record<string, string>> = {
+  "./domain": "core/domain/index.d.ts", "./application": "core/application/index.d.ts",
+  "./adapters": "core/adapters/out/index.d.ts", "./open-project": "core/composition-root/open-project.d.ts",
+  "./prereqs": "packs/prereqs/index.d.ts", "./prereqs/adapters": "packs/prereqs/adapters/out/index.d.ts",
+  "./protected-paths": "packs/protected-paths/index.d.ts", "./protected-paths/adapters": "packs/protected-paths/adapters/out/index.d.ts",
+  "./shell-command-reader": "shell-command-reader/index.d.ts",
+};
+const projectionPaths = (root: string) => ({ bounded: join(root, ".bounded"), lock: join(root, ".bounded", "packs.lock.json"),
+  receipt: join(root, ".bounded", "types-receipt.json"), journal: join(root, ".bounded", "types-journal.json"), modules: join(root, "node_modules") });
+const isSafeRelative = (path: string): boolean => path !== "" && !path.startsWith("/") && !path.includes("\\")
+  && path.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.includes(":"));
+const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
+const projectionError = (error: unknown): string => error instanceof Error ? error.message : String(error);
+function syncSafe(path: string): void {
+  let absolute = resolve(path);
+  const temporary = resolve(tmpdir());
+  if (absolute === temporary || absolute.startsWith(`${temporary}${sep}`)) absolute = join(realpathSync(temporary), relative(temporary, absolute));
+  let current = parse(absolute).root;
+  for (const component of absolute.slice(current.length).split(sep).filter(Boolean)) {
+    current = join(current, component);
+    try { if (lstatSync(current).isSymbolicLink()) throw new Error(`Path ${current} contains a link`); }
+    catch (error) { if (!record(error) || error.code !== "ENOENT") throw error; }
+  }
+}
+function syncFile(path: string): void {
+  const file = openSync(path, "r");
+  try { fsyncSync(file); } finally { closeSync(file); }
+}
+function syncDirectory(path: string): void {
+  try { const directory = openSync(path, "r"); try { fsyncSync(directory); } finally { closeSync(directory); } }
+  catch (error) {
+    const code = record(error) ? error.code : undefined;
+    if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "EBADF" && code !== "EISDIR" && code !== "EPERM") throw error;
+  }
+}
+function syncDirectoryTree(root: string): void {
+  for (const name of readdirSync(root)) {
+    const child = join(root, name);
+    const info = lstatSync(child);
+    if (info.isDirectory()) syncDirectoryTree(child);
+    else if (!info.isFile()) throw new Error(`Cannot sync linked or unsupported staged entry ${child}`);
+  }
+  syncDirectory(root);
+}
+function syncParentChain(path: string, through: string): void {
+  let parent = dirname(path);
+  const boundary = resolve(through);
+  for (;;) {
+    syncDirectory(parent);
+    if (resolve(parent) === boundary) break;
+    const next = dirname(parent);
+    if (next === parent || !resolve(parent).startsWith(`${boundary}${sep}`)) throw new Error(`Cannot sync parent of ${path} outside ${through}`);
+    parent = next;
+  }
+  syncDirectory(dirname(boundary));
+}
+function durableWrite(path: string, bytes: Uint8Array): void {
+  syncSafe(path);
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = join(dirname(path), `.types-${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporary, bytes, { flag: "wx" });
+    syncFile(temporary);
+    renameSync(temporary, path);
+    syncDirectory(dirname(path));
+  } finally { rmSync(temporary, { force: true }); }
+}
+function parseReceipt(path: string): ProjectionReceipt {
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!record(raw) || raw.schema !== "bounded-types-receipt/1" || typeof raw.lockSha256 !== "string" || !digestPattern.test(raw.lockSha256)
+    || !Array.isArray(raw.packages) || !raw.packages.every((name) => typeof name === "string" && isSafeRelative(name)) || !record(raw.files))
+    throw new Error("Projection receipt is malformed");
+  for (const [path, hash] of Object.entries(raw.files)) if (!isSafeRelative(path) || typeof hash !== "string" || !digestPattern.test(hash)) throw new Error(`Projection receipt file ${path} is malformed`);
+  return raw as unknown as ProjectionReceipt;
+}
+function fileSet(root: string): Readonly<Record<string, string>> {
+  const found: Record<string, string> = {};
+  const visit = (directory: string): void => {
+    for (const name of readdirSync(directory)) {
+      const path = join(directory, name);
+      const info = lstatSync(path);
+      if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) throw new Error(`Projection contains a link or unsupported entry at ${path}`);
+      if (info.isDirectory()) visit(path);
+      else found[relative(root, path).split(sep).join("/")] = sha256(readFileSync(path));
+    }
+  };
+  visit(root);
+  return found;
+}
+function directorySet(root: string): readonly string[] {
+  const found: string[] = [];
+  const visit = (directory: string): void => {
+    for (const name of readdirSync(directory)) {
+      const path = join(directory, name);
+      const info = lstatSync(path);
+      if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) throw new Error(`Projection contains a link or unsupported entry at ${path}`);
+      if (info.isDirectory()) { found.push(relative(root, path).split(sep).join("/")); visit(path); }
+    }
+  };
+  visit(root);
+  return found.sort();
+}
+function impliedDirectories(files: Readonly<Record<string, string>>): readonly string[] {
+  const directories = new Set<string>();
+  for (const name of Object.keys(files)) {
+    const parts = name.split("/");
+    for (let length = 1; length < parts.length; length++) directories.add(parts.slice(0, length).join("/"));
+  }
+  return [...directories].sort();
+}
+function exactTree(root: string, expectedFiles: Readonly<Record<string, string>>): boolean {
+  return JSON.stringify(Object.entries(fileSet(root)).sort()) === JSON.stringify(Object.entries(expectedFiles).sort())
+    && JSON.stringify(directorySet(root)) === JSON.stringify(impliedDirectories(expectedFiles));
+}
+function verifyOwnedProjection(input: ProjectionVerifyInput, receipt: ProjectionReceipt, lockBytes: Uint8Array): void {
+  if (receipt.lockSha256 !== sha256(lockBytes)) throw new Error("Projection receipt source lock digest differs from active lock");
+  const { modules } = projectionPaths(input.projectRoot);
+  const actual: Record<string, string> = {};
+  for (const packagePath of receipt.packages) {
+    const path = join(modules, packagePath);
+    syncSafe(path);
+    if (!existsSync(path) || !lstatSync(path).isDirectory()) throw new Error(`Projection owned package ${path} is missing`);
+    const found = fileSet(path);
+    const expected = Object.fromEntries(Object.entries(receipt.files).filter(([name]) => name.startsWith(`node_modules/${packagePath}/`))
+      .map(([name, hash]) => [name.slice(`node_modules/${packagePath}/`.length), hash]));
+    if (!exactTree(path, expected)) throw new Error(`Projection package ${path} has unexpected files or directories`);
+    for (const [name, hash] of Object.entries(found)) actual[`node_modules/${packagePath}/${name}`] = hash;
+  }
+  if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(receipt.files).sort()))
+    throw new Error("Projection file set or bytes differ from receipt");
+}
+function releaseTypes(input: ProjectionVerifyInput): Readonly<Record<string, Uint8Array>> {
+  const files: Record<string, Uint8Array> = {};
+  for (const [name, expected] of Object.entries(input.releaseTypeFilesFromVerifiedManifest)) {
+    if (!isSafeRelative(name) || !name.endsWith(".d.ts") || !digestPattern.test(expected)) throw new Error(`Verified release type manifest entry ${name} is invalid`);
+    const path = join(input.releaseTypesRoot, name);
+    syncSafe(path);
+    if (!existsSync(path) || !lstatSync(path).isFile()) throw new Error(`Verified release declaration ${name} is missing`);
+    const bytes = readFileSync(path);
+    if (sha256(bytes) !== expected) throw new Error(`Verified release declaration ${name} fails manifest SHA-256`);
+    files[name] = bytes;
+  }
+  return files;
+}
+function packageExportsTypes(exports: unknown, files: Readonly<Record<string, Uint8Array>>, name: string): Result<{ root?: string; paths: Readonly<Record<string, string>> }> {
+  if (!record(exports)) return refusal(`${name} has no typed package exports; add declarations`);
+  const paths: Record<string, string> = {};
+  for (const [key, value] of Object.entries(exports)) {
+    if (!(key === "." || key.startsWith("./"))) continue;
+    const runtime = exportTarget(exports, key);
+    if (!runtime.ok || files[runtime.value] === undefined) return refusal(`${name} export ${key} has no built JavaScript target`);
+    const candidate = record(value) ? value.types : undefined;
+    if (typeof candidate !== "string" || !candidate.startsWith("./") || !candidate.endsWith(".d.ts")) return refusal(`${name} export ${key} has no declaration; add types`);
+    const target = candidate.slice(2);
+    if (!isSafeRelative(target) || files[target] === undefined) return refusal(`${name} export ${key} declaration ${target} is missing`);
+    paths[key] = target;
+  }
+  if (Object.keys(paths).length === 0) return refusal(`${name} has no declaration exports`);
+  return { ok: true, value: { ...(paths["."] === undefined ? {} : { root: paths["."] }), paths } };
+}
+function verifyDeclarationImports(
+  node: LockNode,
+  files: Readonly<Record<string, Uint8Array>>,
+  boundedExportPaths: readonly string[],
+  lock: PackLock,
+  storeRoot: string,
+): Result<void> {
+  for (const [path, bytes] of Object.entries(files)) {
+    if (!path.endsWith(".d.ts")) continue;
+    let text: string;
+    try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch { return refusal(`${node.name} declaration ${path} is not UTF-8`); }
+    const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    if ((source as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length > 0) return refusal(`${node.name} declaration ${path} has invalid TypeScript syntax`);
+    const references = ts.preProcessFile(text, true, true);
+    for (const imported of [...references.importedFiles, ...references.referencedFiles]) {
+      const specifier = imported.fileName;
+      if (specifier.startsWith("./") || specifier.startsWith("../")) {
+        const target = posix.normalize(posix.join(posix.dirname(path), specifier));
+        if (target.startsWith("../") || target === "..") return refusal(`${node.name} declaration ${path} escapes its package via ${specifier}`);
+        const candidates = [target, target.replace(/\.js$/, ".d.ts"), `${target}.d.ts`, `${target}/index.d.ts`];
+        if (!candidates.some((candidate) => files[candidate] !== undefined)) return refusal(`${node.name} declaration ${path} imports missing ${specifier}`);
+        continue;
+      }
+      if (specifier === "bounded" || specifier.startsWith("bounded/")) {
+        const exportPath = specifier === "bounded" ? "." : `.${specifier.slice("bounded".length)}`;
+        if (!boundedExportPaths.includes(exportPath)) return refusal(`${node.name} declaration ${path} imports unavailable ${specifier}`);
+        continue;
+      }
+      if (specifier.startsWith("node:")) continue;
+      const parts = specifier.split("/");
+      const dependencyName = specifier.startsWith("@") ? `${parts[0]}/${parts[1] ?? ""}` : parts[0];
+      if (dependencyName === undefined) return refusal(`${node.name} declaration ${path} imports malformed ${specifier}`);
+      const childId = dependencyName === node.name ? node.id : node.dependencies[dependencyName];
+      if (childId === undefined) return refusal(`${node.name} declaration ${path} imports unpinned ${specifier}`);
+      const child = lock.nodes[childId];
+      if (child === undefined) return refusal(`${node.name} declaration ${path} imports missing pinned node ${childId}`);
+      const exportPath = specifier === dependencyName ? "." : `.${specifier.slice(dependencyName.length)}`;
+      try {
+        const childRoot = join(storeRoot, child.sha256, "package");
+        const raw: unknown = JSON.parse(readFileSync(join(childRoot, "package.json"), "utf8"));
+        const entry = record(raw) && record(raw.exports) ? raw.exports[exportPath] : undefined;
+        const types = record(entry) ? entry.types : undefined;
+        if (typeof types !== "string" || !types.startsWith("./") || !types.endsWith(".d.ts") || !isSafeRelative(types.slice(2)))
+          return refusal(`${node.name} declaration ${path} imports ${specifier}, which has no typed export`);
+        const declaration = join(childRoot, types.slice(2));
+        syncSafe(declaration);
+        if (!existsSync(declaration) || !lstatSync(declaration).isFile())
+          return refusal(`${node.name} declaration ${path} imports ${specifier}, whose declaration is missing`);
+      } catch (error) { return refusal(`${node.name} declaration ${path} cannot verify ${specifier}: ${projectionError(error)}`); }
+    }
+    if (references.typeReferenceDirectives.length > 0) return refusal(`${node.name} declaration ${path} has ambient type references; bundle declarations into the package`);
+  }
+  return { ok: true, value: undefined };
+}
+function desiredProjection(input: ProjectionVerifyInput, lock: PackLock): Result<{ packages: readonly string[]; files: Readonly<Record<string, Uint8Array>> }> {
+  let release: Readonly<Record<string, Uint8Array>>;
+  try { release = releaseTypes(input); } catch (error) { return refusal(projectionError(error)); }
+  const result: Record<string, Uint8Array> = {};
+  const packages = new Set<string>();
+  const put = (path: string, bytes: Uint8Array): void => { result[`node_modules/${path}`] = bytes; };
+  for (const [name, bytes] of Object.entries(release)) if (name !== "index.d.ts") put(`bounded/${name}`, bytes);
+  const boundedExports: Record<string, { types: string }> = {};
+  const boundedVersions: Record<string, string[]> = {};
+  for (const exportPath of input.boundedExportPaths) {
+    const target = boundedTypeTargets[exportPath];
+    if (target === undefined) continue; // Runtime-only exports have no editor declaration projection.
+    const bytes = release[target];
+    if (bytes === undefined) return refusal(`Verified release declaration ${target} for bounded${exportPath.slice(1)} is missing`);
+    boundedExports[exportPath] = { types: `./${target}` };
+    boundedVersions[exportPath.slice(2)] = [target];
+  }
+  if (Object.keys(boundedExports).length === 0) return refusal("Verified release has no supported Bounded declarations");
+  packages.add("bounded");
+  put("bounded/package.json", utf8(`${JSON.stringify({ name: "bounded", version: input.boundedVersion, exports: boundedExports, typesVersions: { "*": boundedVersions } })}\n`));
+  const render = (id: string, path: string): Result<void> => {
+    const node = lock.nodes[id];
+    if (node === undefined) return refusal(`Projection package node ${id} is missing`);
+    let stored: Readonly<Record<string, Uint8Array>>;
+    try {
+      const store = join(input.storeRoot, node.sha256, "package");
+      stored = Object.fromEntries(Object.keys(fileSet(store))
+        .map((name) => [name, readFileSync(join(store, name))]));
+    } catch (error) { return refusal(`Projection cannot read verified ${id}: ${projectionError(error)}`); }
+    let raw: unknown;
+    try { raw = JSON.parse(new TextDecoder().decode(stored["package.json"])); } catch { return refusal(`${id} package.json is malformed`); }
+    if (!record(raw)) return refusal(`${id} package.json is malformed`);
+    const declarationImports = verifyDeclarationImports(node, stored, input.boundedExportPaths, lock, input.storeRoot);
+    if (!declarationImports.ok) return declarationImports;
+    const selected = packageExportsTypes(raw.exports, stored, node.name);
+    if (!selected.ok) return selected;
+    const versions: Record<string, string[]> = {};
+    const exports: Record<string, { types: string }> = {};
+    for (const [key, target] of Object.entries(selected.value.paths)) {
+      exports[key] = { types: `./${target}` };
+      if (key !== ".") versions[key.slice(2)] = [target];
+    }
+    packages.add(path);
+    put(`${path}/package.json`, utf8(`${JSON.stringify({ name: node.name, version: node.version,
+      ...(selected.value.root === undefined ? {} : { types: `./${selected.value.root}` }), exports, typesVersions: { "*": versions } })}\n`));
+    for (const [name, bytes] of Object.entries(stored)) if (name.endsWith(".d.ts")) put(`${path}/${name}`, bytes);
+    for (const [dependencyName, childId] of Object.entries(node.dependencies)) {
+      const child = render(childId, `${path}/node_modules/${dependencyName}`);
+      if (!child.ok) return child;
+    }
+    return { ok: true, value: undefined };
+  };
+  for (const [name, id] of Object.entries(lock.roots)) { const built = render(id, name); if (!built.ok) return built; }
+  return { ok: true, value: { packages: ["bounded", ...Object.keys(lock.roots)].sort(), files: result } };
+}
+function receiptFor(lockContents: string, projection: { packages: readonly string[]; files: Readonly<Record<string, Uint8Array>> }): ProjectionReceipt {
+  return { schema: "bounded-types-receipt/1", lockSha256: sha256(utf8(lockContents)), packages: projection.packages,
+    files: Object.fromEntries(Object.entries(projection.files).map(([path, bytes]) => [path, sha256(bytes)])) };
+}
+function parseJournal(path: string): ProjectionJournal {
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!record(raw) || raw.schema !== "bounded-types-journal/1" || !record(raw.oldPackages) || !record(raw.newFiles) || !Array.isArray(raw.newPackages)
+    || typeof raw.stage !== "string" || !/^\.types-stage-[a-f0-9-]+$/.test(raw.stage)
+    || (raw.oldLockBackup !== null && (typeof raw.oldLockBackup !== "string" || !/^\.types-old-lock-[a-f0-9-]+\.bak$/.test(raw.oldLockBackup)))
+    || (raw.oldReceiptBackup !== null && (typeof raw.oldReceiptBackup !== "string" || !/^\.types-old-receipt-[a-f0-9-]+\.bak$/.test(raw.oldReceiptBackup)))
+    || (raw.oldLockSha256 !== null && (typeof raw.oldLockSha256 !== "string" || !digestPattern.test(raw.oldLockSha256)))
+    || (raw.oldReceiptSha256 !== null && (typeof raw.oldReceiptSha256 !== "string" || !digestPattern.test(raw.oldReceiptSha256)))
+    || !raw.newPackages.every((name) => typeof name === "string" && isSafeRelative(name))) throw new Error("Projection journal is malformed");
+  for (const [name, backup] of Object.entries(raw.oldPackages)) if (!isSafeRelative(name) || (backup !== null && (typeof backup !== "string" || !/^\.types-old-package-[a-f0-9-]+$/.test(backup)))) throw new Error("Projection journal package backup is malformed");
+  for (const [name, hash] of Object.entries(raw.newFiles)) if (!isSafeRelative(name) || !name.startsWith("node_modules/") || typeof hash !== "string" || !digestPattern.test(hash)) throw new Error("Projection journal new file is malformed");
+  return raw as unknown as ProjectionJournal;
+}
+function restoreJournal(projectRoot: string, faultAfterRecoveryStep?: string): void {
+  const paths = projectionPaths(projectRoot);
+  syncSafe(paths.journal);
+  const journal = parseJournal(paths.journal);
+  const backup = (name: string | null, hash: string | null): Uint8Array | null => {
+    if (name === null) { if (hash !== null) throw new Error("Projection journal backup marker is malformed"); return null; }
+    const path = join(paths.bounded, name);
+    syncSafe(path);
+    if (!existsSync(path) || !lstatSync(path).isFile()) throw new Error(`Projection backup ${name} is missing`);
+    const bytes = readFileSync(path);
+    if (hash === null || sha256(bytes) !== hash) throw new Error(`Projection backup ${name} is corrupt`);
+    return bytes;
+  };
+  const oldLock = backup(journal.oldLockBackup, journal.oldLockSha256);
+  const oldReceipt = backup(journal.oldReceiptBackup, journal.oldReceiptSha256);
+  const oldRecord = journal.oldReceiptBackup === null ? null : parseReceipt(join(paths.bounded, journal.oldReceiptBackup));
+  if ((oldLock === null) !== (oldRecord === null)) throw new Error("Projection journal backup states disagree");
+  if (oldLock !== null && oldRecord !== null && oldRecord.lockSha256 !== sha256(oldLock)) throw new Error("Projection receipt backup differs from lock backup");
+  const oldNames = Object.entries(journal.oldPackages).filter(([, value]) => value !== null).map(([name]) => name).sort();
+  if (JSON.stringify(oldNames) !== JSON.stringify([...(oldRecord?.packages ?? [])].sort())) throw new Error("Projection journal package backups differ from old receipt");
+  const expectedFor = (files: Readonly<Record<string, string>>, name: string): Readonly<Record<string, string>> => {
+    const prefix = `node_modules/${name}/`;
+    return Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(prefix)).map(([path, hash]) => [path.slice(prefix.length), hash]));
+  };
+  const sameFiles = (first: Readonly<Record<string, string>>, second: Readonly<Record<string, string>>): boolean =>
+    JSON.stringify(Object.entries(first).sort()) === JSON.stringify(Object.entries(second).sort());
+  for (const [name, backupName] of Object.entries(journal.oldPackages)) {
+    if (backupName === null) continue;
+    const path = join(paths.bounded, backupName);
+    syncSafe(path);
+    if (!existsSync(path) || !lstatSync(path).isDirectory()) throw new Error(`Projection backup ${backupName} is missing`);
+    if (!exactTree(path, expectedFor(oldRecord?.files ?? {}, name))) throw new Error(`Projection backup ${backupName} is corrupt`);
+  }
+  // A crash can leave an old package, a fully published new package, or no package.
+  // Anything else may be user-owned or tampered state and must not be removed.
+  for (const name of new Set([...Object.keys(journal.oldPackages), ...journal.newPackages])) {
+    const path = join(paths.modules, name);
+    syncSafe(path);
+    if (!existsSync(path)) continue;
+    if (!lstatSync(path).isDirectory()) throw new Error(`Projection active package ${path} is not a directory`);
+    const found = fileSet(path);
+    const previous = expectedFor(oldRecord?.files ?? {}, name);
+    const next = expectedFor(journal.newFiles, name);
+    const oldOwned = journal.oldPackages[name] !== null;
+    if ((!oldOwned || !sameFiles(found, previous) || !exactTree(path, previous)) && (!sameFiles(found, next) || !exactTree(path, next)))
+      throw new Error(`Projection active package ${path} is unowned or differs from journal; repair before recovery`);
+  }
+  // Copy every old package into a new, owned staging tree first. A crash while
+  // copying leaves the active tree untouched and the journal retryable.
+  const restoreStage = join(paths.bounded, `.types-restore-${randomUUID()}`);
+  mkdirSync(restoreStage, { recursive: true });
+  let copiedFirstFile = false;
+  for (const [name, backupName] of Object.entries(journal.oldPackages)) {
+    if (backupName === null) continue;
+    const staged = join(restoreStage, name);
+    copyTree(join(paths.bounded, backupName), staged, () => {
+      if (faultAfterRecoveryStep === "stage-restore" && !copiedFirstFile) {
+        copiedFirstFile = true;
+        throw new Error("Injected fault during staged restore");
+      }
+    });
+    if (!exactTree(staged, expectedFor(oldRecord?.files ?? {}, name))) throw new Error(`Projection staged restore ${name} differs from backup`);
+  }
+  syncDirectory(restoreStage);
+  const recoveryTrash = join(paths.bounded, `${journal.stage}-recovery-trash-${randomUUID()}`);
+  let renamedFirstActive = false;
+  for (const name of new Set([...Object.keys(journal.oldPackages), ...journal.newPackages])) {
+    const path = join(paths.modules, name);
+    syncSafe(path);
+    if (!existsSync(path)) continue;
+    const trashPath = join(recoveryTrash, name);
+    mkdirSync(dirname(trashPath), { recursive: true });
+    renameSync(path, trashPath);
+    syncParentChain(path, paths.modules);
+    syncParentChain(trashPath, paths.bounded);
+    if (faultAfterRecoveryStep === "rename-active" && !renamedFirstActive) {
+      renamedFirstActive = true;
+      throw new Error("Injected fault after active projection rename");
+    }
+  }
+  let restoredFirstOld = false;
+  for (const [name, backupName] of Object.entries(journal.oldPackages)) {
+    if (backupName === null) continue;
+    const path = join(paths.modules, name);
+    mkdirSync(dirname(path), { recursive: true });
+    renameSync(join(restoreStage, name), path);
+    syncParentChain(path, paths.modules);
+    if (faultAfterRecoveryStep === "restore-old" && !restoredFirstOld) {
+      restoredFirstOld = true;
+      throw new Error("Injected fault after old projection restore");
+    }
+  }
+  if (oldReceipt === null) { rmSync(paths.receipt, { force: true }); syncDirectory(paths.bounded); }
+  else durableWrite(paths.receipt, oldReceipt);
+  if (oldLock === null) { rmSync(paths.lock, { force: true }); syncDirectory(paths.bounded); }
+  else durableWrite(paths.lock, oldLock);
+  rmSync(paths.journal, { force: true });
+  syncDirectory(paths.bounded);
+  rmSync(recoveryTrash, { recursive: true, force: true });
+  rmSync(join(paths.bounded, `${journal.stage}-old-trash`), { recursive: true, force: true });
+  rmSync(restoreStage, { recursive: true, force: true });
+  rmSync(join(paths.bounded, journal.stage), { recursive: true, force: true });
+  for (const name of [journal.oldLockBackup, journal.oldReceiptBackup, ...Object.values(journal.oldPackages)])
+    if (name !== null) rmSync(join(paths.bounded, name), { recursive: true, force: true });
+}
+function copyTree(source: string, target: string, afterCopiedFile?: () => void): void {
+  mkdirSync(target, { recursive: true });
+  for (const name of readdirSync(source)) {
+    const from = join(source, name);
+    const to = join(target, name);
+    const info = lstatSync(from);
+    if (info.isDirectory()) copyTree(from, to, afterCopiedFile);
+    else if (info.isFile()) { copyFileSync(from, to); syncFile(to); afterCopiedFile?.(); }
+    else throw new Error(`Projection backup ${from} contains a link or unsupported entry`);
+  }
+  syncDirectory(target);
+  syncDirectory(dirname(target));
+}
+
+async function verifyProjectionState(input: ProjectionVerifyInput, allowOwnJournal: boolean): Promise<Result<ProjectionReceipt>> {
+  const paths = projectionPaths(input.projectRoot);
+  try {
+    syncSafe(paths.journal);
+    if (!allowOwnJournal && existsSync(paths.journal)) return refusal(`Projection journal ${paths.journal} requires recovery before hooks or check`);
+    const lock = await verifyManagedPackLock(input);
+    if (!lock.ok) return lock;
+    syncSafe(paths.receipt);
+    const receipt = parseReceipt(paths.receipt);
+    const lockBytes = readFileSync(paths.lock);
+    verifyOwnedProjection(input, receipt, lockBytes);
+    const desired = desiredProjection(input, lock.value);
+    if (!desired.ok) return desired;
+    const expected = receiptFor(new TextDecoder().decode(lockBytes), desired.value);
+    if (JSON.stringify(expected) !== JSON.stringify(receipt)) return refusal("Projection receipt differs from verified lock, store or release declarations");
+    return { ok: true, value: receipt };
+  } catch (error) { return refusal(`Cannot verify projection: ${projectionError(error)}`); }
+}
+
+/** Read-only verification used by future hooks and check. It never contacts the registry. */
+export async function verifyManagedPackProjection(input: ProjectionVerifyInput): Promise<Result<ProjectionReceipt>> {
+  return verifyProjectionState(input, false);
+}
+
+/** Rolls back any journaled partial publication under the same project writer. */
+export async function recoverManagedPackProjection(input: ProjectionVerifyInput & { readonly faultAfterRecoveryStep?: string }): Promise<Result<unknown>> {
+  const paths = projectionPaths(input.projectRoot);
+  const writer = await acquireProjectWriter(paths.lock);
+  if (!writer.ok) return writer;
+  try {
+    let restoredEmpty = false;
+    if (existsSync(paths.journal)) {
+      const journal = parseJournal(paths.journal);
+      restoredEmpty = journal.oldLockBackup === null && journal.oldReceiptBackup === null;
+      restoreJournal(input.projectRoot, input.faultAfterRecoveryStep);
+    }
+    if (restoredEmpty && !existsSync(paths.lock) && !existsSync(paths.receipt)) return { ok: true, value: undefined };
+    return await verifyManagedPackProjection(input);
+  } catch (error) { return refusal(`Cannot recover projection journal or backup: ${projectionError(error)}`); }
+  finally { await writer.value(); }
+}
+
+/** Internal transaction; the public add route remains unavailable until pack execution is implemented. */
+export async function addManagedPackWithProjection(input: ProjectionInput): Promise<Result<{ readonly lockPath: string; readonly receiptPath: string }>> {
+  const paths = projectionPaths(input.projectRoot);
+  const writer = await acquireProjectWriter(paths.lock);
+  if (!writer.ok) return writer;
+  try {
+    if (existsSync(paths.journal)) restoreJournal(input.projectRoot);
+    let oldReceipt: ProjectionReceipt | null = null;
+    let oldLockBytes: Uint8Array | null = null;
+    if (existsSync(paths.lock)) {
+      const checked = await verifyManagedPackProjection(input);
+      if (!checked.ok) return checked;
+      oldReceipt = checked.value;
+      oldLockBytes = readFileSync(paths.lock);
+    }
+    await input.afterExistingStateVerified?.(oldLockBytes === null ? null : sha256(oldLockBytes));
+    const prepared = await prepareAdditionUnderWriter(input, false, true);
+    if (!prepared.ok) return prepared;
+    const desired = desiredProjection(input, prepared.value.lock);
+    if (!desired.ok) return desired;
+    const newReceipt = receiptFor(prepared.value.contents, desired.value);
+    const oldPackages = oldReceipt?.packages ?? [];
+    const allPackages = [...new Set([...oldPackages, ...desired.value.packages])].sort();
+    for (const name of allPackages) {
+      const path = join(paths.modules, name);
+      if (!oldPackages.includes(name)) {
+        try { if (lstatSync(path).isSymbolicLink()) return refusal(`Unowned package collision at ${path}; move the link manually`); } catch { /* Absent path is available. */ }
+      }
+      syncSafe(path);
+      if (existsSync(path) && !oldPackages.includes(name)) return refusal(`Unowned package collision at ${path}; move it manually before adding a managed pack`);
+      if (!existsSync(path) && oldPackages.includes(name)) return refusal(`Owned projection package ${path} is missing`);
+    }
+    const stageName = `.types-stage-${randomUUID()}`;
+    const stage = join(paths.bounded, stageName);
+    mkdirSync(stage, { recursive: true });
+    for (const [path, bytes] of Object.entries(desired.value.files)) {
+      const target = join(stage, path);
+      durableWrite(target, bytes);
+    }
+    syncDirectoryTree(stage);
+    syncDirectory(paths.bounded);
+    const backupLock = oldLockBytes === null ? null : `.types-old-lock-${randomUUID()}.bak`;
+    const backupReceipt = oldReceipt === null ? null : `.types-old-receipt-${randomUUID()}.bak`;
+    if (backupLock !== null && oldLockBytes !== null) durableWrite(join(paths.bounded, backupLock), oldLockBytes);
+    if (backupReceipt !== null) durableWrite(join(paths.bounded, backupReceipt), readFileSync(paths.receipt));
+    const oldBackups: Record<string, string | null> = {};
+    for (const name of allPackages) {
+      if (!oldPackages.includes(name)) { oldBackups[name] = null; continue; }
+      const backup = `.types-old-package-${randomUUID()}`;
+      const source = join(paths.modules, name);
+      copyTree(source, join(paths.bounded, backup));
+      if (!exactTree(join(paths.bounded, backup), fileSet(source))) throw new Error(`Projection backup ${name} differs from the active package`);
+      oldBackups[name] = backup;
+    }
+    if (input.faultAfter === "backup") return refusal("Injected fault after backup");
+    const journal: ProjectionJournal = { schema: "bounded-types-journal/1", oldLockBackup: backupLock, oldLockSha256: oldLockBytes === null ? null : sha256(oldLockBytes),
+      oldReceiptBackup: backupReceipt, oldReceiptSha256: backupReceipt === null ? null : sha256(readFileSync(paths.receipt)),
+      oldPackages: oldBackups, newPackages: desired.value.packages, newFiles: newReceipt.files, stage: stageName };
+    durableWrite(paths.journal, utf8(`${JSON.stringify(journal)}\n`));
+    if (input.faultAfter === "journal") return refusal("Injected fault after journal");
+    if (input.faultAfter === "journal-hang") await Bun.sleep(60_000);
+    const oldTrash = join(paths.bounded, `${stageName}-old-trash`);
+    for (const [index, name] of oldPackages.entries()) {
+      const path = join(paths.modules, name);
+      const trashPath = join(oldTrash, name);
+      mkdirSync(dirname(trashPath), { recursive: true });
+      renameSync(path, trashPath);
+      syncParentChain(path, paths.modules);
+      syncParentChain(trashPath, paths.bounded);
+      if (input.faultAfter === "rename-old" && index === 0) return refusal("Injected fault after old projection rename");
+    }
+    for (const [index, name] of desired.value.packages.entries()) {
+      const source = join(stage, "node_modules", name);
+      const target = join(paths.modules, name);
+      mkdirSync(dirname(target), { recursive: true });
+      renameSync(source, target);
+      syncParentChain(target, paths.modules);
+      if (input.faultAfter === (index === 0 ? "publish-a" : "publish-b")) return refusal("Injected fault after projection rename");
+    }
+    durableWrite(paths.receipt, utf8(`${JSON.stringify(newReceipt)}\n`));
+    if (input.faultAfter === "receipt") return refusal("Injected fault after receipt publication");
+    durableWrite(paths.lock, utf8(prepared.value.contents));
+    if (input.faultAfter === "lock") return refusal("Injected fault after lock publication");
+    // The writer owns the still-present journal. Recheck the complete lock,
+    // store, release source, receipt, and active tree before retiring rollback.
+    const verified = await verifyProjectionState(input, true);
+    if (!verified.ok) throw new Error(verified.error);
+    rmSync(paths.journal);
+    syncDirectory(paths.bounded);
+    if (input.faultAfter === "journal-removal") return refusal("Injected fault after journal removal");
+    rmSync(oldTrash, { recursive: true, force: true });
+    rmSync(stage, { recursive: true, force: true });
+    for (const backup of [backupLock, backupReceipt, ...Object.values(oldBackups)]) if (backup !== null) rmSync(join(paths.bounded, backup), { recursive: true, force: true });
+    if (input.faultAfter === "backup-cleanup") return refusal("Injected fault after backup cleanup");
+    return { ok: true, value: { lockPath: paths.lock, receiptPath: paths.receipt } };
+  } catch (error) {
+    if (existsSync(paths.journal)) {
+      try { restoreJournal(input.projectRoot); }
+      catch (recoveryError) { return refusal(`Cannot publish projection: ${projectionError(error)}; recovery requires repair: ${projectionError(recoveryError)}`); }
+    }
+    return refusal(`Cannot publish projection: ${projectionError(error)}`);
+  } finally { await writer.value(); }
 }

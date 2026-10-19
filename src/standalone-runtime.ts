@@ -7,6 +7,8 @@ import * as prereqsAdapters from "bounded/prereqs/adapters";
 import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
 import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
+import { addManagedPackWithProjection, type ProjectionInput } from "./cli/managed-pack-installer.ts";
+import { locateInstalledRelease } from "./standalone-installed-release.ts";
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildStandaloneConfigModule } from "./hosts/claude-code/standalone-config-as-module.ts";
@@ -123,4 +125,17 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     return;
   }
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);
+}
+
+/** Internal native entry: projection types and digests come from the verified installed release. */
+export async function addManagedPackWithInstalledReleaseProjection(
+  input: Omit<ProjectionInput, "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Awaited<ReturnType<typeof addManagedPackWithProjection>>> {
+  const located = locateInstalledRelease(input.boundedVersion, env);
+  if (!located.ok) return { ok: false, error: located.error };
+  const releaseTypeFilesFromVerifiedManifest = Object.fromEntries(located.verifiedFiles
+    .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+    .map((file) => [file.path.slice("share/types/".length), file.sha256]));
+  return addManagedPackWithProjection({ ...input, releaseTypesRoot: join(located.releaseRoot, "share", "types"), releaseTypeFilesFromVerifiedManifest });
 }

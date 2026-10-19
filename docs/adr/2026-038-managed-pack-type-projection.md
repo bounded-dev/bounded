@@ -1,0 +1,17 @@
+# 2026-038: Project verified pack declarations without a package manager
+
+**Status:** accepted for the internal editor-projection slice of issue #67. Amends [ADR 2026-035](2026-035-managed-pack-lock-verification.md). Public `bounded add`, pack execution and `bounded check` remain separate work.
+
+## Decision
+
+A project with a verified `bounded-packs-lock/2` receives package-style, type-only directories under `node_modules`. `bounded/*` declarations come from the installed release's verified `share/types` file set; each pinned pack and dependency gets declarations from its verified content-addressed store. Package `exports.types` and `typesVersions` expose only runtime-supported subpaths. There is no bare `bounded` root declaration or runnable JavaScript. Distinct dependency versions appear under the importer that pins each one. The deployed executable carries the pinned TypeScript parser to validate declaration imports; it does not invoke Node, npm, Bun's package manager or a pack author's build command.
+
+The active `.bounded/packs.lock.json` is published last. One project writer holds the old-state verification, pack preparation, staged declaration writes, publication, validation and cleanup. Before any active path changes, the transaction durably backs up the exact old lock, receipt and owned directories, then publishes a journal. It atomically renames verified owned directories into retained transaction trash before publishing replacements. Recovery renames active directories aside before atomically restoring staged old copies, so a second process crash can retry. Trash remains until the journal unlink is durable. Every unowned package or linked path collision is refused, including byte-equivalent files. The new receipt binds the active lock digest and every projected file hash; verification checks the complete owned file and directory set and regenerates the expected projection from the verified store and release declarations. Hooks and `check` must refuse a pending journal or receipt mismatch. On restart, a valid journal restores the previous state under the writer; malformed or corrupt rollback material is refused for manual repair.
+
+The writer directory has a PID and nonce owner. A separate exclusive guard serializes reclaim after the owner process is proven gone by an `ESRCH` liveness check. Missing ownership data, an uncertain liveness result, or a stale reclaim guard fails closed for manual repair; age alone never authorizes takeover. PID reuse can delay recovery by making a dead writer appear live. Native Windows reclaim behavior must be tested before this slice ships there.
+
+Files and containing directories are synced around publication where the host filesystem supports it. The protocol gives tested process-crash rollback and seeks power-loss durability on supported filesystems; it does not claim atomic rename across `.bounded` and `node_modules`. A journal left after the new lock write still rolls back rather than guessing that publication committed. Once the journal is removed, the new state is committed and leftover backups are cleanup debris.
+
+## Scope
+
+This slice exposes internal prepare, projection, offline verification and recovery functions. It does not make installed packs active or expose `bounded add` or `bounded check`. The standalone entry obtains declaration hashes from the verified installed-release receipt and manifest. A type projection is for editors only; runtime pack loading must use the verified store, never these `node_modules` directories.
