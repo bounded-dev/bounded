@@ -373,6 +373,28 @@ describe("managed pack type-only projection and publication", () => {
     await refused(given.check, "journal");
   });
 
+  test("first-add rollback restores the empty managed state", async () => {
+    const given = fixture();
+    await given.run("bounded-example@1.0.0", { faultAfter: "journal" });
+    expect(existsSync(given.journalPath)).toBe(true);
+    expect((await given.restart()).ok).toBe(true);
+    expect(existsSync(given.journalPath)).toBe(false);
+    expect(existsSync(given.lockPath)).toBe(false);
+    expect(existsSync(given.receiptPath)).toBe(false);
+    expect(existsSync(given.projected("bounded-example"))).toBe(false);
+  });
+
+  test("recovery refuses a new unowned empty package directory", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    await given.run("bounded-second@1.0.0", { faultAfter: "journal" });
+    const unowned = given.projected("bounded-second");
+    mkdirSync(unowned, { recursive: true });
+    await refused(given.restart, "unowned");
+    expect(existsSync(unowned)).toBe(true);
+    expect(existsSync(given.journalPath)).toBe(true);
+  });
+
   test("a missing or corrupt journal backup refuses recovery without changing active state", async () => {
     for (const mutation of ["missing", "corrupt"] as const) {
       const given = fixture([pack("bounded-example"), pack("bounded-second")]);
