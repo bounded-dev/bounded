@@ -6628,5 +6628,14 @@
       "case": "bounded catalog build > refuses an export entry with only a require condition, naming the path and the fix"
     },
     "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/test/packaging.test.ts",
+    "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left",
+    "successor": {
+      "file": "src/test/packaging.test.ts",
+      "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's four runtime dependencies, with no workspace:* left"
+    },
+    "reason": "bounded gains resolve.exports, pinned, so the catalogue build resolves exports as a host's import() does under Node rather than by hand (ADR 2026-032, final review)"
   }
 ]
