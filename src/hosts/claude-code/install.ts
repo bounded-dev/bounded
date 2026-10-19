@@ -23,7 +23,10 @@ const oldWrapper = (command: string): string => `${command} || { echo "bounded h
  * the stop and keep the subagent running, and there is nothing to refuse
  * (ADR 2026-025).
  */
-const installedForm = (command: string, event: HookEvent): string => (event === "SubagentStop" ? command : failClosed(command));
+const installedForm = (command: string, event: HookEvent, shell: "posix" | "powershell" = "posix"): string =>
+  event === "SubagentStop" ? command : shell === "powershell"
+    ? `try { ${command}; if ($LASTEXITCODE -ne 0) { throw "bounded hook failed" } } catch { [Console]::Error.WriteLine("bounded hook failed"); exit 2 }`
+    : failClosed(command);
 
 /** The forms earlier versions installed for `event`: replaced, never left beside the current one. */
 const olderForms = (command: string, event: HookEvent): readonly string[] =>
@@ -74,10 +77,10 @@ function withoutOlder(entries: readonly unknown[], command: string, event: HookE
 const EVENTS: readonly HookEvent[] = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop"];
 
 /** The settings with bounded's hook running `command` before every tool call, after it, after its failure and when a subagent stops. Idempotent; everything else is kept. */
-export function withHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
+export function withHooks(settings: unknown, command: string, shell: "posix" | "powershell" = "posix"): Result<{ settings: Settings; changed: boolean }> {
   let out: { settings: Settings; changed: boolean } = { settings: settings as Settings, changed: false };
   for (const event of EVENTS) {
-    const next = withHook(out.settings, command, event);
+    const next = withHook(out.settings, command, event, shell);
     if (!next.ok) return next;
     out = { settings: next.value.settings, changed: out.changed || next.value.changed };
   }
@@ -113,14 +116,14 @@ export function isBoundedHook(hook: unknown): boolean {
  * role (one pointing at another path, as after the project moved) removed.
  * Idempotent; everything else is kept.
  */
-export function withProjectHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
-  if (!isRecord(settings) || !isRecord(settings.hooks)) return withHooks(settings, command);
+export function withProjectHooks(settings: unknown, command: string, shell: "posix" | "powershell" = "posix"): Result<{ settings: Settings; changed: boolean }> {
+  if (!isRecord(settings) || !isRecord(settings.hooks)) return withHooks(settings, command, shell);
   let stripped = false;
   const hooks: Record<string, unknown> = { ...settings.hooks };
   for (const event of EVENTS) {
     const entries = hooks[event];
     if (!Array.isArray(entries)) continue;
-    const installed = installedForm(command, event);
+    const installed = installedForm(command, event, shell);
     const isStale = (hook: unknown): boolean => isBoundedHook(hook) && isRecord(hook) && hook.command !== installed;
     hooks[event] = entries.flatMap((entry) => {
       if (!isRecord(entry) || !Array.isArray(entry.hooks) || !entry.hooks.some(isStale)) return [entry];
@@ -129,13 +132,13 @@ export function withProjectHooks(settings: unknown, command: string): Result<{ s
       return kept.length === 0 ? [] : [{ ...entry, hooks: kept }];
     });
   }
-  const merged = withHooks(stripped ? { ...settings, hooks } : settings, command);
+  const merged = withHooks(stripped ? { ...settings, hooks } : settings, command, shell);
   if (!merged.ok) return merged;
   return { ok: true, value: { settings: merged.value.settings, changed: stripped || merged.value.changed } };
 }
 
 /** The settings with bounded's hook running `command` on every tool call's `event`, PreToolUse by default. Idempotent; everything else is kept. */
-export function withHook(settings: unknown, command: string, event: HookEvent = "PreToolUse"): Result<{ settings: Settings; changed: boolean }> {
+export function withHook(settings: unknown, command: string, event: HookEvent = "PreToolUse", shell: "posix" | "powershell" = "posix"): Result<{ settings: Settings; changed: boolean }> {
   if (command.trim() === "") return { ok: false, error: "The hook command is empty" };
   if (!isRecord(settings)) return { ok: false, error: ".claude/settings.json is not a JSON object" };
   if (settings.disableAllHooks === true) return { ok: false, error: ".claude/settings.json sets disableAllHooks, so bounded's hook would never run. Remove it, then install again" };
@@ -143,7 +146,7 @@ export function withHook(settings: unknown, command: string, event: HookEvent = 
   if (!isRecord(hooks)) return { ok: false, error: ".claude/settings.json's 'hooks' is not an object" };
   const entries = hooks[event] ?? [];
   if (!Array.isArray(entries)) return { ok: false, error: `.claude/settings.json's 'hooks.${event}' is not a list` };
-  const installed = installedForm(command, event);
+  const installed = installedForm(command, event, shell);
   const kept = withoutOlder(entries, command, event);
   const replaced = kept.length !== entries.length || kept.some((entry, at) => entry !== entries[at]);
   if (!replaced && kept.some((entry) => isOurs(entry, installed))) return { ok: true, value: { settings, changed: false } };
