@@ -103,15 +103,20 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     stopRegistry = () => new Promise<void>((resolveStop, rejectStop) => server.close((error) => error ? rejectStop(error) : resolveStop()));
 
     const project = join(scratch, "python-project"); mkdirSync(project);
+    mkdirSync(join(project, ".bounded"));
+    writeFileSync(join(project, ".bounded", "version.json"), `${JSON.stringify({ schema: "bounded-project-version/1", version: VERSION })}\n`);
     const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
     writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     const environment = { ...process.env, PATH: join(scratch, "empty-path"), XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome,
       NODE_EXTRA_CA_CERTS: certificate, SSL_CERT_FILE: certificate, CLAUDE_PROJECT_DIR: project, XDG_STATE_HOME: join(scratch, "state") };
     const added = Bun.spawn([binary, "add", "bounded-example@0.1.0", "--registry", registryUrl], {
       cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    const addOutput = await new Response(added.stdout).text();
     const addError = await new Response(added.stderr).text();
     expect(await added.exited).toBe(0);
     expect(addError).toBe("");
+    expect(addOutput).toContain("bounded-example@0.1.0");
+    expect(addOutput).toContain('import { refusedToolsPack } from "bounded-example"');
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(originalConfig);
     expect(existsSync(join(project, ".bounded", "packs.lock.json"))).toBe(true);
     const projected = join(project, "node_modules", "bounded-example");
@@ -124,10 +129,11 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       const answer = JSON.parse(await new Response(judged.stdout).text()) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
       expect(await judged.exited).toBe(0);
       expect(answer.hookSpecificOutput?.permissionDecision ?? "allow").toBe(decision);
+      if (tool === "WebSearch") expect(answer.hookSpecificOutput?.permissionDecisionReason).toContain("Use local docs");
     }
-    const log = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8");
-    expect(log).toContain("WebSearch");
-    expect(log).toContain("Read");
+    const decisions = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
+      .map((line) => JSON.parse(line) as { verdict: { kind: string } });
+    expect(decisions.map((decision) => decision.verdict.kind)).toEqual(["refuse", "allow"]);
   } finally {
     await stopRegistry?.();
     rmSync(scratch, { recursive: true, force: true });
