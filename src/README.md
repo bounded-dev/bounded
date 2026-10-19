@@ -171,7 +171,8 @@ depends on and contributes to, its points (each with the JSON Schema of
 what a configuration writes for it), the ports a host provides, its
 README's sections and its examples. `package.json` points to it from its
 `bounded` field. A package of your own packs builds its catalogue with
-`bounded catalog build` in its directory (the repository's ADR 2026-029).
+`bunx --bun bounded catalog build` in its directory, under bun (the
+repository's ADRs 2026-029 and 2026-032).
 
 ## More
 

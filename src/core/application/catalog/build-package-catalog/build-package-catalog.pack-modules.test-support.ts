@@ -7,8 +7,10 @@ export interface PackModulesFixture {
   readonly packageDir: string;
 }
 
-/** The fix a refusal of an export entry with no target Node's require would pick names. */
+/** The fix a refusal of an export entry with no target a host's import() under Node would pick names. */
 export const ADD_A_DEFAULT_CONDITION = "add a `default` condition";
+/** The fix a refusal of a target that does not exist names. */
+export const BUILD_THE_PACKAGE_FIRST = "build the package first";
 
 /**
  * The behaviour every PackModules must have; `fixture` is given the export entry for ./demo to write into the package's
@@ -30,12 +32,39 @@ export function packModulesConformance(name: string, fixture: (demoExport?: unkn
       expect(!loaded.ok && loaded.error).toContain("./missing");
     });
 
-    test("refuses an import-only entry before resolving it, naming ./demo and the fix", async () => {
-      const given = await fixture({ import: "./dist/demo/index.js" });
+    test("refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix", async () => {
+      const given = await fixture({ require: "./dist/demo/index.js" });
       const loaded = await given.modules.load(given.packageDir, "./demo");
       expect(loaded.ok).toBe(false);
       expect(!loaded.ok && loaded.error).toContain("./demo");
       expect(!loaded.ok && loaded.error).toContain(ADD_A_DEFAULT_CONDITION);
+    });
+
+    test("loads an import-only entry, as a host's import() does", async () => {
+      const given = await fixture({ import: "./dist/demo/index.js" });
+      const loaded = await given.modules.load(given.packageDir, "./demo");
+      expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+      expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+    });
+
+    test("refuses a target that was never built, naming it and saying to build the package first", async () => {
+      const given = await fixture({ default: "./dist/missing/index.js" });
+      const loaded = await given.modules.load(given.packageDir, "./demo");
+      expect(loaded.ok).toBe(false);
+      expect(!loaded.ok && loaded.error).toContain("./dist/missing/index.js");
+      expect(!loaded.ok && loaded.error).toContain(BUILD_THE_PACKAGE_FIRST);
+    });
+
+    test("refuses a target, and a main, outside the package, naming each", async () => {
+      const throughExports = await fixture({ default: "../outside/index.js" });
+      const exported = await throughExports.modules.load(throughExports.packageDir, "./demo");
+      expect(exported.ok).toBe(false);
+      expect(!exported.ok && exported.error).toContain("../outside/index.js");
+      const throughMain = await fixture(undefined, undefined, "../outside/index.js");
+      const main = await throughMain.modules.load(throughMain.packageDir, ".");
+      expect(main.ok).toBe(false);
+      expect(!main.ok && main.error).toContain("../outside/index.js");
+      expect(!main.ok && main.error).toContain("not a file in the package");
     });
 
     test("loads a pack exported from the package root, `.`, whether exports is a path, a `.` entry or the root's conditions", async () => {
@@ -54,8 +83,8 @@ export function packModulesConformance(name: string, fixture: (demoExport?: unkn
       expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
     });
 
-    test("refuses a root export with only an import condition, naming `.` and the fix", async () => {
-      const given = await fixture(undefined, { import: "./dist/demo/index.js" });
+    test("refuses a root export with only a require condition, naming `.` and the fix", async () => {
+      const given = await fixture(undefined, { require: "./dist/demo/index.js" });
       const loaded = await given.modules.load(given.packageDir, ".");
       expect(loaded.ok).toBe(false);
       expect(!loaded.ok && loaded.error).toContain("export path .");

@@ -11,6 +11,9 @@ merging main, which had recorded the prereqs status snapshot as
 the catalogue carries) and reserved 2026-027. Amended by
 [ADR 2026-031](2026-031-example-scenarios.md): each catalogued example
 carries its scenarios, and the build refuses an example without them.
+Amended by [ADR 2026-032](2026-032-catalogue-build-on-bun.md): the build
+runs under bun only; its adapter is `BunPackModules`, which loads each
+export's Node target directly and refuses one never built.
 
 ## Context
 
@@ -146,7 +149,8 @@ concept tests consume these lists, so they cannot drift apart.
 ### The build
 
 `bounded catalog build`, run in the package's directory (bounded runs it in
-its prepack: `bun build-dist.ts && node dist/cli.js catalog build`), is the
+its prepack: `bun build-dist.ts && bun dist/cli.js catalog build`, under
+bun, ADR 2026-032), is the
 core's application feature `catalog/build-package-catalog`, wired by the
 CLI as `bounded init` is (ADR 2026-016). Its four out ports and their
 adapters (`bounded/adapters`):
@@ -154,7 +158,7 @@ adapters (`bounded/adapters`):
 | Port | Adapter | What it does |
 | --- | --- | --- |
 | `PackageCatalogFiles` | `FileSystemPackageCatalogFiles` | reads package.json, READMEs and examples; lists `examples/*.config.ts`; writes inside the package only |
-| `PackModules` | `NodePackModules` | loads an export path's module, as Node loads it |
+| `PackModules` | `BunPackModules` | loads, under bun, the JavaScript an export path resolves to for a host's `import()` under Node |
 | `PackSourceApi` | `TypeScriptPackSourceApi` | reads the overview, contract and examples with TypeScript, and generates the wire schemas |
 | `MarkdownSections` | `MarkedMarkdownSections` | splits a README into its title, introduction and sections, with their inline code spans and code blocks, with marked's lexer |
 
@@ -174,17 +178,19 @@ CLI prints `bounded: <refusal>` and exits 1.
   `bounded-pack`. A package.json with no `bounded.packs` is refused.
 - **Each listed export path exports exactly one pack**, made by the same
   copy of bounded (`parsePack`). None, or two, is refused, naming them.
-- **The export-entry rule (B1).** The build runs under Node. `NodePackModules`
+- **The export-entry rule (B1).** The build runs under bun (ADR 2026-032),
+  and hosts load packs under Node. `BunPackModules`
   reads the export path's entry from the package's own package.json, and
-  refuses, before resolving anything, an entry with no `default`, `require`
-  or `node` target (a path, or conditions holding one at any depth),
-  naming the export path and the fix: add a `default` condition. So the
-  refusal is the same under bun and Node. The package root, `.`, is
+  resolves it exactly as a host's `import()` does under Node
+  (Node's ESM resolution algorithm for `exports`, step for step, with the
+  conditions `node`, `import`, `module-sync` and `default`; ADR 2026-032). An entry
+  that gives no target is refused before anything else is read, naming the
+  export path and the fix: add a `default` condition. The package root, `.`, is
   read from a `.` entry, or from `exports` itself when it is a path or the
   root's conditions; a package with no `exports` loads its root through
-  `main`, as Node's require does. Otherwise it resolves the export by self-reference
-  (`createRequire(<package>/package.json).resolve(...)`, the bare package
-  name for `.`, `<name>/<subpath>` otherwise) and imports it. Each listed export must resolve to JavaScript through
+  `main`, read from package.json. The target is joined to the package's
+  directory, refused when outside the package or missing ("build the
+  package first"), and imported, never a `bun` source. Each listed export must resolve to JavaScript through
   those conditions: bounded's own reach `dist/` through `default`.
 - **Library resolution (maintainer: Q2).** `typescript`,
   `ts-json-schema-generator` and `marked` are the catalogued package's own
@@ -220,7 +226,7 @@ CLI prints `bounded: <refusal>` and exits 1.
   its prose from Markdown. The overview stays mechanical (R7): prose stays
   in the README, and the build joins the two. A pack travels as an npm
   package, so package.json's `exports` and Node's condition rules (which
-  target `require` picks) decide how a pack is found and loaded; the
+  target a host's `import()` picks) decide how a pack is found and loaded; the
   `bounded` field lists which export paths hold packs. `PackModules` keeps
   them behind a port, as the core's ports keep the file system.
 

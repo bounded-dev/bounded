@@ -6484,5 +6484,158 @@
       "case": "ExampleScenarios — an example's scenarios as data (ADR 2026-031) > refuses project files and changed files where Bounded keeps its own, whatever their case; .git and node_modules are no concern of the domain's"
     },
     "reason": "final review: the core's domain names no technology, so it reserves only Bounded's own files (bounded.config.* at the root, .bounded/); .git/ is accepted (a git-hooks pack ships a scenario with .git/hooks/pre-commit), and node_modules/ is reserved by the runner, as a scenario's problem (run-example-scenarios.test.ts) (ADR 2026-031)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > loads demo-package/demo and reports its exports' names, demoPack among them",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > loads demo-package/demo and reports its exports' names, demoPack among them"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > refuses an export path the package does not list, naming it",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses an export path the package does not list, naming it"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > refuses an import-only entry before resolving it, naming ./demo and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules; and it resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > loads a pack exported from the package root, `.`, whether exports is a path, a `.` entry or the root's conditions",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > loads a pack exported from the package root, `.`, whether exports is a path, a `.` entry or the root's conditions"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > loads the package root through main when package.json has no exports, as Node does",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > loads the package root through main when package.json has no exports, as Node does"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > refuses a root export with only an import condition, naming `.` and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules; and it resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > loads the default export of a package's module by its package-relative path",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > loads the default export of a package's module by its package-relative path"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > refuses a path outside the package, naming it",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a path outside the package, naming it"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > refuses a module with no default export, naming it",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a module with no default export, naming it"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules conforms to PackModules > accepts a nested { node: { default } } entry",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > accepts a nested { node: { default } } entry"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules > refuses a package root with neither exports, main nor index.js, saying to add main or exports",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules > refuses a package root with neither exports, main nor index.js, saying to add main or exports"
+    },
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "NodePackModules > refuses an import-only entry with the same message under Node as under the test runner's runtime",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules > refuses to load under Node, saying to run the catalogue build under bun"
+    },
+    "reason": "the catalogue build runs under bun only (ADR 2026-032): under Node the adapter refuses before reading the export entry, so there is no Node refusal to compare"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules conforms to PackModules > refuses an import-only entry before resolving it, naming ./demo and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules conforms to PackModules > refuses a root export with only an import condition, naming `.` and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules > refuses an import-only entry, saying to add a default condition, in full",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules > refuses a require-only entry, which import() cannot reach, in full"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/cli/bounded-cli.catalog.test.ts",
+    "case": "bounded catalog build > refuses an export entry with only an import condition, naming the path and the fix",
+    "successor": {
+      "file": "src/cli/bounded-cli.catalog.test.ts",
+      "case": "bounded catalog build > refuses an export entry with only a require condition, naming the path and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/test/packaging.test.ts",
+    "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's four runtime dependencies, with no workspace:* left",
+    "successor": {
+      "file": "src/test/packaging.test.ts",
+      "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left"
+    },
+    "reason": "re-review: resolve.exports diverges from Node's exports resolution, so the adapter implements Node's ESM algorithm itself and bounded keeps its three runtime dependencies (ADR 2026-032)"
   }
 ]

@@ -1,7 +1,7 @@
 // A library the package catalogue build uses, loaded from the package being
 // catalogued (ADR 2026-029): its author installs typescript,
 // ts-json-schema-generator and marked as devDependencies, so a project that
-// only installs bounded never downloads them. Resolved as Node's require
+// only installs bounded never downloads them. Resolved as the runtime's require
 // resolves it from the package's own package.json, then imported. Not in the
 // adapters' barrel: it serves the catalogue build's adapters only.
 import { createRequire } from "node:module";

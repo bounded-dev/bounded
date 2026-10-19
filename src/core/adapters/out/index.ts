@@ -12,7 +12,7 @@ export { FileSystemProjectSetupFiles } from "./project-setup-files/project-setup
 // The package catalogue build's (ADR 2026-029); each loads its libraries from the package it catalogues.
 export { FileSystemPackageCatalogFiles } from "./package-catalog-files/package-catalog-files.ts";
 export { MarkedMarkdownSections } from "./markdown-sections/markdown-sections.ts";
-export { NodePackModules } from "./pack-modules/pack-modules.ts";
+export { BunPackModules } from "./pack-modules/pack-modules.ts";
 export { TypeScriptPackSourceApi } from "./pack-source-api/pack-source-api.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,

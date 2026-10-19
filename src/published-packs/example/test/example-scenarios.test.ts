@@ -9,7 +9,7 @@ import { Glob } from "bun";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { NodePackModules } from "bounded/adapters";
+import { BunPackModules } from "bounded/adapters";
 import { runExampleScenarios } from "bounded/testing/example-scenarios";
 
 /** This package's directory, src/published-packs/example. */
@@ -24,7 +24,7 @@ describe("bounded-example's example scenarios", () => {
     expect(examplePaths.length).toBeGreaterThan(0);
     for (const examplePath of examplePaths) {
       const scenariosPath = examplePath.replace(/\.config\.ts$/, ".scenarios.ts");
-      const loaded = await new NodePackModules().loadDefaultExport(PACKAGE, scenariosPath);
+      const loaded = await new BunPackModules().loadDefaultExport(PACKAGE, scenariosPath);
       expect({ scenariosPath, loaded: loaded.ok ? "loaded" : loaded.error }).toEqual({ scenariosPath, loaded: "loaded" });
       if (!loaded.ok) continue;
       const report = await runExampleScenarios({ examplePath: join(PACKAGE, examplePath), scenarios: loaded.value, linkedPackages: { "bounded-example": PACKAGE }, stateHome: STATE_HOME, ports: () => [] });

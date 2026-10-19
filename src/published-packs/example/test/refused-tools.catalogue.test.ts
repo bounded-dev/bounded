@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlin
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Ajv } from "ajv";
-import { FileSystemProjectConfigSource, MarkedMarkdownSections, NodePackModules } from "bounded/adapters";
+import { FileSystemProjectConfigSource, MarkedMarkdownSections, BunPackModules } from "bounded/adapters";
 import { ExampleScenarios, PackDescription, PackReadme } from "bounded/domain";
 import { refusedToolsPack } from "../packs/refused-tools/index.ts";
 import { refusedToolWireForms } from "../packs/refused-tools/domain/refused-tool.wire-forms.test-support.ts";
@@ -36,9 +36,9 @@ interface CataloguedPack {
   readonly examples?: readonly { readonly path: string; readonly scenarios?: unknown }[];
 }
 
-/** This package's catalogue, rebuilt now by bounded's built CLI under Node; the packs it lists, or none when the build failed. */
+/** This package's catalogue, rebuilt now by bounded's built CLI under bun; the packs it lists, or none when the build failed. */
 function builtCatalogue(): { readonly packs: readonly CataloguedPack[]; readonly output: string } {
-  const ran = spawnSync("node", [join(BOUNDED, "dist", "cli.js"), "catalog", "build"], { cwd: PACKAGE, encoding: "utf8" });
+  const ran = spawnSync(process.execPath, [join(BOUNDED, "dist", "cli.js"), "catalog", "build"], { cwd: PACKAGE, encoding: "utf8" });
   const output = `${ran.stdout ?? ""}${ran.stderr ?? ""}`;
   if (ran.status !== 0) return { packs: [], output };
   const catalogue = JSON.parse(readFileSync(join(PACKAGE, "bounded.catalog.json"), "utf8")) as { packs?: CataloguedPack[] };
@@ -123,7 +123,7 @@ describe("bounded-example's catalogue and README", () => {
     expect(examples.map(({ path }) => path).sort()).toEqual([...new Glob("packs/*/examples/*.config.ts").scanSync({ cwd: PACKAGE })].sort());
     for (const example of examples) {
       const scenariosPath = example.path.replace(/\.config\.ts$/, ".scenarios.ts");
-      const loaded = await new NodePackModules().loadDefaultExport(PACKAGE, scenariosPath);
+      const loaded = await new BunPackModules().loadDefaultExport(PACKAGE, scenariosPath);
       const parsed = loaded.ok ? ExampleScenarios.parse(loaded.value) : loaded;
       expect({ path: example.path, scenarios: example.scenarios }).toEqual({ path: example.path, scenarios: parsed.ok ? parsed.value.toJSON().scenarios : parsed.error });
     }

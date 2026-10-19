@@ -1,5 +1,5 @@
 // bounded's own catalogue (ADR 2026-029): `bounded catalog build`, the built
-// CLI under Node, run in src/ as bounded's prepack runs it.
+// CLI under bun, run in src/ as bounded's prepack runs it.
 //
 // This test writes the shared, gitignored src/bounded.catalog.json, as do
 // src/core/composition-root/pack-wire-schemas.test.ts, src/test/packaging.test.ts
@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Glob } from "bun";
-import { NodePackModules } from "bounded/adapters";
+import { BunPackModules } from "bounded/adapters";
 import { ExampleScenarios } from "bounded/domain";
 
 const BOUNDED_DIR = resolve(import.meta.dir, "..");
@@ -27,7 +27,7 @@ interface Entry {
 
 /** bounded's catalogue, rebuilt now. */
 function builtCatalogue(): { readonly status: number | null; readonly output: string; readonly catalogue: { readonly package?: { readonly version?: string }; readonly packs?: readonly Entry[] } } {
-  const ran = spawnSync("node", [join(BOUNDED_DIR, "dist", "cli.js"), "catalog", "build"], { cwd: BOUNDED_DIR, encoding: "utf8" });
+  const ran = spawnSync(process.execPath, [join(BOUNDED_DIR, "dist", "cli.js"), "catalog", "build"], { cwd: BOUNDED_DIR, encoding: "utf8" });
   const output = `${ran.stdout ?? ""}${ran.stderr ?? ""}`;
   if (ran.status !== 0) return { status: ran.status, output, catalogue: {} };
   return { status: ran.status, output, catalogue: JSON.parse(readFileSync(join(BOUNDED_DIR, "bounded.catalog.json"), "utf8")) };
@@ -85,7 +85,7 @@ describe("bounded's own catalogue", () => {
     expect(embedded.length).toBeGreaterThan(0);
     for (const example of embedded) {
       const scenariosPath = example.path.replace(/\.config\.ts$/, ".scenarios.ts");
-      const loaded = await new NodePackModules().loadDefaultExport(BOUNDED_DIR, scenariosPath);
+      const loaded = await new BunPackModules().loadDefaultExport(BOUNDED_DIR, scenariosPath);
       const fromFile = loaded.ok ? ExampleScenarios.parse(loaded.value) : loaded;
       expect({ path: scenariosPath, parsed: fromFile.ok ? "parsed" : fromFile.error }).toEqual({ path: scenariosPath, parsed: "parsed" });
       if (!fromFile.ok) continue;
