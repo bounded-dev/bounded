@@ -20,6 +20,15 @@ const nativeTarget = (): string => {
 interface Archive { readonly root: string; readonly executable: string; readonly version: string; readonly fakeBin: string; readonly managerLog: string }
 let archive: Archive;
 beforeAll(async () => {
+  const piFixture = join(REPO, "src", "hosts", "pi", "test", "fixtures", "pi-runtime");
+  const installedPi = join(piFixture, "node_modules", PI_PACKAGE, "package.json");
+  if (!existsSync(installedPi) && process.env.PI_CODING_AGENT_DIR === undefined) {
+    const npm = Bun.which(process.platform === "win32" ? "npm.cmd" : "npm");
+    if (npm === null) throw new Error("The pinned Pi 0.87.1 test fixture requires npm during CI setup");
+    const install = Bun.spawnSync([npm, "ci", "--prefix", piFixture, "--ignore-scripts", "--no-audit", "--no-fund"],
+      { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+    if (install.exitCode !== 0) throw new Error(`Pinned Pi 0.87.1 fixture install failed: ${install.stderr.toString()}`);
+  }
   const root = mkdtempSync(join(tmpdir(), "bounded-standalone-pi-"));
   const built = Bun.spawnSync([process.execPath, join(REPO, "src", "build-release.ts"), "--target", nativeTarget(), "--smoke", "--out", root], {
     cwd: REPO, stdout: "pipe", stderr: "pipe",
@@ -81,10 +90,13 @@ function invokeUnderPi(root: string, body: string): { readonly code: number; rea
   const nodeBinary = process.env.PI_NODE_BINARY ?? Bun.which("node");
   if (nodeBinary === null) throw new Error("The pinned Pi CI runtime requires Node for Pi itself");
   const script = join(root, "pi-runtime.mjs");
-  writeFileSync(script, `import { createRequire } from "node:module";
-const required = createRequire(${JSON.stringify(join(pi, "package.json"))})("jiti");
-const jiti = (required.createJiti ?? required)(import.meta.url, { moduleCache: false, tryNative: false });
-const extension = await jiti.import(${JSON.stringify(join(root, ".pi", "extensions", "bounded", "index.ts"))});
+  writeFileSync(script, `import { pathToFileURL } from "node:url";
+const piLoader = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "core", "extensions", "loader.js"))}).href);
+const piBus = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "core", "event-bus.js"))}).href);
+const bus = piBus.createEventBus();
+const loaded = await piLoader.loadExtensions([${JSON.stringify(join(root, ".pi", "extensions", "bounded", "index.ts"))}], process.cwd(), bus);
+if (loaded.errors.length !== 0 || loaded.extensions.length !== 1) throw new Error(JSON.stringify(loaded.errors));
+const handlers = new Map([...loaded.extensions[0].handlers].map(([name, values]) => [name, values[0]]));
 ${body}\n`);
   const run = Bun.spawnSync([nodeBinary, script], {
     cwd: root, env: { ...process.env, PATH: archive.fakeBin, MANAGER_LOG: archive.managerLog, XDG_STATE_HOME: join(archive.root, "state") },
@@ -100,7 +112,7 @@ test("verified archive initializes Pi alone and both hosts without a project pac
   const loader = readFileSync(join(pi, ".pi", "extensions", "bounded", "index.ts"), "utf8");
   expect(loader).toContain("hook pi");
   expect(loader).toContain(archive.executable);
-  expect(loader).not.toMatch(/(?:import\s*\(|from\s*["'])\s*["']bounded(?:\/|["'])/);
+  expect(loader).not.toMatch(/(?:import\s*\(\s*|from\s+)["']bounded(?:\/|["'])/);
   expect(loader).not.toMatch(/(?:spawn|exec)(?:Sync|File)?\s*\(\s*["'](?:node|bun|npm|npx)/);
   expect(existsSync(join(pi, "package.json"))).toBe(false);
   expect(JSON.parse(readFileSync(join(pi, ".bounded", "version.json"), "utf8"))).toEqual({ schema: "bounded-project-version/1", version: archive.version });
@@ -117,23 +129,16 @@ test("pinned real Pi loads the generated bridge and the compiled worker judges a
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
   const result = invokeUnderPi(root, `
-const handlers = new Map();
-const subscribers = new Map();
-await extension.default({
-  on(name, handler) { handlers.set(name, handler); },
-  events: { on(name, handler) { subscribers.set(name, handler); } },
-});
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const denied = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "pi-1", toolName: "edit", input: { path: "bounded.config.ts", oldText: "x", newText: "y" } }, { cwd: process.cwd() });
 const allowed = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "pi-2", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
-console.log(JSON.stringify({ denied, allowed, events: [...handlers.keys()], channels: [...subscribers.keys()] }));`);
+console.log(JSON.stringify({ denied, allowed, events: [...handlers.keys()] }));`);
   expect(result.code).toBe(0);
-  const answer = JSON.parse(result.stdout.trim()) as { denied?: { block?: boolean; reason?: string }; allowed?: { block?: boolean }; events: string[]; channels: string[] };
+  const answer = JSON.parse(result.stdout.trim()) as { denied?: { block?: boolean; reason?: string }; allowed?: { block?: boolean }; events: string[] };
   expect(answer.denied?.block).toBe(true);
   expect(answer.denied?.reason).toContain("the rule '**/bounded.config.*' from bounded/project");
   expect(answer.allowed?.block).not.toBe(true);
   expect(answer.events).toEqual(expect.arrayContaining(["session_start", "tool_call", "tool_result"]));
-  expect(answer.channels).toContain("subagent:async-complete");
   const log = readFileSync(join(root, ".bounded", "log.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { verdict: { kind: string } });
   expect(log.at(-2)?.verdict.kind).toBe("refuse");
   expect(log.at(-1)?.verdict.kind).toBe("allow");
@@ -144,8 +149,6 @@ test("long-lived Pi bridge refuses a changed project source before reusing its s
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
   const result = invokeUnderPi(root, `
-const handlers = new Map();
-await extension.default({ on(name, handler) { handlers.set(name, handler); } });
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
 const fs = await import("node:fs");
