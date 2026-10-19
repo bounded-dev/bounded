@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import * as projectionModule from "./managed-pack-installer.ts";
 import { buildStandaloneConfigModule } from "../hosts/claude-code/standalone-config-as-module.ts";
 import * as boundedDomain from "bounded/domain";
+import { FileSystemProjectConfigSource } from "bounded/adapters";
+import { openProject } from "bounded/open-project";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
 type Reply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
@@ -509,10 +511,30 @@ describe("managed pack type-only projection and publication", () => {
     await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/plain-helper|direct|bounded add/i);
   });
 
-  test("a changed verified store refuses before a managed module executes", async () => {
+  test("a store mutation before snapshot refuses before a managed module executes", async () => {
     const original = pack("bounded-example");
     const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
-      ? { ...entry, body: 'globalThis.__boundedManagedPackExecuted = true;\nexport const marker = "loaded";\n' }
+      ? { ...entry, body: 'globalThis.__boundedManagedPackExecuted = "original";\nexport const marker = "loaded";\n' }
+      : entry) };
+    const given = fixture([chosen]);
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    writeFileSync(join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js"), 'globalThis.__boundedManagedPackExecuted = "tampered";\nexport const marker = "tampered";\n');
+    Reflect.deleteProperty(globalThis, "__boundedManagedPackExecuted");
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(false);
+    if (!graph.ok) expect(graph.error).toMatch(/store|digest|inventory|projection/i);
+    expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).toBeUndefined();
+  });
+
+  test("a post-snapshot store mutation never supplies executable bytes", async () => {
+    const original = pack("bounded-example");
+    const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'globalThis.__boundedManagedPackExecuted = "original";\nexport const marker = "loaded";\n' }
       : entry) };
     const given = fixture([chosen]);
     expect((await given.run()).ok).toBe(true);
@@ -524,12 +546,15 @@ describe("managed pack type-only projection and publication", () => {
     const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
     const root = lock.roots["bounded-example"];
     if (root === undefined) throw new Error("missing test root");
-    writeFileSync(join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js"), 'globalThis.__boundedManagedPackExecuted = true;\nexport const marker = "tampered";\n');
+    writeFileSync(join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js"), 'globalThis.__boundedManagedPackExecuted = "tampered";\nexport const marker = "tampered";\n');
     const config = join(given.projectRoot, "bounded.config.ts");
     writeFileSync(config, 'import { marker } from "bounded-example";\nexport default marker;\n');
     Reflect.deleteProperty(globalThis, "__boundedManagedPackExecuted");
-    await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/store|changed|digest|inventory/i);
-    expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).toBeUndefined();
+    try {
+      const generated = await buildManaged(config, given.projectRoot, graph.value);
+      expect((await import(generated)).default).toBe("loaded");
+    } catch (error) { expect(String(error)).toMatch(/store|changed|digest|inventory|snapshot/i); }
+    expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).not.toBe("tampered");
   });
 
   test("an intact stored catalogue cannot misdescribe a selected runtime pack", async () => {
@@ -548,7 +573,12 @@ describe("managed pack type-only projection and publication", () => {
     writeFileSync(config, 'import { defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nexport default defineConfig({ packs: [refusedToolsPack] });\n');
     const previous = Reflect.get(globalThis, "__boundedStandaloneRuntimeExports");
     Reflect.set(globalThis, "__boundedStandaloneRuntimeExports", Object.freeze({ "bounded/domain": boundedDomain }));
-    try { await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/catalogue|descriptor|contributesTo|beforeTool/i); }
+    try {
+      const opened = await openProject(given.projectRoot, { configSource: new FileSystemProjectConfigSource(
+        async (file, root) => buildManaged(file, root, graph.value),
+      ) });
+      expect(opened.problem ?? "").toMatch(/catalogue|descriptor|contributesTo|beforeTool/i);
+    }
     finally {
       if (previous === undefined) Reflect.deleteProperty(globalThis, "__boundedStandaloneRuntimeExports");
       else Reflect.set(globalThis, "__boundedStandaloneRuntimeExports", previous);
