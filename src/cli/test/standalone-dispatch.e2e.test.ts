@@ -154,6 +154,8 @@ test("generated installer records immutable manifest and compiled entry dispatch
   const f = await fixture();
   try {
     if (process.platform === "win32") {
+      // Native PowerShell installer behavior still needs a Windows CI fixture;
+      // this assertion only keeps receipt emission visible on this path.
       expect(readFileSync(f.script, "utf8")).toContain("receipt-v1.json");
       return;
     }
@@ -191,9 +193,14 @@ test("dispatch refuses every changed installed artifact before invoking the pinn
     const blob = join(f.receiptDirectory, "manifests", `${f.manifestDigest}.json`);
     const binary = join(f.installed, "bin", "bounded");
     const identity = join(f.installed, "release.json");
-    const changes: readonly { name: string; path: string; replacement?: string; remove?: boolean; linked?: boolean }[] = [
-      { name: "binary", path: binary, replacement: "changed executable" },
-      { name: "release.json", path: identity, replacement: JSON.stringify({ version: PINNED, target: "wrong-target", sourceCommit: SOURCE_COMMIT, protocolVersion: 1 }) },
+    const replacementSource = join(f.root, "replacement-fixture.ts");
+    const replacementBinary = join(f.root, "replacement-bounded");
+    writeFileSync(replacementSource, `if (process.argv[2] === "--version") console.log("${PINNED}"); else console.log("changed executable ran");\n`);
+    compile(replacementSource, replacementBinary);
+    expect(Bun.spawnSync([replacementBinary, "--version"], { stdout: "pipe" }).stdout.toString().trim()).toBe(PINNED);
+    const changes: readonly { name: string; path: string; replacement?: string | Uint8Array; remove?: boolean; linked?: boolean }[] = [
+      { name: "runnable changed binary", path: binary, replacement: readFileSync(replacementBinary) },
+      { name: "same-identity release.json", path: identity, replacement: `${JSON.stringify({ version: PINNED, target: f.target, sourceCommit: SOURCE_COMMIT, protocolVersion: 1 })}   \n` },
       { name: "manifest", path: blob, replacement: `${new TextDecoder().decode(f.manifestBytes)} ` },
       { name: "receipt digest", path: receipt, replacement: JSON.stringify({ schema: "bounded-install-receipt/1", version: PINNED, target: f.target, manifestSha256: "f".repeat(64) }) },
       { name: "receipt schema", path: receipt, replacement: JSON.stringify({ schema: "wrong", version: PINNED, target: f.target, manifestSha256: f.manifestDigest }) },
@@ -213,6 +220,7 @@ test("dispatch refuses every changed installed artifact before invoking the pinn
           writeFileSync(outside, original);
           symlinkSync(outside, change.path);
         } else if (!change.remove) writeFileSync(change.path, change.replacement ?? "");
+        if (change.path === binary && !change.remove) chmodSync(binary, 0o755);
         const denied = runCurrent(f, ["check"]);
         expect(denied.exitCode).not.toBe(37);
         expect(denied.stdout).not.toContain(`"version":"${PINNED}"`);
@@ -257,6 +265,11 @@ test("pin root precedence, strict shape, one-hop and missing target fail closed"
       expect(denied.exitCode).not.toBe(37);
       expect(denied.stderr).toMatch(/project|absolute|directory/i);
     }
+    for (const invalidClaudeRoot of ["relative", join(f.root, "missing")]) {
+      const denied = runCurrent(f, hook, "bad payload", { env: { CLAUDE_PROJECT_DIR: invalidClaudeRoot } });
+      expect(denied.exitCode).not.toBe(37);
+      expect(denied.stderr).toMatch(/CLAUDE_PROJECT_DIR|project|absolute|directory/i);
+    }
     for (const invalid of ['{"version":"3.2.9"}', '{"schema":"bounded-project-version/1","version":"latest"}', '{"schema":"bounded-project-version/1","version":"3.2.9","extra":true}', "not JSON"]) {
       writeFileSync(pin, invalid);
       const denied = runCurrent(f, ["check"]);
@@ -266,7 +279,9 @@ test("pin root precedence, strict shape, one-hop and missing target fail closed"
     writeFileSync(pin, JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
     const nestedBoundary = join(f.project, "src", ".bounded");
     mkdirSync(nestedBoundary);
-    expect(runCurrent(f, ["check"]).exitCode).not.toBe(37);
+    const missingNestedPin = runCurrent(f, ["check"]);
+    expect(missingNestedPin.exitCode).not.toBe(37);
+    expect(missingNestedPin.stderr).toMatch(/pin|version\.json|missing/i);
     writeFileSync(join(nestedBoundary, "version.json"), "malformed");
     expect(runCurrent(f, ["check"]).stderr).toMatch(/pin|version\.json|schema/i);
     writeFileSync(join(nestedBoundary, "version.json"), JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
@@ -274,6 +289,11 @@ test("pin root precedence, strict shape, one-hop and missing target fail closed"
     const oneHop = runCurrent(f, ["check"], "", { env: { BOUNDED_DISPATCHED_VERSION: "other" } });
     expect(oneHop.exitCode).not.toBe(37);
     expect(oneHop.stderr).toMatch(/dispatch|hop|version|pin/i);
+    const unpinnedProject = join(f.root, "no-pin-project");
+    mkdirSync(unpinnedProject);
+    const noPin = runCurrent(f, ["init"], "", { cwd: unpinnedProject });
+    expect(noPin.exitCode).not.toBe(37);
+    expect(noPin.stdout).not.toContain(`"version":"${PINNED}"`);
     rmSync(join(f.installed, "bin", "bounded"));
     const missing = runCurrent(f, ["check"]);
     expect(missing.exitCode).not.toBe(37);
@@ -296,8 +316,16 @@ test("installer does not replace a valid receipt with a different manifest or af
     const before = readFileSync(receipt);
     expect(runInstaller(f).exitCode).toBe(0);
     expect(readFileSync(receipt)).toEqual(before);
-    writeFileSync(join(f.root, "assets", `bounded-v${PINNED}-manifest-v1.json`), `${new TextDecoder().decode(f.manifestBytes)} `);
-    expect(runInstaller(f).exitCode).not.toBe(0);
+    const manifestPath = join(f.root, "assets", `bounded-v${PINNED}-manifest-v1.json`);
+    const secondManifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReleaseManifest;
+    const changedManifest = { ...secondManifest, builtWith: `Bun ${Bun.version} second valid build` };
+    const changedBytes = bytes(`${JSON.stringify(changedManifest)}\n`);
+    expect(digest(changedBytes)).not.toBe(f.manifestDigest);
+    writeFileSync(manifestPath, changedBytes);
+    writeFileSync(f.script, installerScripts(changedManifest, digest(changedBytes)).unix);
+    const changed = runInstaller(f);
+    expect(changed.exitCode).not.toBe(0);
+    expect(changed.stderr?.toString()).toMatch(/receipt|manifest|digest|version|release/i);
     expect(readFileSync(receipt)).toEqual(before);
     expect(existsSync(join(f.data, "bounded", "active"))).toBe(true);
   } finally {
