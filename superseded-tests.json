@@ -6759,10 +6759,10 @@
     "file": "src/cli/managed-pack-projection.test.ts",
     "case": "managed pack type-only projection and publication > a post-snapshot store mutation never supplies executable bytes",
     "successor": {
-      "file": "src/hosts/claude-code/test/standalone-managed-config.test.ts",
-      "case": "standalone managed config from a verified snapshot > a store edit after snapshot selection cannot replace copied executable bytes"
+      "file": "src/cli/managed-pack-projection.test.ts",
+      "case": "managed pack type-only projection and publication > captured graph bytes stay original when the real verified store changes after capture"
     },
-    "reason": "execution of captured bytes belongs to the Claude host loader test band"
+    "reason": "the real store capture proof remains in CLI; the host loader separately proves it executes captured original bytes after the source changes"
   },
   {
     "file": "src/cli/managed-pack-projection.test.ts",

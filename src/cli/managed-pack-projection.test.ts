@@ -502,6 +502,28 @@ describe("managed pack type-only projection and publication", () => {
     expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).toBeUndefined();
   });
 
+  test("captured graph bytes stay original when the real verified store changes after capture", async () => {
+    const original = pack("bounded-example");
+    const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'export const marker = "original";\n' } : entry) };
+    const given = fixture([chosen]);
+    expect((await given.run()).ok).toBe(true);
+    const captured = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) return;
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    const source = join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js");
+    writeFileSync(source, 'export const marker = "tampered";\n');
+    const node = captured.value.nodes[root] as { files: Record<string, Uint8Array> };
+    expect(new TextDecoder().decode(node.files["dist/index.js"])).toContain('"original"');
+    expect(new TextDecoder().decode(node.files["dist/index.js"])).not.toContain('"tampered"');
+    expect(readFileSync(source, "utf8")).toContain('"tampered"');
+  });
+
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
     const given = fixture([pack("bounded-example"), pack("bounded-second"), pack("bounded-third")]);
     expect((await given.run()).ok).toBe(true);

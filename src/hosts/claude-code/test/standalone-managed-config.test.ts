@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as domain from "bounded/domain";
@@ -61,15 +61,23 @@ describe("standalone managed config from a verified snapshot", () => {
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(domain.PackDescription.of(loaded.value.listedPacks[0]!).id).toBe("local/one-two");
     expect(Reflect.get(globalThis, "__boundedManagedUnselectedExecuted")).toBeUndefined();
+    const outside = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { version } from "plain-helper";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(version) })] });\n');
+    const refused = await load(outside.root, chosen);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toMatch(/plain-helper|direct|bounded add/i);
   });
 
   test("a store edit after snapshot selection cannot replace copied executable bytes", async () => {
     const selected = node("bounded-selected", "1.0.0", 'globalThis.__boundedManagedSelectedExecuted = "original"; export const word = "original";\n');
     const chosen = graph([selected], { "bounded-selected": selected.id });
     const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { word } from "bounded-selected";\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(word) })] });\n');
+    const storeFile = join(root, "store", selected.id, "package", "dist", "index.js");
+    mkdirSync(join(root, "store", selected.id, "package", "dist"), { recursive: true });
+    writeFileSync(storeFile, selected.files["dist/index.js"]!);
+    selected.files["dist/index.js"] = Uint8Array.from(readFileSync(storeFile));
     const oldBytes = Uint8Array.from(selected.files["dist/index.js"]!);
-    writeFileSync(join(root, "mutable-store.js"), 'globalThis.__boundedManagedSelectedExecuted = "tampered";\n');
-    expect(readFileSync(join(root, "mutable-store.js"), "utf8")).toContain("tampered");
+    writeFileSync(storeFile, 'globalThis.__boundedManagedSelectedExecuted = "tampered"; export const word = "tampered";\n');
+    expect(readFileSync(storeFile, "utf8")).toContain("tampered");
     expect(selected.files["dist/index.js"]).toEqual(oldBytes);
     const loaded = await standaloneManagedConfigSource((file, projectRoot) => buildStandaloneConfigModule(file, projectRoot, chosen)).load(root);
     expect(loaded.ok).toBe(true);
