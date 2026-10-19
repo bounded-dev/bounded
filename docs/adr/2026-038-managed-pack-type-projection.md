@@ -1,6 +1,6 @@
 # 2026-038: Project verified pack declarations without a package manager
 
-**Status:** accepted for the internal editor-projection slice of issue #67. Amends [ADR 2026-035](2026-035-managed-pack-lock-verification.md). Public `bounded add`, pack execution and `bounded check` remain separate work.
+**Status:** accepted for the internal editor-projection slice of issue #67. Amends [ADR 2026-035](2026-035-managed-pack-lock-verification.md). [ADR 2026-039](2026-039-standalone-managed-pack-runtime.md) later enables public `bounded add` and Claude Code pack execution; `bounded check` remains separate work.
 
 ## Decision
 

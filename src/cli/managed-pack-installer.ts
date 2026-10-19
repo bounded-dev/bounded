@@ -183,6 +183,7 @@ async function archiveFiles(archive: Uint8Array): Promise<Result<Readonly<Record
 interface ArchiveManifest {
   readonly name: string;
   readonly version: string;
+  readonly type: unknown;
   readonly dependencies: Readonly<Record<string, string>>;
   readonly peerDependencies: Readonly<Record<string, string>>;
   readonly exports: unknown;
@@ -208,7 +209,8 @@ function archiveManifest(files: Readonly<Record<string, Uint8Array>>, expected: 
     const peer = peers.value.bounded;
     if (peer === undefined || !Bun.semver.satisfies(boundedVersion, peer)) return refusal(`${expected.name} requires bounded peer ${peer ?? "(missing)"}, incompatible with ${boundedVersion}`);
   }
-  return { ok: true, value: { name: expected.name, version: expected.version, dependencies: dependencies.value, peerDependencies: peers.value, exports: parsed.value.exports,
+  return { ok: true, value: { name: expected.name, version: expected.version, type: parsed.value.type,
+    dependencies: dependencies.value, peerDependencies: peers.value, exports: parsed.value.exports,
     ...(parsed.value.bounded === undefined ? {} : { bounded: parsed.value.bounded }) } };
 }
 
@@ -225,7 +227,6 @@ function exportTarget(exports: unknown, exportPath: string): Result<string> {
   if (!/\.(?:m?js|cjs)$/.test(path.value)) return refusal(`Published export ${exportPath} must name built JavaScript, not source`);
   return path;
 }
-
 interface PackageImport { readonly dependencyName: string; readonly exportPath: string }
 
 function inspectJavaScript(files: Readonly<Record<string, Uint8Array>>, manifest: ArchiveManifest, boundedExportPaths: readonly string[]): Result<readonly PackageImport[]> {
@@ -305,6 +306,8 @@ function checkCatalog(files: Readonly<Record<string, Uint8Array>>, manifest: Arc
   for (const pack of parsedManifest.value.packs) {
     const target = exportTarget(manifest.exports, pack.exportPath);
     if (!target.ok) return target;
+    if (target.value.endsWith(".cjs") || (target.value.endsWith(".js") && manifest.type !== "module"))
+      return refusal(`${manifest.name} catalogue pack export ${pack.exportPath} must target ESM .mjs or .js in a type: module package`);
     if (files[target.value] === undefined) return refusal(`${manifest.name} export ${pack.exportPath} points to missing built JavaScript ${target.value}`);
   }
   return { ok: true, value: undefined };
@@ -317,15 +320,20 @@ function inventory(files: Readonly<Record<string, Uint8Array>>): FileInventory {
 const inventoryBytes = (files: FileInventory): Uint8Array => new TextEncoder().encode(`${JSON.stringify({ schema: "bounded-pack-inventory/1", files })}\n`);
 const digestPattern = /^[a-f0-9]{64}$/;
 const packageNamePattern = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9._-]+)$/;
+const runtimeGraphLimits = { nodes: 128, files: 20_000, bytes: 256 * 1024 * 1024,
+  lockBytes: 16 * 1024 * 1024, inventoryBytes: 16 * 1024 * 1024 } as const;
 
 /** Reads a complete pinned graph without network access or running package code. */
-export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<PackLock>> {
+async function verifyManagedPackLockDetailed(input: VerifyInput, limits?: typeof runtimeGraphLimits): Promise<Result<{ readonly lock: PackLock; readonly lockBytes: Uint8Array; readonly stored: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>>; readonly manifest: ArchiveManifest }> }>> {
   const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
   const safeLock = await noLinkedComponents(lockPath);
   if (!safeLock.ok) return safeLock;
   let lockBytes: Uint8Array;
   try {
-    if (!(await lstat(lockPath)).isFile()) return refusal(`Project pack lock ${lockPath} is not a regular file; re-add the packs`);
+    const lockInfo = await lstat(lockPath);
+    if (!lockInfo.isFile()) return refusal(`Project pack lock ${lockPath} is not a regular file; re-add the packs`);
+    if (limits !== undefined && lockInfo.size > limits.lockBytes)
+      return refusal(`Managed pack lock byte bound exceeds ${limits.lockBytes}; reduce the dependency closure`);
     lockBytes = await readFile(lockPath);
   } catch (error) { return refusal(`Cannot read project pack lock ${lockPath}: ${errorText(error)}; re-add the packs`); }
   const parsed = json(lockBytes, "Project pack lock");
@@ -334,6 +342,8 @@ export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<
   if (parsed.value.schema === "bounded-packs-lock/1") return refusal("Legacy bounded-packs-lock/1 cannot be migrated without re-verifying exact tarball bytes; re-add each published pack with bounded add name@version");
   if (parsed.value.schema !== "bounded-packs-lock/2" || parsed.value.boundedVersion !== input.boundedVersion || !record(parsed.value.roots) || !record(parsed.value.nodes))
     return refusal(`Project pack lock schema or Bounded version does not match ${input.boundedVersion}; re-add the packs for this Bounded version`);
+  if (limits !== undefined && Object.keys(parsed.value.nodes).length > limits.nodes)
+    return refusal(`Managed pack graph exceeds ${limits.nodes} pinned nodes; reduce the dependency closure`);
   const roots: Record<string, string> = {};
   const nodes: Record<string, LockNode> = {};
   for (const [name, id] of Object.entries(parsed.value.roots)) {
@@ -362,6 +372,8 @@ export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<
   }
   for (const [name, id] of Object.entries(roots)) if (nodes[id]?.name !== name) return refusal(`Project root ${name} names missing or mismatched node ${id}; re-add ${name}`);
   const stored = new Map<string, { files: Readonly<Record<string, Uint8Array>>; manifest: ArchiveManifest; imports: readonly PackageImport[] }>();
+  let limitedFiles = 0;
+  let limitedBytes = 0;
   for (const [id, node] of Object.entries(nodes)) {
     const storePath = join(input.storeRoot, node.sha256);
     const safeStore = await noLinkedComponents(storePath);
@@ -369,12 +381,25 @@ export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<
     try {
       if (!(await lstat(storePath)).isDirectory()) return refusal(`${id} store is not a directory; re-add ${node.name}`);
       const inventoryPath = join(storePath, "inventory.json");
-      if (!(await lstat(inventoryPath)).isFile()) return refusal(`${id} inventory is not a regular file; re-add ${node.name}`);
+      const inventoryInfo = await lstat(inventoryPath);
+      if (!inventoryInfo.isFile()) return refusal(`${id} inventory is not a regular file; re-add ${node.name}`);
+      if (limits !== undefined && inventoryInfo.size > limits.inventoryBytes)
+        return refusal(`${id} inventory metadata exceeds the runtime graph byte bound; reduce the dependency closure`);
       const bytes = await readFile(inventoryPath);
       if (sha256(bytes) !== node.inventorySha256) return refusal(`${id} inventory digest differs from the lock; re-add ${node.name}`);
       const inventoryJson = json(bytes, `${id} inventory`);
       if (!inventoryJson.ok) return refusal(`${inventoryJson.error}; re-add ${node.name}`);
       if (!record(inventoryJson.value) || inventoryJson.value.schema !== "bounded-pack-inventory/1" || !record(inventoryJson.value.files)) return refusal(`${id} inventory is malformed; re-add ${node.name}`);
+      if (limits !== undefined) {
+        for (const details of Object.values(inventoryJson.value.files)) {
+          if (!record(details) || !Number.isSafeInteger(details.size) || (details.size as number) < 0)
+            return refusal(`${id} inventory size is malformed; re-add ${node.name}`);
+          limitedFiles++;
+          limitedBytes += details.size as number;
+          if (limitedFiles > limits.files || limitedBytes > limits.bytes)
+            return refusal(`Managed pack graph exceeds the total file or byte bound; reduce the dependency closure`);
+        }
+      }
       const files: Record<string, Uint8Array> = {};
       for (const [name, details] of Object.entries(inventoryJson.value.files)) {
         const safeName = safeMember(`package/${name}`);
@@ -443,7 +468,12 @@ export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<
   };
   for (const id of Object.values(roots)) { const result = walk(id, { bounded: input.boundedVersion }); if (!result.ok) return result; }
   if (reachable.size !== Object.keys(nodes).length) return refusal("Project pack lock contains unreachable nodes; re-add the packs");
-  return { ok: true, value: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes } };
+  return { ok: true, value: { lock: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes }, lockBytes, stored } };
+}
+
+export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<PackLock>> {
+  const checked = await verifyManagedPackLockDetailed(input);
+  return checked.ok ? { ok: true, value: checked.value.lock } : checked;
 }
 
 async function verifiedStore(path: string, expected: FileInventory, expectedInventorySha256: string): Promise<boolean> {
@@ -828,14 +858,15 @@ function durableWrite(path: string, bytes: Uint8Array): void {
     syncDirectory(dirname(path));
   } finally { rmSync(temporary, { force: true }); }
 }
-function parseReceipt(path: string): ProjectionReceipt {
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+function parseReceiptBytes(bytes: Uint8Array): ProjectionReceipt {
+  const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
   if (!record(raw) || raw.schema !== "bounded-types-receipt/1" || typeof raw.lockSha256 !== "string" || !digestPattern.test(raw.lockSha256)
     || !Array.isArray(raw.packages) || !raw.packages.every((name) => typeof name === "string" && isSafeRelative(name)) || !record(raw.files))
     throw new Error("Projection receipt is malformed");
   for (const [path, hash] of Object.entries(raw.files)) if (!isSafeRelative(path) || typeof hash !== "string" || !digestPattern.test(hash)) throw new Error(`Projection receipt file ${path} is malformed`);
   return raw as unknown as ProjectionReceipt;
 }
+function parseReceipt(path: string): ProjectionReceipt { return parseReceiptBytes(readFileSync(path)); }
 function fileSet(root: string): Readonly<Record<string, string>> {
   const found: Record<string, string> = {};
   const visit = (directory: string): void => {
@@ -1167,18 +1198,18 @@ function copyTree(source: string, target: string, afterCopiedFile?: () => void):
   syncDirectory(dirname(target));
 }
 
-async function verifyProjectionState(input: ProjectionVerifyInput, allowOwnJournal: boolean): Promise<Result<ProjectionReceipt>> {
+async function verifyProjectionState(input: ProjectionVerifyInput, allowOwnJournal: boolean, limits?: typeof runtimeGraphLimits): Promise<Result<ProjectionReceipt>> {
   const paths = projectionPaths(input.projectRoot);
   try {
     syncSafe(paths.journal);
     if (!allowOwnJournal && existsSync(paths.journal)) return refusal(`Projection journal ${paths.journal} requires recovery before hooks or check`);
-    const lock = await verifyManagedPackLock(input);
+    const lock = await verifyManagedPackLockDetailed(input, limits);
     if (!lock.ok) return lock;
     syncSafe(paths.receipt);
     const receipt = parseReceipt(paths.receipt);
     const lockBytes = readFileSync(paths.lock);
     verifyOwnedProjection(input, receipt, lockBytes);
-    const desired = desiredProjection(input, lock.value);
+    const desired = desiredProjection(input, lock.value.lock);
     if (!desired.ok) return desired;
     const expected = receiptFor(new TextDecoder().decode(lockBytes), desired.value);
     if (JSON.stringify(expected) !== JSON.stringify(receipt)) return refusal("Projection receipt differs from verified lock, store or release declarations");
@@ -1189,6 +1220,84 @@ async function verifyProjectionState(input: ProjectionVerifyInput, allowOwnJourn
 /** Read-only verification used by future hooks and check. It never contacts the registry. */
 export async function verifyManagedPackProjection(input: ProjectionVerifyInput): Promise<Result<ProjectionReceipt>> {
   return verifyProjectionState(input, false);
+}
+
+export interface ManagedPackRuntimeNode {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly dependencies: Readonly<Record<string, string>>;
+  readonly exports: unknown;
+  readonly files: Readonly<Record<string, Uint8Array>>;
+  readonly catalogue: (ReturnType<typeof PackageCatalog.parse> extends Result<infer T> ? T : never) | null;
+}
+export interface ManagedPackRuntimeGraph {
+  readonly roots: Readonly<Record<string, string>>;
+  readonly nodes: Readonly<Record<string, ManagedPackRuntimeNode>>;
+  readonly recheckBoundary: () => Promise<Result<void>>;
+}
+
+/** Copy verified bytes once; the loader never returns to the mutable store for module code. */
+export async function captureManagedPackRuntimeGraph(input: ProjectionVerifyInput): Promise<Result<ManagedPackRuntimeGraph>> {
+  const paths = projectionPaths(input.projectRoot);
+  const projected = await verifyProjectionState(input, false, runtimeGraphLimits);
+  if (!projected.ok) return projected;
+  let firstLock: Uint8Array;
+  let firstReceipt: Uint8Array;
+  try { firstLock = readFileSync(paths.lock); firstReceipt = readFileSync(paths.receipt); }
+  catch (error) { return refusal(`Cannot snapshot managed pack state: ${projectionError(error)}`); }
+  const verified = await verifyManagedPackLockDetailed(input, runtimeGraphLimits);
+  if (!verified.ok) return verified;
+  if (sha256(verified.value.lockBytes) !== sha256(firstLock) || projected.value.lockSha256 !== sha256(firstLock))
+    return refusal("Managed pack lock changed between projection and byte capture; retry after the add completes");
+  try {
+    if (JSON.stringify(parseReceiptBytes(firstReceipt)) !== JSON.stringify(projected.value))
+      return refusal("Managed pack receipt changed between projection and byte capture; retry after the add completes");
+  } catch (error) { return refusal(`Managed pack receipt changed during byte capture: ${projectionError(error)}`); }
+  if (Object.keys(verified.value.lock.nodes).length > 128) return refusal("Managed pack graph exceeds 128 pinned nodes; reduce the dependency closure");
+  const nodes: Record<string, ManagedPackRuntimeNode> = {};
+  let totalBytes = 0;
+  let totalFiles = 0;
+  for (const [id, data] of verified.value.stored) {
+    const node = verified.value.lock.nodes[id];
+    if (node === undefined) return refusal(`Managed pack graph lost node ${id}; re-add the pack`);
+    const files: Record<string, Uint8Array> = {};
+    for (const [name, bytes] of Object.entries(data.files)) {
+      totalFiles++;
+      totalBytes += bytes.byteLength;
+      if (totalFiles > 20_000 || totalBytes > 256 * 1024 * 1024) return refusal("Managed pack graph exceeds the total file or byte bound; reduce the dependency closure");
+      files[name] = Uint8Array.from(bytes);
+    }
+    let catalogue: ManagedPackRuntimeNode["catalogue"] = null;
+    if (data.manifest.bounded !== undefined) {
+      const parsedManifest = PackageManifest.parse({ name: node.name, version: node.version, bounded: data.manifest.bounded });
+      if (!parsedManifest.ok) return refusal(`${id} has invalid pack manifest: ${parsedManifest.error}`);
+      const catalogueBytes = files[parsedManifest.value.catalogPath];
+      if (catalogueBytes === undefined) return refusal(`${id} has no locked catalogue`);
+      const parsed = json(catalogueBytes, `${id} catalogue`);
+      if (!parsed.ok) return parsed;
+      const selected = PackageCatalog.parse(parsed.value);
+      if (!selected.ok) return selected;
+      catalogue = selected.value;
+    }
+    nodes[id] = { id, name: node.name, version: node.version, dependencies: node.dependencies, exports: data.manifest.exports, files, catalogue };
+  }
+  const lockSha256 = sha256(firstLock);
+  const receiptSha256 = sha256(firstReceipt);
+  const recheckBoundary = async (): Promise<Result<void>> => {
+    try {
+      syncSafe(paths.journal);
+      if (existsSync(paths.journal)) return refusal("A managed pack projection journal is pending; recover the add before loading packs");
+      syncSafe(paths.lock); syncSafe(paths.receipt);
+      if (!lstatSync(paths.lock).isFile() || !lstatSync(paths.receipt).isFile()
+        || sha256(readFileSync(paths.lock)) !== lockSha256 || sha256(readFileSync(paths.receipt)) !== receiptSha256)
+        return refusal("Managed pack lock or receipt changed while loading; retry after the add completes");
+      return { ok: true, value: undefined };
+    } catch (error) { return refusal(`Cannot recheck managed pack boundary: ${projectionError(error)}`); }
+  };
+  const boundary = await recheckBoundary();
+  if (!boundary.ok) return boundary;
+  return { ok: true, value: { roots: verified.value.lock.roots, nodes, recheckBoundary } };
 }
 
 /** Rolls back any journaled partial publication under the same project writer. */
