@@ -37,9 +37,9 @@ interface CataloguedPack {
   readonly points: readonly CataloguedPoint[];
 }
 
-/** bounded's catalogue, rebuilt now by the built CLI under Node; the packs it lists, or none when the build failed. */
+/** bounded's catalogue, rebuilt now by the built CLI under bun (the bun running these tests); the packs it lists, or none when the build failed. */
 function builtCatalogue(): { readonly packs: readonly CataloguedPack[]; readonly output: string } {
-  const ran = spawnSync("node", [join(BOUNDED, "dist", "cli.js"), "catalog", "build"], { cwd: BOUNDED, encoding: "utf8" });
+  const ran = spawnSync(process.execPath, [join(BOUNDED, "dist", "cli.js"), "catalog", "build"], { cwd: BOUNDED, encoding: "utf8" });
   const output = `${ran.stdout ?? ""}${ran.stderr ?? ""}`;
   if (ran.status !== 0) return { packs: [], output };
   const catalogue: unknown = JSON.parse(readFileSync(join(BOUNDED, "bounded.catalog.json"), "utf8"));
