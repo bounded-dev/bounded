@@ -228,6 +228,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
   executable-carried host installer has landed. Other distribution commands
   refuse locally. None falls into the npm CLI or writes project setup files.
   The published Node CLI above remains available for npm projects.
+- **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
+  declares the 3.3.0 target set before a tag, refuses stable builds on the
+  wrong OS, CPU or Linux libc, and requires verified attestations from the
+  same protected workflow run before assembly. It records only the OS and
+  libc versions observed on native runners. The release workflow includes
+  native Windows, macOS signing and notarization, and a draft asset check.
+  These workflow paths have structural local tests; no four-target workflow
+  run, Apple notarization, or draft release is verified yet. The macOS workflow
+  checks the installed process with network denied after an online first
+  launch; it has not proved operation on a fully disconnected Mac.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository

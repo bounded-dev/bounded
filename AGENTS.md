@@ -65,11 +65,12 @@ Everything the repository builds and ships is under `src/` (ADR 2026-024);
 the root keeps only project files (`package.json`, the tsconfigs,
 `biome.json`, `bunfig.toml`, `bun.lock`, `test-preload.ts`,
 `superseded-tests.json`, `.gitignore`, this file, `CLAUDE.md`, the README,
-the licence, `.claude/`, `docs/` and `scripts/`).
+the licence, `.claude/`, `.github/`, `docs/` and `scripts/`).
 
 ```
 src/                    bounded             the published package: package.json, build-dist.ts (its build for Node: the library,
                                             the CLI, the host adapters and the shell command reader; ADRs 2026-016, 2026-020),
+                                            native release target declaration, matrix and assembly (ADR 2026-036),
                                             tsconfig.types.json, README.md and LICENSE; its build output is src/dist/;
                                             and build-published-pack.ts, the published packs' shared build (ADR 2026-030)
   core/                                     the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)

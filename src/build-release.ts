@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
+import { release as hostKernelRelease } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import tar from "tar-stream";
@@ -9,6 +10,7 @@ import yazl from "yazl";
 import { buildDist, PREREQS_STATUS_BAND_FILES } from "./build-dist.ts";
 import { readReleaseManifest, verifyReleaseArchive, type ReleaseFile, type ReleaseManifest } from "./cli/release-manifest.ts";
 import { assembleRelease } from "./release-assembly.ts";
+import { readDeclaredReleaseTargets } from "./release-targets.ts";
 
 const HERE = import.meta.dir;
 const packageManifest = JSON.parse(readFileSync(join(HERE, "package.json"), "utf8")) as { version: string };
@@ -24,6 +26,62 @@ const targets: Readonly<Record<string, { bun: string; minimumOS: string; extensi
 };
 const digest = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const descriptor = (path: string, bytes: Uint8Array): ReleaseFile => ({ path, size: bytes.byteLength, sha256: digest(bytes) });
+
+interface ObservedOSVersions {
+  readonly kernelVersion: string;
+  readonly macVersion?: string;
+  readonly libc?: string;
+  readonly libcVersion?: string;
+}
+
+export function formatObservedMinimumOS(targetId: string, observed: ObservedOSVersions): string {
+  if (targetId.startsWith("windows-")) {
+    if (!/^\d+\.\d+\.\d+$/.test(observed.kernelVersion)) throw new Error("cannot identify tested Windows kernel version for release manifest");
+    return `Windows kernel ${observed.kernelVersion}`;
+  }
+  if (targetId.startsWith("darwin-")) {
+    if (!observed.macVersion || !/^\d+\.\d+(?:\.\d+)?$/.test(observed.macVersion)) throw new Error("cannot identify tested macOS version for release manifest");
+    return `macOS ${observed.macVersion}`;
+  }
+  if (!targetId.startsWith("linux-") || !/^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._+-]+)?$/.test(observed.kernelVersion) || observed.libc !== (targetId.endsWith("-gnu") ? "gnu" : "musl") || !observed.libcVersion || !/^\d+\.\d+(?:\.\d+)?$/.test(observed.libcVersion)) {
+    throw new Error("cannot identify tested Linux kernel or libc version for release manifest");
+  }
+  return `Linux kernel ${observed.kernelVersion}, ${observed.libc === "gnu" ? "glibc" : "musl"} ${observed.libcVersion}`;
+}
+
+function observedMinimumOS(targetId: string): string {
+  const kernelVersion = hostKernelRelease();
+  if (targetId.startsWith("windows-")) return formatObservedMinimumOS(targetId, { kernelVersion });
+  if (targetId.startsWith("darwin-")) {
+    const result = Bun.spawnSync(["sw_vers", "-productVersion"], { stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw new Error("cannot identify tested macOS version for release manifest");
+    return formatObservedMinimumOS(targetId, { kernelVersion, macVersion: result.stdout.toString().trim() });
+  }
+  const libc = targetId.endsWith("-gnu")
+    ? Bun.spawnSync(["getconf", "GNU_LIBC_VERSION"], { stdout: "pipe", stderr: "pipe" })
+    : Bun.spawnSync(["ldd", "--version"], { stdout: "pipe", stderr: "pipe" });
+  const description = `${libc.stdout.toString()}\n${libc.stderr.toString()}`;
+  const version = targetId.endsWith("-gnu") ? /glibc (\d+\.\d+(?:\.\d+)?)/i.exec(description)?.[1] : /Version (\d+\.\d+(?:\.\d+)?)/i.exec(description)?.[1];
+  if (libc.exitCode !== 0 || version === undefined) throw new Error("cannot identify tested Linux libc version for release manifest");
+  return formatObservedMinimumOS(targetId, { kernelVersion, libc: targetId.endsWith("-gnu") ? "gnu" : "musl", libcVersion: version });
+}
+
+type ObservedHost = { readonly platform: string; readonly arch: string; readonly libc?: string };
+
+function observedHost(): ObservedHost {
+  if (process.platform !== "linux") return { platform: process.platform, arch: process.arch };
+  const probe = Bun.spawnSync(["ldd", "--version"], { stdout: "pipe", stderr: "pipe" });
+  const description = `${probe.stdout.toString()}\n${probe.stderr.toString()}`.toLowerCase();
+  const libc = description.includes("musl") ? "musl" : description.includes("glibc") || description.includes("gnu libc") ? "gnu" : "unknown";
+  return { platform: "linux", arch: process.arch, libc };
+}
+
+export function assertNativeReleaseTarget(targetId: string, host: ObservedHost): void {
+  const [os, arch, libc] = targetId.split("-");
+  const platform = os === "windows" ? "win32" : os;
+  if (host.platform !== platform || host.arch !== arch) throw new Error(`release target ${targetId} does not match native host ${host.platform}-${host.arch}`);
+  if (os === "linux" && (host.libc === "unknown" || host.libc === undefined || host.libc !== libc)) throw new Error(`release target ${targetId} does not match native host libc ${host.libc ?? "unresolved"}`);
+}
 
 async function declarationFiles(): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {};
@@ -81,23 +139,35 @@ function requireCleanSource(): void {
   }
 }
 
-export async function buildRelease(targetId: string, outputDirectory: string, smoke = false): Promise<void> {
+export async function buildRelease(targetId: string, outputDirectory: string, smoke = false, macStage?: "compile-only" | "package-signed"): Promise<void> {
   const target = targets[targetId];
   if (target === undefined) throw new Error(`unsupported release target ${targetId}`);
-  if (!smoke) requireCleanSource();
-  await buildDist();
-  await mkdir(outputDirectory, { recursive: true });
+  if (!smoke) {
+    assertNativeReleaseTarget(targetId, observedHost());
+    if (!readDeclaredReleaseTargets(packageManifest.version).includes(targetId)) throw new Error(`release target ${targetId} is not declared for version ${packageManifest.version}`);
+    requireCleanSource();
+  }
+  if (macStage !== "package-signed") await buildDist();
+  if (macStage !== "compile-only") await mkdir(outputDirectory, { recursive: true });
   const executableName = targetId.startsWith("windows-") ? "bounded.exe" : "bounded";
   const executablePath = join(HERE, "dist", "standalone", executableName);
   const treeSitterWasm = join(HERE, "..", "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
   await mkdir(join(HERE, "dist", "standalone"), { recursive: true });
-  const compiled = Bun.spawnSync([
+  if (macStage !== "package-signed") {
+    const compiled = Bun.spawnSync([
     process.execPath, "build", join(HERE, "standalone-main.ts"), "--compile", "--target", target.bun,
     "--asset", join(treeSitterWasm, "tree-sitter.wasm"),
     "--asset", join(treeSitterWasm, "tree-sitter-bash.wasm"),
     "--outfile", executablePath,
   ], { cwd: join(HERE, "dist", "standalone"), stdout: "pipe", stderr: "pipe" });
-  if (compiled.exitCode !== 0) throw new Error(`standalone compilation failed:\n${compiled.stdout.toString()}${compiled.stderr.toString()}`);
+    if (compiled.exitCode !== 0) throw new Error(`standalone compilation failed:\n${compiled.stdout.toString()}${compiled.stderr.toString()}`);
+  }
+  if (macStage === "compile-only") return;
+  if (!smoke && targetId.startsWith("darwin-")) {
+    if (macStage !== "package-signed") throw new Error("macOS stable release requires the signed executable packaging stage");
+    const checked = Bun.spawnSync(["codesign", "--verify", "--strict", "--verbose=2", executablePath], { stdout: "pipe", stderr: "pipe" });
+    if (checked.exitCode !== 0) throw new Error(`macOS codesign verification failed: ${checked.stderr.toString()}`);
+  }
   copyFileSync(executablePath, join(outputDirectory, executableName));
   const commit = sourceCommit();
   const files: Record<string, Uint8Array> = {
@@ -115,7 +185,7 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
     schema: "bounded-release/1", version: packageManifest.version, channel: "stable", sourceCommit: commit,
     builtWith: `Bun ${Bun.version}`,
     targets: { [targetId]: {
-      minimumOS: target.minimumOS,
+      minimumOS: smoke ? target.minimumOS : observedMinimumOS(targetId),
       archive: { name: archiveName, size: archiveBytes.byteLength, sha256: digest(archiveBytes) },
       executable: descriptor(`bin/${executableName}`, files[`bin/${executableName}`] ?? new Uint8Array()),
       files: Object.entries(files).filter(([path]) => path !== `bin/${executableName}`).map(([path, bytes]) => descriptor(path, bytes)).sort((left, right) => left.path.localeCompare(right.path)),
@@ -151,11 +221,12 @@ if (import.meta.main) {
     if (outputDirectory === undefined) throw new Error("release assembly requires --out");
     await assembleRelease(inputDirectories, outputDirectory);
   } else {
-    const [targetFlag, targetId, maybeSmoke, maybeOutputFlag, maybeOutputDirectory] = args;
-    const smoke = maybeSmoke === "--smoke";
-    const outputFlag = smoke ? maybeOutputFlag : maybeSmoke;
-    const outputDirectory = smoke ? maybeOutputDirectory : maybeOutputFlag;
-    if (targetFlag !== "--target" || targetId === undefined || outputFlag !== "--out" || outputDirectory === undefined || args.length !== (smoke ? 5 : 4)) throw new Error("usage: bun src/build-release.ts --target <target> [--smoke] --out <directory>");
-    await buildRelease(targetId, resolve(outputDirectory), smoke);
+    const [targetFlag, targetId, maybeMode, maybeOutputFlag, maybeOutputDirectory] = args;
+    const mode = ["--smoke", "--compile-only", "--package-signed"].includes(maybeMode ?? "") ? maybeMode : undefined;
+    const outputFlag = mode === undefined ? maybeMode : maybeOutputFlag;
+    const outputDirectory = mode === undefined ? maybeOutputFlag : maybeOutputDirectory;
+    if (targetFlag !== "--target" || targetId === undefined || outputFlag !== "--out" || outputDirectory === undefined || args.length !== (mode === undefined ? 4 : 5)) throw new Error("usage: bun src/build-release.ts --target <target> [--smoke|--compile-only|--package-signed] --out <directory>");
+    if ((mode === "--compile-only" || mode === "--package-signed") && !targetId.startsWith("darwin-")) throw new Error("macOS signing stages require a darwin target");
+    await buildRelease(targetId, resolve(outputDirectory), mode === "--smoke", mode === "--compile-only" ? "compile-only" : mode === "--package-signed" ? "package-signed" : undefined);
   }
 }

@@ -6709,5 +6709,14 @@
       "case": "managed pack offline verification and plural roots > refuses inconsistent package identity, catalogue import path or export target even when inventory and lock digests are recomputed"
     },
     "reason": "A catalogue pack id can legally differ from its source directory while remaining rooted at the package name. The successor instead changes the catalogue import path to conflict with bounded.packs; package identity and export target assertions remain. A rewritten project lock is the new trust anchor, so only internally inconsistent bytes can be refused offline."
+  },
+  {
+    "file": "src/cli/test/release-assembly.test.ts",
+    "case": "assembly combines verified native jobs in target order, preserves ZIP bytes and binds installers to the final manifest",
+    "successor": {
+      "file": "src/cli/test/release-assembly.test.ts",
+      "case": "assembly combines exactly the declared attested native jobs in target order, preserves ZIP bytes and binds installers to the final manifest"
+    },
+    "reason": "a matching native smoke JSON alone cannot establish provenance; the successor requires the exact declared subset and a verified certificate claim for each archive while preserving archive and installer assertions"
   }
 ]
