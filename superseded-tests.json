@@ -6510,7 +6510,7 @@
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
       "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
     },
-    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules; and it resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
@@ -6537,7 +6537,7 @@
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
       "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
     },
-    "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
+    "reason": "the adapter loads packs under bun and is named for it, BunPackModules; and it resolves an export as a host's import() does under Node, following Node's ESM resolution algorithm with a host's import() conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   },
   {
     "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",

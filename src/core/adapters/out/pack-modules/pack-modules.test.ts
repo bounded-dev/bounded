@@ -88,6 +88,84 @@ describe("BunPackModules", () => {
     expect(await new BunPackModules().load(packageDir, "./demo/")).toEqual({ ok: false, error: noExportPath("./demo/") });
   });
 
+  test("loads an export path through a subpath pattern, as Node does", async () => {
+    const packageDir = await packageWith(undefined, { "./*": "./dist/*/index.js" });
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("takes the most specific pattern key, whatever the keys' order", async () => {
+    const packageDir = await packageWith(undefined, { "./*": "./dist/missing/*.js", "./de*": "./dist/de*/index.js" });
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("refuses an export path a pattern's trailer does not fit as unlisted", async () => {
+    const packageDir = await packageWith(undefined, { "./*.js": "./dist/*/index.js" });
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({ ok: false, error: noExportPath("./demo") });
+  });
+
+  test("refuses exports that mix export paths with conditions, as Node does", async () => {
+    const packageDir = await packageWith(undefined, { "./demo": "./dist/demo/index.js", default: "./dist/demo/index.js" });
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({
+      ok: false,
+      error: "demo-package's package.json exports mixes export paths (keys starting with .) with conditions, which Node refuses as a package configuration",
+    });
+  });
+
+  test("refuses a condition object with a numeric key, as Node does", async () => {
+    const packageDir = await packageWith({ "0": "./dist/demo/index.js", default: "./dist/demo/index.js" });
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({
+      ok: false,
+      error: "demo-package's package.json exports gives a condition object a numeric key, which Node refuses as a package configuration",
+    });
+  });
+
+  test("refuses a pattern filled with a node_modules segment, as Node does", async () => {
+    const packageDir = await packageWith(undefined, { "./*": "./dist/*/index.js" });
+    expect(await new BunPackModules().load(packageDir, "./node_modules")).toEqual({
+      ok: false,
+      error: "demo-package's export path ./node_modules fills a pattern of exports with node_modules, which Node refuses: a pattern's match has no ., .. or node_modules segment",
+    });
+  });
+
+  test("decodes a target's percent-encoded characters as Node does", async () => {
+    const packageDir = await packageWith("./dist/demo/index%2Ejs");
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+    expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
+  });
+
+  test("refuses a target with an encoded / or \\, as Node does", async () => {
+    for (const target of ["./dist%2Fdemo/index.js", "./dist%5cdemo/index.js"]) {
+      const packageDir = await packageWith(target);
+      expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({
+        ok: false,
+        error: `demo-package/demo's target ${target} includes an encoded "/" or "\\" (%2F or %5C), which Node refuses: write the path's separators plainly`,
+      });
+    }
+  });
+
+  test("refuses a target that is a folder, which Node refuses to import", async () => {
+    const packageDir = await packageWith("./dist/demo");
+    expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({
+      ok: false,
+      error: `demo-package/demo's target ./dist/demo is a folder in ${packageDir}: name the built file itself`,
+    });
+  });
+
+  test("refuses a main with no extension, or naming a folder, rather than follow Node's deprecated lookup", async () => {
+    for (const main of ["./dist/demo/index", "./dist/demo"]) {
+      const packageDir = await packageWith(undefined, undefined, main);
+      expect(await new BunPackModules().load(packageDir, ".")).toEqual({
+        ok: false,
+        error: `demo-package's main ${main} names no file in ${packageDir}: name the built file itself, extension included (the build does not follow Node's deprecated lookup of main with an extension or an index.js), or build the package first`,
+      });
+    }
+  });
+
   test("refuses a target with no leading ./, as Node does", async () => {
     const packageDir = await packageWith({ default: "dist/demo/index.js" });
     expect(await new BunPackModules().load(packageDir, "./demo")).toEqual({ ok: false, error: invalidTarget("dist/demo/index.js") });
