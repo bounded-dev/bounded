@@ -6673,5 +6673,14 @@
       "case": "architecture > the CLI bridge imports its declared reader dependency; devDependencies remain test-only"
     },
     "reason": "the standalone CLI uses the private shell reader in production, so the CLI declares it as a dependency; the successor retains the original devDependency-only rule through an isolated app fixture"
+  },
+  {
+    "file": "src/cli/test/standalone-dispatch.e2e.test.ts",
+    "case": "pin root precedence, strict shape, one-hop and missing targets fail closed",
+    "successor": {
+      "file": "src/cli/test/standalone-dispatch.e2e.test.ts",
+      "case": "pin root precedence, strict shape, one-hop and standalone refusals fail closed"
+    },
+    "reason": "an unpinned compiled executable no longer enters the npm CLI: init checks the standalone release identity before setup, so its missing release.json refusal replaces the old package.json diagnostic while the pin and one-hop assertions stay intact"
   }
 ]
