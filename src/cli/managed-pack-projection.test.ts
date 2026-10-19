@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as projectionModule from "./managed-pack-installer.ts";
+import { buildStandaloneConfigModule } from "../hosts/claude-code/standalone-config-as-module.ts";
+import * as boundedDomain from "bounded/domain";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
 type Reply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
@@ -35,6 +37,10 @@ type Recover = (input: Parameters<Verify>[0] & { readonly faultAfterRecoveryStep
 const add = (projectionModule as unknown as { readonly addManagedPackWithProjection: Add }).addManagedPackWithProjection;
 const verify = (projectionModule as unknown as { readonly verifyManagedPackProjection: Verify }).verifyManagedPackProjection;
 const recover = (projectionModule as unknown as { readonly recoverManagedPackProjection: Recover }).recoverManagedPackProjection;
+type RuntimeGraph = { readonly roots: Readonly<Record<string, string>>; readonly nodes: Readonly<Record<string, unknown>> };
+type Capture = (input: Parameters<Verify>[0]) => Promise<Result<RuntimeGraph>>;
+const capture = (projectionModule as unknown as { readonly captureManagedPackRuntimeGraph: Capture }).captureManagedPackRuntimeGraph;
+const buildManaged = buildStandaloneConfigModule as unknown as (configFile: string, projectRoot: string, graph: RuntimeGraph) => Promise<string>;
 const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
 const digest = (value: Uint8Array): string => createHash("sha256").update(value).digest("hex");
 const registry = "https://registry.example.test";
@@ -477,6 +483,90 @@ describe("managed pack type-only projection and publication", () => {
       expect(readFileSync(given.receiptPath)).toEqual(oldReceipt);
       expect(snapshot(join(given.projectRoot, "node_modules"))).toEqual(oldProjection);
     }
+  });
+
+  test("verified runtime graph resolves direct roots and importer-local dependency versions without ambient modules", async () => {
+    const parent = (name: string, version: string): Published => {
+      const original = pack(name, "1.0.0", { "plain-helper": version });
+      return { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+        ? { ...entry, body: 'import { version } from "plain-helper";\nexport const helperVersion = version;\n' }
+        : entry) };
+    };
+    const given = fixture([parent("bounded-first", "1.0.0"), parent("bounded-second", "2.0.0"), library("plain-helper", "1.0.0"), library("plain-helper", "2.0.0")]);
+    expect((await given.run("bounded-first@1.0.0")).ok).toBe(true);
+    expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(true);
+    if (!graph.ok) return;
+    const config = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(config, 'import { helperVersion as first } from "bounded-first";\nimport { helperVersion as second } from "bounded-second";\nexport default [first, second];\n');
+    const generated = await buildManaged(config, given.projectRoot, graph.value);
+    const loaded = await import(generated);
+    expect(loaded.default).toEqual(["1.0.0", "2.0.0"]);
+    writeFileSync(config, 'import { version } from "plain-helper";\nexport default version;\n');
+    await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/plain-helper|direct|bounded add/i);
+  });
+
+  test("a changed verified store refuses before a managed module executes", async () => {
+    const original = pack("bounded-example");
+    const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'globalThis.__boundedManagedPackExecuted = true;\nexport const marker = "loaded";\n' }
+      : entry) };
+    const given = fixture([chosen]);
+    expect((await given.run()).ok).toBe(true);
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(true);
+    if (!graph.ok) return;
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    writeFileSync(join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js"), 'globalThis.__boundedManagedPackExecuted = true;\nexport const marker = "tampered";\n');
+    const config = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(config, 'import { marker } from "bounded-example";\nexport default marker;\n');
+    Reflect.deleteProperty(globalThis, "__boundedManagedPackExecuted");
+    await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/store|changed|digest|inventory/i);
+    expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).toBeUndefined();
+  });
+
+  test("an intact stored catalogue cannot misdescribe a selected runtime pack", async () => {
+    const original = pack("bounded-example");
+    const selected: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'import { corePack, definePack, packIdsFor } from "bounded/domain";\nexport const refusedToolsPack = definePack({ id: packIdsFor("bounded-example")("refused-tools"), dependsOn: [corePack] });\n' }
+      : entry) };
+    const given = fixture([selected]);
+    expect((await given.run()).ok).toBe(true);
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(true);
+    if (!graph.ok) return;
+    const config = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(config, 'import { defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nexport default defineConfig({ packs: [refusedToolsPack] });\n');
+    const previous = Reflect.get(globalThis, "__boundedStandaloneRuntimeExports");
+    Reflect.set(globalThis, "__boundedStandaloneRuntimeExports", Object.freeze({ "bounded/domain": boundedDomain }));
+    try { await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/catalogue|descriptor|contributesTo|beforeTool/i); }
+    finally {
+      if (previous === undefined) Reflect.deleteProperty(globalThis, "__boundedStandaloneRuntimeExports");
+      else Reflect.set(globalThis, "__boundedStandaloneRuntimeExports", previous);
+    }
+  });
+
+  test("a journal appearing after byte capture refuses before managed execution", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(true);
+    if (!graph.ok) return;
+    writeFileSync(given.journalPath, "pending add\n");
+    const config = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(config, 'import { refusedToolsPack } from "bounded-example";\nexport default refusedToolsPack;\n');
+    await expect(buildManaged(config, given.projectRoot, graph.value)).rejects.toThrow(/journal|transaction|pending/i);
   });
 
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
