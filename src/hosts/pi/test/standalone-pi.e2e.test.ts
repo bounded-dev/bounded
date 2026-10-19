@@ -93,7 +93,9 @@ function invokeUnderPi(root: string, body: string): { readonly code: number; rea
   writeFileSync(script, `import { pathToFileURL } from "node:url";
 const piLoader = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "core", "extensions", "loader.js"))}).href);
 const piBus = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "core", "event-bus.js"))}).href);
-const bus = piBus.createEventBus();
+const actualBus = piBus.createEventBus();
+const channels = [];
+const bus = { ...actualBus, on(name, handler) { channels.push(name); return actualBus.on(name, handler); } };
 const loaded = await piLoader.loadExtensions([${JSON.stringify(join(root, ".pi", "extensions", "bounded", "index.ts"))}], process.cwd(), bus);
 if (loaded.errors.length !== 0 || loaded.extensions.length !== 1) throw new Error(JSON.stringify(loaded.errors));
 const handlers = new Map([...loaded.extensions[0].handlers].map(([name, values]) => [name, values[0]]));
@@ -132,13 +134,14 @@ test("pinned real Pi loads the generated bridge and the compiled worker judges a
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const denied = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "pi-1", toolName: "edit", input: { path: "bounded.config.ts", oldText: "x", newText: "y" } }, { cwd: process.cwd() });
 const allowed = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "pi-2", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
-console.log(JSON.stringify({ denied, allowed, events: [...handlers.keys()] }));`);
+console.log(JSON.stringify({ denied, allowed, events: [...handlers.keys()], channels }));`);
   expect(result.code).toBe(0);
-  const answer = JSON.parse(result.stdout.trim()) as { denied?: { block?: boolean; reason?: string }; allowed?: { block?: boolean }; events: string[] };
+  const answer = JSON.parse(result.stdout.trim()) as { denied?: { block?: boolean; reason?: string }; allowed?: { block?: boolean }; events: string[]; channels: string[] };
   expect(answer.denied?.block).toBe(true);
   expect(answer.denied?.reason).toContain("the rule '**/bounded.config.*' from bounded/project");
   expect(answer.allowed?.block).not.toBe(true);
   expect(answer.events).toEqual(expect.arrayContaining(["session_start", "tool_call", "tool_result"]));
+  expect(answer.channels).toContain("subagent:async-complete");
   const log = readFileSync(join(root, ".bounded", "log.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { verdict: { kind: string } });
   expect(log.at(-2)?.verdict.kind).toBe("refuse");
   expect(log.at(-1)?.verdict.kind).toBe("allow");
