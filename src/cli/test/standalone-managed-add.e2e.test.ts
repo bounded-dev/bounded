@@ -53,7 +53,8 @@ async function packedArtifact(files: readonly TarEntry[]): Promise<Uint8Array> {
   });
 }
 function hookPayload(project: string, tool: string): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: {},
+  const toolInput = tool === "Read" ? { file_path: join(project, "README.md") } : { query: "documentation" };
+  return new TextEncoder().encode(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: toolInput,
     cwd: project, session_id: "managed-add-test", tool_use_id: `call-${tool}` }));
 }
 
@@ -139,13 +140,16 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const projected = join(project, "node_modules", "bounded-example");
     expect(readdirSync(projected, { recursive: true }).every((name) => !/\.(?:m?js|cjs|node)$/.test(String(name)))).toBe(true);
 
-    writeFileSync(join(project, "bounded.config.ts"), 'import { contribution, defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nimport { localRule } from "./local-rule.ts";\nexport default defineConfig({ packs: [refusedToolsPack, localRule], contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "WebSearch", redirect: "Use local docs" }])] });\n');
+    writeFileSync(join(project, "bounded.config.ts"), 'import { contribution, defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nimport { localRule } from "./local-rule.ts";\nexport default defineConfig({ packs: [refusedToolsPack, localRule], contributes: [contribution(refusedToolsPack.points.refusedTools, [{ tool: "web", redirect: "Use local docs" }])] });\n');
     writeFileSync(join(project, "local-rule.ts"), 'import { corePack, definePack, packIdsFor } from "bounded/domain";\nexport const localRule = definePack({ id: packIdsFor("local")("rule"), dependsOn: [corePack] });\n');
+    writeFileSync(join(project, "README.md"), "Local docs for the managed pack test.\n");
     for (const [tool, decision] of [["WebSearch", "deny"], ["Read", "allow"]] as const) {
       const judged = Bun.spawn([binary, "hook", "claude-code"], { cwd: project, env: environment, stdin: hookPayload(project, tool), stdout: "pipe", stderr: "pipe" });
-      const answer = JSON.parse(await new Response(judged.stdout).text()) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+      const answerText = await new Response(judged.stdout).text();
+      const answer = (answerText === "" ? {} : JSON.parse(answerText)) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
       expect(await judged.exited).toBe(0);
-      expect(answer.hookSpecificOutput?.permissionDecision ?? "allow").toBe(decision);
+      expect({ decision: answer.hookSpecificOutput?.permissionDecision ?? "allow", reason: decision === "deny" ? answer.hookSpecificOutput?.permissionDecisionReason : undefined })
+        .toMatchObject({ decision });
       if (tool === "WebSearch") expect(answer.hookSpecificOutput?.permissionDecisionReason).toContain("Use local docs");
     }
     const decisions = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
