@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as projectionModule from "./managed-pack-installer.ts";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
@@ -18,6 +18,8 @@ type Input = {
   readonly projectRoot: string;
   readonly storeRoot: string;
   readonly releaseTypesRoot: string;
+  /** SHA-256 entries from the verified installed-release manifest, not hashes computed from source at use time. */
+  readonly releaseTypeFilesFromVerifiedManifest: Readonly<Record<string, string>>;
   readonly get: (url: string) => Promise<Reply>;
   /** Test-only crash cut, after the named durable publication step. */
   readonly faultAfter?: string;
@@ -27,7 +29,7 @@ type Input = {
 type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonly receiptPath: string }>>;
 type Prepare = (input: Input) => Promise<Result<{ readonly lock: { readonly roots: Readonly<Record<string, string>> } }>>;
 const prepare = (projectionModule as unknown as { readonly prepareManagedPackAddition: Prepare }).prepareManagedPackAddition;
-type Verify = (input: Pick<Input, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot">) => Promise<Result<unknown>>;
+type Verify = (input: Pick<Input, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">) => Promise<Result<unknown>>;
 type Recover = Verify;
 // The production API is intentionally absent at the red commit. The casts keep the contract test-only.
 const add = (projectionModule as unknown as { readonly addManagedPackWithProjection: Add }).addManagedPackWithProjection;
@@ -48,12 +50,15 @@ function pack(name: string, version = "1.0.0", dependencies: Readonly<Record<str
       "./extra": { import: "./dist/extra.js", types: "./dist/extra.d.ts" },
     },
   };
+  const usesHelper = dependencies["plain-helper"] !== undefined;
   return { name, version, dependencies, entries: [
     ...packageEntries(pkg, catalogue(name, version)),
     { name: "package/dist/extra.js", body: "export const extra = 1;\n" },
     { name: "package/dist/extra.d.ts", body: `export declare const extra: "${name}-extra-${version}";\n` },
   ].map((entry) => entry.name === "package/dist/index.d.ts"
-    ? { ...entry, body: `export declare const packMarker: "${name}-${version}";\n` } : entry) };
+    ? { ...entry, body: `${usesHelper ? 'import { version } from "plain-helper";\nexport declare const helperVersion: typeof version;\n' : ""}export declare const packMarker: "${name}-${version}";\n` }
+    : entry.name === "package/dist/index.js" && usesHelper
+      ? { ...entry, body: 'import { version } from "plain-helper";\nexport const helperVersion = version;\n' } : entry) };
 }
 function library(name: string, version: string, dependencies: Readonly<Record<string, string>> = {}): Published {
   return { name, version, dependencies, entries: [
@@ -70,7 +75,9 @@ function fixture(published: readonly Published[] = [pack("bounded-example")]) {
   const storeRoot = join(root, "store");
   const releaseTypesRoot = join(root, "verified-release", "share", "types");
   mkdirSync(join(releaseTypesRoot, "core", "domain"), { recursive: true });
-  writeFileSync(join(releaseTypesRoot, "core", "domain", "index.d.ts"), 'export declare const boundedWord: "bounded";\n');
+  const domainDeclaration = utf8('export declare const boundedWord: "bounded";\n');
+  writeFileSync(join(releaseTypesRoot, "core", "domain", "index.d.ts"), domainDeclaration);
+  const releaseTypeFilesFromVerifiedManifest = { "core/domain/index.d.ts": digest(domainDeclaration) };
   const responses = new Map<string, Reply>();
   const versions = new Map<string, Record<string, unknown>>();
   const calls: string[] = [];
@@ -87,12 +94,12 @@ function fixture(published: readonly Published[] = [pack("bounded-example")]) {
   }
   for (const [name, listed] of versions) responses.set(`${registry}/${name}`, reply(utf8(JSON.stringify({ name, versions: listed })), "application/json"));
   const get = async (url: string): Promise<Reply> => { calls.push(url); return responses.get(url) ?? { status: 404, headers: {}, body: utf8("missing") }; };
-  const base = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], projectRoot, storeRoot, releaseTypesRoot };
+  const base = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], projectRoot, storeRoot, releaseTypesRoot, releaseTypeFilesFromVerifiedManifest };
   const run = (request = "bounded-example@1.0.0", options: Pick<Input, "faultAfter" | "afterExistingStateVerified"> = {}) =>
     add({ ...base, request, registryUrl: registry, get, ...options });
   const check = () => verify(base);
   const restart = () => recover(base);
-  return { root, projectRoot, storeRoot, releaseTypesRoot, get, run, check, restart, calls,
+  return { root, projectRoot, storeRoot, releaseTypesRoot, releaseTypeFilesFromVerifiedManifest, get, run, check, restart, calls,
     lockPath: join(projectRoot, ".bounded", "packs.lock.json"),
     receiptPath: join(projectRoot, ".bounded", "types-receipt.json"),
     journalPath: join(projectRoot, ".bounded", "types-journal.json"),
@@ -120,7 +127,7 @@ async function refused(run: () => Promise<Result<unknown>>, phrase: string): Pro
 }
 
 /** Talks to the actual TypeScript language server in an inferred Python project. */
-async function tsserver(projectRoot: string, file: string): Promise<{ diagnostics: readonly { code: number }[]; completions: readonly string[] }> {
+async function tsserver(projectRoot: string, file: string, position = { completionLine: 8, completionOffset: 9 }): Promise<{ diagnostics: readonly { code: number }[]; completions: readonly string[] }> {
   const serverPath = fileURLToPath(import.meta.resolve("typescript/lib/tsserver.js"));
   const child = spawn("node", [serverPath, "--useInferredProjectPerProjectRoot"], { cwd: projectRoot, stdio: ["pipe", "pipe", "pipe"] });
   let output = "";
@@ -132,7 +139,7 @@ async function tsserver(projectRoot: string, file: string): Promise<{ diagnostic
   };
   command(1, "open", { file, projectRootPath: projectRoot });
   command(2, "semanticDiagnosticsSync", { file, includeLinePosition: true });
-  command(3, "completionInfo", { file, line: 9, offset: 9, includeExternalModuleExports: false });
+  command(3, "completionInfo", { file, line: position.completionLine, offset: position.completionOffset, includeExternalModuleExports: false });
   await new Promise<void>((resolveWait, rejectWait) => {
     const start = Date.now();
     const timer = setInterval(() => {
@@ -159,7 +166,8 @@ describe("managed pack type-only projection and publication", () => {
     const given = fixture();
     const proposed = await prepare({ request: "bounded-example@1.0.0", boundedVersion: "3.3.0",
       boundedExportPaths: ["./domain"], registryUrl: registry, projectRoot: given.projectRoot,
-      storeRoot: given.storeRoot, releaseTypesRoot: given.releaseTypesRoot, get: given.get });
+      storeRoot: given.storeRoot, releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest, get: given.get });
     expect(proposed.ok).toBe(true);
     if (proposed.ok) expect(proposed.value.lock.roots["bounded-example"]).toContain("bounded-example@1.0.0#");
     expect(existsSync(given.lockPath)).toBe(false);
@@ -196,6 +204,18 @@ describe("managed pack type-only projection and publication", () => {
     expect(existsSync(given.projected("bounded-example"))).toBe(false);
   });
 
+  test("release declarations must match the verified installed-release manifest before any active write", async () => {
+    for (const mutation of ["missing", "tampered"] as const) {
+      const given = fixture();
+      const declaration = join(given.releaseTypesRoot, "core", "domain", "index.d.ts");
+      if (mutation === "missing") rmSync(declaration);
+      else writeFileSync(declaration, 'export declare const boundedWord: "forged";\n');
+      await refused(() => given.run(), "release");
+      expect(existsSync(given.lockPath)).toBe(false);
+      expect(existsSync(given.projected("bounded"))).toBe(false);
+    }
+  });
+
   test("different pinned dependency versions have importer-local nested types", async () => {
     const given = fixture([
       pack("bounded-example", "1.0.0", { "plain-helper": "1.0.0" }),
@@ -208,6 +228,11 @@ describe("managed pack type-only projection and publication", () => {
     const b = join(given.projected("bounded-second"), "node_modules", "plain-helper", "dist", "index.d.ts");
     expect(readFileSync(a, "utf8")).toContain('"1.0.0"');
     expect(readFileSync(b, "utf8")).toContain('"2.0.0"');
+    const source = join(given.projectRoot, "bounded.config.ts");
+    writeFileSync(source, 'import { helperVersion as a } from "bounded-example";\nimport { helperVersion as b } from "bounded-second";\nconst aCorrect: "1.0.0" = a;\nconst bCorrect: "2.0.0" = b;\nconst aWrong: "2.0.0" = a;\nconst bWrong: "1.0.0" = b;\na\n');
+    const language = await tsserver(given.projectRoot, source, { completionLine: 7, completionOffset: 2 });
+    expect(language.diagnostics.filter((item) => item.code === 2307)).toHaveLength(0);
+    expect(language.diagnostics.filter((item) => item.code === 2322)).toHaveLength(2);
     expect((await given.check()).ok).toBe(true);
   });
 
@@ -243,7 +268,12 @@ describe("managed pack type-only projection and publication", () => {
       if (mutation === "bytes") writeFileSync(join(target, "dist", "index.d.ts"), "changed\n");
       if (mutation === "extra") writeFileSync(join(target, "extra.txt"), "unexpected\n");
       if (mutation === "link") symlinkSync(join(given.root, "outside"), join(target, "extra-link"));
-      if (mutation === "receipt") writeFileSync(given.receiptPath, `${readFileSync(given.receiptPath, "utf8")} `);
+      if (mutation === "receipt") {
+        const receipt = JSON.parse(readFileSync(given.receiptPath, "utf8")) as { lockSha256?: string };
+        expect(receipt.lockSha256).toMatch(/^[a-f0-9]{64}$/);
+        receipt.lockSha256 = "0".repeat(64);
+        writeFileSync(given.receiptPath, `${JSON.stringify(receipt)}\n`);
+      }
       const oldLock = readFileSync(given.lockPath);
       await refused(given.check, mutation === "receipt" ? "receipt" : "projection");
       await refused(() => given.run("bounded-second@1.0.0"), mutation === "receipt" ? "receipt" : "projection");
@@ -285,6 +315,25 @@ describe("managed pack type-only projection and publication", () => {
     writeFileSync(given.journalPath, '{"schema":"unexpected","backup":"../../outside"}\n');
     await refused(given.restart, "journal");
     await refused(given.check, "journal");
+  });
+
+  test("a missing or corrupt journal backup refuses recovery without changing active state", async () => {
+    for (const mutation of ["missing", "corrupt"] as const) {
+      const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+      expect((await given.run()).ok).toBe(true);
+      await given.run("bounded-second@1.0.0", { faultAfter: "journal" });
+      const journal = JSON.parse(readFileSync(given.journalPath, "utf8")) as { oldLockBackup?: string };
+      expect(journal.oldLockBackup).toBeDefined();
+      if (journal.oldLockBackup === undefined) return;
+      const backup = resolve(given.projectRoot, ".bounded", journal.oldLockBackup);
+      expect(backup.startsWith(`${resolve(given.projectRoot, ".bounded")}/`)).toBe(true);
+      const activeBefore = readFileSync(given.lockPath);
+      if (mutation === "missing") rmSync(backup);
+      else writeFileSync(backup, "corrupted backup\n");
+      await refused(given.restart, "backup");
+      expect(readFileSync(given.lockPath)).toEqual(activeBefore);
+      expect(existsSync(given.journalPath)).toBe(true);
+    }
   });
 
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
