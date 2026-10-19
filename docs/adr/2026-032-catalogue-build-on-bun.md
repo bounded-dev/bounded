@@ -73,17 +73,26 @@ package whose `default` target was never built.
   a target starts with `./` and has no `.`, `..` or `node_modules` segment
   after it (Node's throwing pattern; an empty segment, which Node only warns
   about, loads); within a list the invalid entries are skipped; `exports` of
-  `null` is no `exports`. It joins the target to the package's directory,
-  refuses a target outside the package, refuses one that does not exist
-  with "build the package first", and imports that file. The export path is
+  `null` is no `exports`. Subpath patterns (`"./*"`, `"./de*"`) are
+  supported, the most specific key first, as Node orders them; the plan had
+  left them out of scope, and the algorithm brings them in. It resolves the
+  target as Node does, a URL against the package's directory
+  (`fileURLToPath(new URL(target, pathToFileURL(packageDir + "/")))`, so
+  percent-encoded characters are decoded), refuses an encoded `/` or `\`
+  (`%2F`, `%5C`) as Node's `finalizeResolution` does, refuses a target
+  outside the package, one that does not exist with "build the package
+  first", and a folder, and imports that file. The export path is
   no longer resolved by self-reference, whose `bun` condition would load
   the source.
 - **Without `exports`**, the package root loads through `main`, read from
   package.json (never bun's `require.resolve`, which may prefer other
-  fields), and refused when it climbs out of the package or does not exist;
-  with no `main`, through `index.js`.
+  fields), and refused when it climbs out of the package; with no `main`,
+  through `index.js`. **A stricter rule than Node's:** `main` must name an
+  existing file, extension included. Node's legacy lookup (`main.js`,
+  `main/index.js` and the like) is deprecated and not implemented, so an
+  extensionless or folder `main` is refused.
 - **Containment is checked by path.** A target or `main` is inside the
-  package when its path, joined to the package's directory, stays inside it;
+  package when its resolved path stays inside the package's directory;
   a symlink inside the package is followed, just as Node follows it.
 - **The export-entry rule (B1) stays**, refused before anything beyond
   package.json is read, reworded:
@@ -134,7 +143,9 @@ That is a later change to this adapter or a sibling, not this decision's.
 ## Consequences
 
 - The catalogue build no longer depends on Node's type stripping or its
-  version; the engines floor no longer matters to it.
+  version: its runtime is bun, whatever the engines floor. Its resolution
+  still models Node at or above the floor (22.18), whose `import()` matches
+  `module-sync` (from Node 22.12).
 - A pack author needs bun to build their package's catalogue
   (`bunx --bun bounded catalog build`), as this repository's maintainers
   need it to build bounded.

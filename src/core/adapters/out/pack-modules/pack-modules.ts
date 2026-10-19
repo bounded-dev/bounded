@@ -6,18 +6,20 @@
 // PACKAGE_IMPORTS_EXPORTS_RESOLVE, PATTERN_KEY_COMPARE and PACKAGE_TARGET_RESOLVE), with the
 // conditions node, import, module-sync and default (never bun, never require). Where Node's
 // implementation (lib/internal/modules/esm/resolve.js) is narrower than the text, it is
-// followed, and said so below. The target is joined to the package's directory, checked by
-// path to stay inside it, refused with "build the package first" when it does not exist, and
-// imported. With no exports (or exports of null), the package root loads through main (read
-// from package.json, kept inside the package), or index.js. A module by its package-relative
+// followed, and said so below. The target is resolved as a URL against the package's directory,
+// as Node resolves it (an encoded / or \ refused), checked by path to stay inside it, refused
+// with "build the package first" when it does not exist, and imported. With no exports (or
+// exports of null), the package root loads through main (read from package.json, kept inside
+// the package, naming an existing file: Node's deprecated lookup of main is not followed), or
+// index.js. A module by its package-relative
 // path (an example's scenarios, ADR 2026-031) is imported as bun imports TypeScript, under
 // node_modules too. Under any other runtime both refuse before reading anything: the build runs
 // under bun only. It detects bun through process.versions and uses no Bun API, so the module
 // still loads under Node, where hosts run the core.
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ModuleExport, PackModules } from "bounded/application";
 import type { Result } from "bounded/domain";
 
@@ -184,6 +186,15 @@ function isInside(packageDir: string, path: string): boolean {
   return within !== "" && within.split(sep)[0] !== ".." && !isAbsolute(within);
 }
 
+/** Whether the absolute path `file` lies inside the package's directory; checked by path, so a symlink is followed as Node follows it. */
+function isWithin(packageDir: string, file: string): boolean {
+  const within = relative(resolve(packageDir), file);
+  return within !== "" && within.split(sep)[0] !== ".." && !isAbsolute(within);
+}
+
+/** A percent-encoded "/" or "\": Node's encodedSepRegEx, which its finalizeResolution refuses in a resolved URL's path. */
+const ENCODED_SEPARATOR = /%2F|%5C/i;
+
 /** Every export of the module at `file`, named `specifier` in refusals. */
 async function exportsOf(file: string, specifier: string): Promise<Result<readonly ModuleExport[]>> {
   let module: unknown;
@@ -196,7 +207,10 @@ async function exportsOf(file: string, specifier: string): Promise<Result<readon
   return { ok: true, value: Object.keys(module).map((exportName) => Object.freeze({ name: exportName, value: module[exportName] })) };
 }
 
-/** The package root of a package with no exports: its main, or else index.js, as Node loads it. */
+/**
+ * The package root of a package with no exports: its main, or else index.js. Stricter than Node: main must name an
+ * existing file, extension included; Node's deprecated lookup (main.js, main/index.js and the like) is not followed.
+ */
 async function loadThroughMain(packageDir: string, name: string, main: string | undefined): Promise<Result<readonly ModuleExport[]>> {
   if (main === undefined) {
     const index = join(packageDir, "index.js");
@@ -205,7 +219,12 @@ async function loadThroughMain(packageDir: string, name: string, main: string | 
   }
   if (!isInside(packageDir, main)) return { ok: false, error: `${name}'s main ${main} is not a file in the package at ${packageDir}: name the package's own JavaScript` };
   const file = resolve(packageDir, main);
-  if (!existsSync(file)) return { ok: false, error: `${name}'s main ${main} does not exist in ${packageDir}: build the package first, so its main exists` };
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    return {
+      ok: false,
+      error: `${name}'s main ${main} names no file in ${packageDir}: name the built file itself, extension included (the build does not follow Node's deprecated lookup of main with an extension or an index.js), or build the package first`,
+    };
+  }
   return exportsOf(file, name);
 }
 
@@ -252,9 +271,16 @@ export class BunPackModules implements PackModules {
     }
     // The package root, `.`, is the bare package name; any other export path is `<name>/<subpath>`.
     const specifier = exportPath === "." ? name : `${name}${exportPath.slice(1)}`;
-    if (!isInside(packageDir, target)) return { ok: false, error: `${name}'s export path ${exportPath} names ${target}, which is not a file in the package at ${packageDir}: name the package's own JavaScript` };
-    const file = resolve(packageDir, target);
+    // The target as Node resolves it: a URL against the package's directory, refused with an encoded separator in its
+    // path (finalizeResolution), then the file it names.
+    const url = new URL(target, pathToFileURL(`${packageDir}/`));
+    if (ENCODED_SEPARATOR.test(url.pathname)) {
+      return { ok: false, error: `${specifier}'s target ${target} includes an encoded "/" or "\\" (%2F or %5C), which Node refuses: write the path's separators plainly` };
+    }
+    const file = fileURLToPath(url);
+    if (!isWithin(packageDir, file)) return { ok: false, error: `${name}'s export path ${exportPath} names ${target}, which is not a file in the package at ${packageDir}: name the package's own JavaScript` };
     if (!existsSync(file)) return { ok: false, error: `${specifier}'s target ${target} does not exist in ${packageDir}: build the package first, so its export path's target exists` };
+    if (statSync(file).isDirectory()) return { ok: false, error: `${specifier}'s target ${target} is a folder in ${packageDir}: name the built file itself` };
     return exportsOf(file, specifier);
   }
 
