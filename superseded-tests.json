@@ -6727,5 +6727,23 @@
       "case": "archive-only init installs Claude Code hooks and pins its executable in a Python project without package managers"
     },
     "reason": "the standalone release now carries a Claude Code installer; init installs executable hooks and a verified project pin instead of refusing that host"
+  },
+  {
+    "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+    "case": "standalone Claude Code init replaces only owned legacy hooks, keeps user settings and is byte-idempotent",
+    "successor": {
+      "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+      "case": "standalone Claude Code init replaces only owned legacy hooks and preserves user settings on a repeated write-once init"
+    },
+    "reason": "the second init intentionally refuses while preserving settings bytes; the test title now says write-once rather than implying a successful idempotent install"
+  },
+  {
+    "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+    "case": "installed standalone Claude Code command judges a real tool call and fails closed when its executable is missing",
+    "successor": {
+      "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+      "case": "installed standalone Claude Code command applies the generated rule, launches lifecycle events and fails closed without its executable"
+    },
+    "reason": "the successor asserts the generated rule and recorded refusal explicitly, and scopes lifecycle events to command launch"
   }
 ]

@@ -151,7 +151,7 @@ test("archive-only init installs Claude Code hooks and pins its executable in a 
   }
 }, 240_000);
 
-test("standalone Claude Code init replaces only owned legacy hooks, keeps user settings and is byte-idempotent", async () => {
+test("standalone Claude Code init replaces only owned legacy hooks and preserves user settings on a repeated write-once init", async () => {
   const f = await fixture();
   try {
     const legacy = 'node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"';
@@ -189,7 +189,7 @@ test("standalone Claude Code init replaces only owned legacy hooks, keeps user s
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
-test("installed standalone Claude Code command judges a real tool call and fails closed when its executable is missing", async () => {
+test("installed standalone Claude Code command applies the generated rule, launches lifecycle events and fails closed without its executable", async () => {
   const f = await fixture();
   try {
     expect(run(f, ["init", "--host", "claude-code"]).exitCode).toBe(0);
@@ -200,8 +200,14 @@ test("installed standalone Claude Code command judges a real tool call and fails
     const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
     const judged = invoke();
     expect(judged.exitCode).toBe(0);
-    expect(judged.stdout.toString()).toContain("deny");
-    expect(judged.stdout.toString()).toContain("bounded.config.ts");
+    const decision = JSON.parse(judged.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    expect(decision.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("the rule '**/bounded.config.*' from bounded/project");
+    const log = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { verdict: { kind: string } });
+    expect(log.at(-1)?.verdict.kind).toBe("refuse");
+    // The archive test proves every installed command launches. Detailed afterTool
+    // and run-finish semantics are covered by the host's composition-root and
+    // main end-to-end lifecycle tests.
     for (const event of ["PostToolUse", "PostToolUseFailure", "SubagentStop"]) {
       const eventCommand = settings.hooks[event]?.[0]?.hooks[0]?.command ?? "";
       const eventShell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", eventCommand] : ["/bin/sh", "-c", eventCommand];
