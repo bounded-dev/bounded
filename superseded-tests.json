@@ -6700,5 +6700,14 @@
       "case": "managed published pack artifact, lock and store contract > installs one exact version with registry integrity, inventory binding, complete file hashes and a plural-root atomic lock"
     },
     "reason": "The lock moves to plural directly selected roots and binds the exact inventory.json bytes with inventorySha256; the successor retains the archive integrity, store inventory and atomic-lock assertions."
+  },
+  {
+    "file": "src/cli/managed-pack-artifact.test.ts",
+    "case": "managed pack offline verification and plural roots > refuses package identity, catalogue or export changes even when inventory and lock digests are recomputed",
+    "successor": {
+      "file": "src/cli/managed-pack-artifact.test.ts",
+      "case": "managed pack offline verification and plural roots > refuses inconsistent package identity, catalogue import path or export target even when inventory and lock digests are recomputed"
+    },
+    "reason": "A catalogue pack id can legally differ from its source directory while remaining rooted at the package name. The successor instead changes the catalogue import path to conflict with bounded.packs; package identity and export target assertions remain. A rewritten project lock is the new trust anchor, so only internally inconsistent bytes can be refused offline."
   }
 ]

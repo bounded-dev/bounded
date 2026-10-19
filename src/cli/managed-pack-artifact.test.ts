@@ -486,7 +486,7 @@ describe("managed pack offline verification and plural roots", () => {
     }
   });
 
-  test("refuses package identity, catalogue or export changes even when inventory and lock digests are recomputed", async () => {
+  test("refuses inconsistent package identity, catalogue import path or export target even when inventory and lock digests are recomputed", async () => {
     for (const mutation of ["identity", "catalogue", "export"] as const) {
       const given = fixture();
       expect((await given.run()).ok).toBe(true);
@@ -501,7 +501,7 @@ describe("managed pack offline verification and plural roots", () => {
       const file = mutation === "catalogue" ? "bounded.catalog.json" : "package.json";
       const path = join(stored, "package", file);
       const bytes = readFileSync(path, "utf8");
-      writeFileSync(path, mutation === "identity" ? bytes.replace('"1.0.0"', '"2.0.0"') : mutation === "catalogue" ? bytes.replace("bounded-example/refused-tools", "bounded-example/other") : bytes.replace("./dist/index.js", "./dist/missing.js"));
+      writeFileSync(path, mutation === "identity" ? bytes.replace('"1.0.0"', '"2.0.0"') : mutation === "catalogue" ? bytes.replace('"importPath":"bounded-example"', '"importPath":"bounded-example/missing"') : bytes.replace("./dist/index.js", "./dist/missing.js"));
       const inventoryPath = join(stored, "inventory.json");
       const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as { files: Record<string, { size: number; sha256: string }> };
       const changed = readFileSync(path);
