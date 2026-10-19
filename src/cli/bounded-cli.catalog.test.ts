@@ -337,8 +337,8 @@ export const noteArchivePort = portKeysFor(demoId)<NoteArchive>("noteArchive");
     expect(ran.stderr).toStartWith("bounded: demo-package/demo: ");
   });
 
-  test("refuses an export entry with only an import condition, naming the path and the fix", async () => {
-    const packageDir = await demoPackage({ manifest: (manifest) => ({ ...manifest, exports: { "./demo": { import: "./dist/demo/index.js" } } }) });
+  test("refuses an export entry with only a require condition, naming the path and the fix", async () => {
+    const packageDir = await demoPackage({ manifest: (manifest) => ({ ...manifest, exports: { "./demo": { require: "./dist/demo/index.js" } } }) });
     expectRefused(packageDir, bounded(["catalog", "build"], packageDir), "./demo", "add a `default` condition");
   });
 

@@ -2,7 +2,8 @@
 // Its prepack (src/build-dist.ts) compiles the library entry points, the CLI
 // and the host adapters (src/cli, src/hosts/claude-code, src/hosts/pi, private
 // apps in source) to JavaScript for Node in
-// dist/, so nothing needs bun at run time. The tarball ships dist/ and the
+// dist/, so the hooks, `init`, `update` and the library need no bun (bun
+// builds bounded and any package's catalogue, ADR 2026-032). The tarball ships dist/ and the
 // core's and the packs' TypeScript sources (for types and for bun), without tests, test support
 // (but the exported conformance suite) or fixtures.
 import { describe, expect, test } from "bun:test";

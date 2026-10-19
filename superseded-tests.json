@@ -6508,7 +6508,7 @@
     "case": "NodePackModules conforms to PackModules > refuses an import-only entry before resolving it, naming ./demo and the fix",
     "successor": {
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
-      "case": "BunPackModules conforms to PackModules > refuses an import-only entry before resolving it, naming ./demo and the fix"
+      "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
     },
     "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
   },
@@ -6535,7 +6535,7 @@
     "case": "NodePackModules conforms to PackModules > refuses a root export with only an import condition, naming `.` and the fix",
     "successor": {
       "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
-      "case": "BunPackModules conforms to PackModules > refuses a root export with only an import condition, naming `.` and the fix"
+      "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
     },
     "reason": "the adapter loads packs under bun and is named for it, BunPackModules (ADR 2026-032)"
   },
@@ -6592,5 +6592,41 @@
       "case": "BunPackModules > refuses to load under Node, saying to run the catalogue build under bun"
     },
     "reason": "the catalogue build runs under bun only (ADR 2026-032): under Node the adapter refuses before reading the export entry, so there is no Node refusal to compare"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules conforms to PackModules > refuses an import-only entry before resolving it, naming ./demo and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a require-only entry, which a host's import() cannot reach, naming ./demo and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules conforms to PackModules > refuses a root export with only an import condition, naming `.` and the fix",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules conforms to PackModules > refuses a root export with only a require condition, naming `.` and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+    "case": "BunPackModules > refuses an import-only entry, saying to add a default condition, in full",
+    "successor": {
+      "file": "src/core/adapters/out/pack-modules/pack-modules.test.ts",
+      "case": "BunPackModules > refuses a require-only entry, which import() cannot reach, in full"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
+  },
+  {
+    "file": "src/cli/bounded-cli.catalog.test.ts",
+    "case": "bounded catalog build > refuses an export entry with only an import condition, naming the path and the fix",
+    "successor": {
+      "file": "src/cli/bounded-cli.catalog.test.ts",
+      "case": "bounded catalog build > refuses an export entry with only a require condition, naming the path and the fix"
+    },
+    "reason": "the catalogue build resolves an export as a host's import() does under Node, through resolve.exports with the node, import and default conditions (ADR 2026-032, final review), so an import-only entry loads and a require-only one is refused"
   }
 ]
