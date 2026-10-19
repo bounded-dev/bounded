@@ -35,8 +35,13 @@ function nativeTarget(): string {
   throw new Error("Cannot identify native libc for dispatch test");
 }
 
-function compile(source: string, executable: string): void {
-  const result = Bun.spawnSync([process.execPath, "build", source, "--compile", "--outfile", executable], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+function compile(source: string, executable: string, options: { readonly withRuntimeAssets?: boolean } = {}): void {
+  const standalone = source === join(REPO, "src", "standalone-main.ts") && options.withRuntimeAssets !== false;
+  const assets = standalone ? [
+    "--asset", join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter.wasm"),
+    "--asset", join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter-bash.wasm"),
+  ] : [];
+  const result = Bun.spawnSync([process.execPath, "build", source, "--compile", ...assets, "--outfile", executable], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(result.stderr.toString());
   if (process.platform !== "win32") chmodSync(executable, 0o755);
 }
@@ -176,6 +181,24 @@ test("generated installer records immutable manifest and compiled entry dispatch
     }
     expect(runCurrent(f, ["--version"]).stdout.trim()).toBe(CURRENT);
     expect(runCurrent(f, ["update", "--no-upgrade"]).exitCode).not.toBe(37);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test("a pinned project hands off before the active binary needs its own runtime assets", async () => {
+  const f = await fixture();
+  try {
+    if (process.platform === "win32") {
+      expect(readFileSync(f.script, "utf8")).toContain("receipt-v1.json");
+      return;
+    }
+    expect(runInstaller(f).exitCode).toBe(0);
+    compile(join(REPO, "src", "standalone-main.ts"), f.current, { withRuntimeAssets: false });
+    const handedOff = runCurrent(f, ["hook", "claude-code"], "invalid host payload");
+    expect(handedOff.exitCode).toBe(37);
+    expect(JSON.parse(handedOff.stdout)).toMatchObject({ version: PINNED, args: ["hook", "claude-code"], input: "invalid host payload" });
+    expect(handedOff.stderr).toBe("pinned stderr\n");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
