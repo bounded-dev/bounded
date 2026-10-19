@@ -5,13 +5,13 @@
 // passes the `...FromConfig` ones, which open the project with its
 // bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
-import { FileSystemProjectConfigSource } from "bounded/adapters";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
 import { openShellCommandReading, type ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type AfterTool, type Decide, hookEventOf, type RecordAgentRunFinish, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
+import { standaloneManagedConfigSource } from "./standalone-config-as-module.ts";
 
 /**
  * How this process reads shell commands (ADR 2026-020): bounded's reader,
@@ -26,7 +26,7 @@ const open = (projectRoot: string) => {
   return openProject(projectRoot, {
     ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()],
     ...(typeof loadConfigAsModule === "function" ? {
-      configSource: new FileSystemProjectConfigSource(async (file, root) => {
+      configSource: standaloneManagedConfigSource(async (file, root) => {
         const path: unknown = await Reflect.apply(loadConfigAsModule, undefined, [file, root]);
         if (typeof path !== "string") throw new Error("the standalone configuration builder returned no module path");
         return path;

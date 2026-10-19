@@ -13,7 +13,8 @@
   "dependencies": {
     "bounded": "workspace:*",
     "bounded-shell-command-reader": "workspace:*",
-    "picomatch": "4.0.7"
+    "picomatch": "4.0.7",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
     "@types/picomatch": "4.0.3"

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +26,8 @@ type Input = {
   /** Test-only observation under the one shared project writer. */
   readonly afterExistingStateVerified?: (lockSha256: string | null) => Promise<void>;
 };
-type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonly receiptPath: string }>>;
+type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonly receiptPath: string;
+  readonly catalogueImports: readonly { readonly importPath: string; readonly exportName: string }[] }>>;
 type Prepare = (input: Input) => Promise<Result<{ readonly lock: { readonly roots: Readonly<Record<string, string>> } }>>;
 const prepare = (projectionModule as unknown as { readonly prepareManagedPackAddition: Prepare }).prepareManagedPackAddition;
 type Verify = (input: Pick<Input, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">) => Promise<Result<unknown>>;
@@ -35,6 +36,9 @@ type Recover = (input: Parameters<Verify>[0] & { readonly faultAfterRecoveryStep
 const add = (projectionModule as unknown as { readonly addManagedPackWithProjection: Add }).addManagedPackWithProjection;
 const verify = (projectionModule as unknown as { readonly verifyManagedPackProjection: Verify }).verifyManagedPackProjection;
 const recover = (projectionModule as unknown as { readonly recoverManagedPackProjection: Recover }).recoverManagedPackProjection;
+type RuntimeGraph = { readonly roots: Readonly<Record<string, string>>; readonly nodes: Readonly<Record<string, unknown>> };
+type Capture = (input: Parameters<Verify>[0]) => Promise<Result<RuntimeGraph>>;
+const capture = (projectionModule as unknown as { readonly captureManagedPackRuntimeGraph: Capture }).captureManagedPackRuntimeGraph;
 const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
 const digest = (value: Uint8Array): string => createHash("sha256").update(value).digest("hex");
 const registry = "https://registry.example.test";
@@ -162,6 +166,26 @@ async function tsserver(projectRoot: string, file: string, position = { completi
 }
 
 describe("managed pack type-only projection and publication", () => {
+  test("an overbound proposed runtime graph refuses before publishing lock, receipt or projection", async () => {
+    const helperNames = Array.from({ length: 128 }, (_, index) => `helper-${index}`);
+    const dependencies = Object.fromEntries(helperNames.map((name) => [name, "1.0.0"]));
+    const given = fixture([pack("bounded-example", "1.0.0", dependencies), ...helperNames.map((name) => library(name, "1.0.0"))]);
+    await refused(() => given.run(), "128 pinned nodes");
+    expect(existsSync(given.lockPath)).toBe(false);
+    expect(existsSync(given.receiptPath)).toBe(false);
+    expect(existsSync(given.projected("bounded-example"))).toBe(false);
+  });
+
+  test("a successful add returns its requested catalogue imports from the writer-held transaction", async () => {
+    const given = fixture();
+    const added = await given.run();
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(added.value.catalogueImports).toEqual([{ importPath: "bounded-example", exportName: "refusedToolsPack" }]);
+    expect(existsSync(given.lockPath)).toBe(true);
+    expect(existsSync(given.receiptPath)).toBe(true);
+  });
+
   test("preparation verifies the proposed graph without publishing a lock or projection", async () => {
     const given = fixture();
     const proposed = await prepare({ request: "bounded-example@1.0.0", boundedVersion: "3.3.0",
@@ -477,6 +501,95 @@ describe("managed pack type-only projection and publication", () => {
       expect(readFileSync(given.receiptPath)).toEqual(oldReceipt);
       expect(snapshot(join(given.projectRoot, "node_modules"))).toEqual(oldProjection);
     }
+  });
+
+  test("a store mutation before snapshot refuses before a managed module executes", async () => {
+    const original = pack("bounded-example");
+    const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'globalThis.__boundedManagedPackExecuted = "original";\nexport const marker = "loaded";\n' }
+      : entry) };
+    const given = fixture([chosen]);
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    writeFileSync(join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js"), 'globalThis.__boundedManagedPackExecuted = "tampered";\nexport const marker = "tampered";\n');
+    Reflect.deleteProperty(globalThis, "__boundedManagedPackExecuted");
+    const graph = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(graph.ok).toBe(false);
+    if (!graph.ok) expect(graph.error).toMatch(/store|digest|inventory|projection/i);
+    expect(Reflect.get(globalThis, "__boundedManagedPackExecuted")).toBeUndefined();
+  });
+
+  test("captured graph bytes stay original when the real verified store changes after capture", async () => {
+    const original = pack("bounded-example");
+    const chosen: Published = { ...original, entries: (original.entries ?? []).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'export const marker = "original";\n' } : entry) };
+    const given = fixture([chosen]);
+    expect((await given.run()).ok).toBe(true);
+    const captured = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) return;
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    const source = join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "dist", "index.js");
+    writeFileSync(source, 'export const marker = "tampered";\n');
+    const node = captured.value.nodes[root] as { files: Record<string, Uint8Array> };
+    expect(new TextDecoder().decode(node.files["dist/index.js"])).toContain('"original"');
+    expect(new TextDecoder().decode(node.files["dist/index.js"])).not.toContain('"tampered"');
+    expect(readFileSync(source, "utf8")).toContain('"tampered"');
+  });
+
+  test("capture refuses an overbound graph before opening any store", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, Record<string, unknown>> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined || lock.nodes[root] === undefined) throw new Error("missing test root");
+    const original = lock.nodes[root];
+    for (let index = 0; index < 128; index++) {
+      const name = `extra-${index}`;
+      const id = `${name}@1.0.0#${original.sha256}`;
+      lock.nodes[id] = { ...original, id, name, version: "1.0.0" };
+    }
+    writeFileSync(given.lockPath, `${JSON.stringify(lock)}\n`);
+    rmSync(join(given.storeRoot, String(original.sha256)), { recursive: true, force: true });
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "128 pinned nodes");
+  });
+
+  test("capture refuses an oversized sparse lock before reading or parsing it", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    truncateSync(given.lockPath, 16 * 1024 * 1024 + 1);
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "lock byte bound");
+  });
+
+  test("capture refuses an inventory byte bound before opening its advertised missing file", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string; inventorySha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined || lock.nodes[root] === undefined) throw new Error("missing test root");
+    const node = lock.nodes[root];
+    const inventoryPath = join(given.storeRoot, node.sha256, "inventory.json");
+    const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as { files: Record<string, { size: number; sha256: string }> };
+    inventory.files["huge.bin"] = { size: 256 * 1024 * 1024 + 1, sha256: "0".repeat(64) };
+    const inventoryBytes = utf8(`${JSON.stringify(inventory)}\n`);
+    writeFileSync(inventoryPath, inventoryBytes);
+    node.inventorySha256 = digest(inventoryBytes);
+    writeFileSync(given.lockPath, `${JSON.stringify(lock)}\n`);
+    await refused(() => capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest }), "byte bound");
   });
 
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {

@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import * as standaloneRuntime from "../../standalone-runtime.ts";
 import { nativeReleaseTarget } from "../../standalone-installed-release.ts";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity } from "../managed-pack-artifact.test-support.ts";
@@ -16,8 +16,8 @@ type AddModule = {
   readonly fetchStandalonePackResponse: (url: string, fetcher: typeof fetch, limits?: { readonly maxBytes: number; readonly timeoutMs: number }) => Promise<Reply>;
   readonly runStandaloneAddInternal: (args: readonly string[], context: { readonly projectRoot: string; readonly boundedVersion: string; readonly publish?: (input: AddInput) => Promise<Result<unknown>>; readonly get: (url: string) => Promise<Reply>; readonly env?: NodeJS.ProcessEnv }) => Promise<Result<unknown>>;
 };
-// The internal route is intentionally absent at this red commit. The public
-// standalone add command must still refuse until verified runtime loading lands.
+// Exercise the internal route with a local registry fixture. The compiled
+// public success path is covered by standalone-managed-add.e2e.test.ts.
 const add = standaloneRuntime as unknown as AddModule;
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -150,27 +150,4 @@ test("internal add uses the verified release and real managed transaction", asyn
   expect(lock.roots["bounded-example"]).toContain("bounded-example@1.0.0#");
   expect(existsSync(join(fixture.projectRoot, ".bounded", "types-receipt.json"))).toBe(true);
   expect(readFileSync(fixture.configPath, "utf8")).toBe("user-edited config\n");
-});
-
-test("compiled public add still refuses before network access or project mutation", () => {
-  const root = mkdtempSync(join(tmpdir(), "bounded-add-public-gate-")); roots.push(root);
-  const executable = join(root, process.platform === "win32" ? "bounded.exe" : "bounded");
-  const repo = resolve(import.meta.dir, "../../..");
-  const built = Bun.spawnSync([process.execPath, "build", join(repo, "src", "standalone-main.ts"), "--compile",
-    "--asset", join(repo, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter.wasm"),
-    "--asset", join(repo, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter-bash.wasm"),
-    "--outfile", executable], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  expect(built.exitCode).toBe(0);
-  if (built.exitCode !== 0) throw new Error(built.stderr.toString());
-  if (process.platform !== "win32") chmodSync(executable, 0o755);
-  const project = join(root, "project"); mkdirSync(project);
-  const config = join(project, "bounded.config.ts"); writeFileSync(config, "user-edited config\n");
-  const ran = Bun.spawnSync([executable, "add", "guard@1.2.3", "--registry", "https://127.0.0.1:1"], {
-    cwd: project, env: { ...process.env, PATH: "" }, stdout: "pipe", stderr: "pipe",
-  });
-  expect(ran.exitCode).toBe(2);
-  expect(ran.stderr.toString()).toContain("bounded add is unavailable until verified managed-pack runtime loading");
-  expect(readFileSync(config, "utf8")).toBe("user-edited config\n");
-  expect(existsSync(join(project, ".bounded", "packs.lock.json"))).toBe(false);
-  expect(existsSync(join(project, "node_modules"))).toBe(false);
 });

@@ -233,21 +233,32 @@ when written; keep it current (AGENTS.md, "Working with the user").
   The published Node CLI remains available for npm projects. The executable
   running a same-version hook is not rehashed from an installation receipt
   on every invocation; a different pinned version uses the verified locator.
-- **The internal managed-pack editor projection**
-  ([ADR 2026-038](adr/2026-038-managed-pack-type-projection.md)) prepares a
-  verified plural-root pack graph without publishing it, then uses one
+- **Managed published packs in the standalone Claude Code runtime**
+  ([ADR 2026-038](adr/2026-038-managed-pack-type-projection.md),
+  [ADR 2026-039](adr/2026-039-standalone-managed-pack-runtime.md)): the
+  installer prepares a verified plural-root pack graph, then uses one
   project writer to publish type-only `node_modules` packages and the lock
   last. A receipt binds their exact files to the lock; a journal and durable
   backups allow recovery after an interrupted publication. Real TypeScript
   language-server tests resolve Bounded and pack subpaths in a Python project
   with no package manifest or TypeScript configuration, including distinct
-  nested dependency versions. An internal standalone add handler parses an
-  exact request, bounds one HTTPS response and passes it to this transaction
-  using declarations from a verified installed-release receipt. The compiled
-  `bounded add` command explicitly refuses before network access or project
-  mutation until verified managed-pack runtime loading is present. `check`
-  also remains unavailable, and the executable cannot execute a managed
-  published pack yet.
+  nested dependency versions. The compiled `bounded add name@version` parses
+  an exact request, bounds each HTTPS response and passes it to this
+  transaction using declarations from a verified installed-release receipt.
+  It prints the catalogue import statements without editing or selecting
+  packs in `bounded.config.ts`. Each Claude Code hook verifies and copies the
+  pinned runtime graph, then composes only project-selected packs and their
+  dependencies. Bounded does not import an unreferenced installed pack for
+  catalogue validation or composition; a project config's explicit import
+  may execute a pack it does not select. Direct imports use locked roots; a managed package's imports
+  use its own pinned edges. Selected runtime pack descriptions and named
+  exports must match the locked catalogue before composition. The compiled
+  archive test installs a real published no-port pack in a Python project,
+  then records its refusal and allowance with no Node, Bun or npm on the
+  executable's path. `bounded check`, standalone pi hooks and project-supplied
+  third-party port provisions remain unavailable. A selected pack whose
+  required port has no provision refuses rather than loading an adapter
+  automatically.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
   declares the 3.3.0 target set before a tag, refuses stable builds on the
   wrong OS, CPU or Linux libc, and requires verified attestations from the

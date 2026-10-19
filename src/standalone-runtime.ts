@@ -7,7 +7,7 @@ import * as prereqsAdapters from "bounded/prereqs/adapters";
 import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
 import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
-import { addManagedPackWithProjection, type ProjectionInput } from "./cli/managed-pack-installer.ts";
+import { addManagedPackWithProjection, captureManagedPackRuntimeGraph, type ProjectionInput } from "./cli/managed-pack-installer.ts";
 import { locateInstalledRelease, userDataRoot } from "./standalone-installed-release.ts";
 import { lstatSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -24,7 +24,7 @@ const commandRoutes = {
   check: "unavailable",
   host: "unavailable",
   catalog: "unavailable",
-  add: "unavailable",
+  add: "managed-add",
 } as const;
 
 const standaloneRuntimeExports = Object.freeze({
@@ -145,7 +145,7 @@ function embeddedWasmPath(name: "tree-sitter" | "tree-sitter-bash"): string {
   return join(import.meta.dir, filename);
 }
 
-function prepareStandaloneRuntime(): void {
+function prepareStandaloneRuntime(version: string): void {
   Object.defineProperty(globalThis, "__boundedStandaloneWasmPaths", {
     value: Object.freeze({ engine: embeddedWasmPath("tree-sitter"), grammar: embeddedWasmPath("tree-sitter-bash") }),
     configurable: false,
@@ -155,6 +155,27 @@ function prepareStandaloneRuntime(): void {
     value: buildStandaloneConfigModule,
     configurable: false,
     writable: false,
+  });
+  Object.defineProperty(globalThis, "__boundedStandaloneManagedGraphLoader", {
+    value: async (projectRoot: string) => {
+      const bounded = join(projectRoot, ".bounded");
+      const has = (name: string): boolean => {
+        try { lstatSync(join(bounded, name)); return true; }
+        catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+      };
+      if (!["packs.lock.json", "types-receipt.json", "types-journal.json"].some(has)) return undefined;
+      const located = locateInstalledRelease(version);
+      if (!located.ok) throw new Error(located.error);
+      const releaseTypeFilesFromVerifiedManifest = Object.fromEntries(located.verifiedFiles
+        .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+        .map((file) => [file.path.slice("share/types/".length), file.sha256]));
+      const captured = await captureManagedPackRuntimeGraph({ projectRoot, boundedVersion: version,
+        boundedExportPaths: Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`),
+        storeRoot: join(userDataRoot(), "packs", "store"), releaseTypesRoot: join(located.releaseRoot, "share", "types"),
+        releaseTypeFilesFromVerifiedManifest });
+      if (!captured.ok) throw new Error(captured.error);
+      return captured.value;
+    }, configurable: false, writable: false,
   });
   // Runtime-built configs and local packs use these exact module objects, so
   // nominal brands and pack dependencies match the executable's own core.
@@ -168,14 +189,14 @@ function prepareStandaloneRuntime(): void {
 export async function runStandaloneRuntime(args: readonly string[], version: string, hostProjectRoot?: string): Promise<void> {
   const [command, host] = args;
   if (command === "hook" && host === "claude-code") {
-    prepareStandaloneRuntime();
+    prepareStandaloneRuntime(version);
     if (hostProjectRoot !== undefined) process.env.CLAUDE_PROJECT_DIR = hostProjectRoot;
     // The host entry owns the fail-closed wire response, including bootstrap failures.
     await import("./hosts/claude-code/main.ts");
     return;
   }
   if (command === "add") {
-    refusal("bounded add is unavailable until verified managed-pack runtime loading is available in this release");
+    await addStandalone(args, version);
     return;
   }
   const route = commandRoutes[command as keyof typeof commandRoutes];
@@ -186,7 +207,23 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);
 }
 
+async function addStandalone(args: readonly string[], version: string): Promise<void> {
+  const parsed = parseStandaloneAddArguments(args);
+  if (!parsed.ok) { refusal(parsed.error); return; }
+  const added = await runStandaloneAddInternal(args, { projectRoot: process.cwd(), boundedVersion: version });
+  if (!added.ok) { refusal(added.error); return; }
+  const imports = [...new Set(added.value.catalogueImports.map((pack) =>
+    pack.exportName === "default" ? `import selectedPack from ${JSON.stringify(pack.importPath)};`
+      : `import { ${pack.exportName} } from ${JSON.stringify(pack.importPath)};`))];
+  process.stdout.write(`Added ${parsed.value.request}\n${imports.length === 0 ? "" : `Select a pack in bounded.config.ts:\n${imports.map((line) => `  ${line}`).join("\n")}\n`}`);
+}
+
 type AddResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+interface CompletedPackAddition {
+  readonly lockPath: string;
+  readonly receiptPath: string;
+  readonly catalogueImports: readonly { readonly importPath: string; readonly exportName: string }[];
+}
 type PackReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
 type AddRequest = { readonly request: string; readonly registryUrl: string };
 const defaultRegistryUrl = "https://registry.npmjs.org";
@@ -254,11 +291,11 @@ interface InternalAddContext {
   readonly env?: NodeJS.ProcessEnv;
   readonly get?: (url: string) => Promise<PackReply>;
   /** Test seam; a production call uses the verified installed-release wrapper. */
-  readonly publish?: (input: { readonly request: string; readonly registryUrl: string; readonly projectRoot: string; readonly boundedVersion: string; readonly get: (url: string) => Promise<PackReply> }) => Promise<AddResult<unknown>>;
+  readonly publish?: (input: { readonly request: string; readonly registryUrl: string; readonly projectRoot: string; readonly boundedVersion: string; readonly get: (url: string) => Promise<PackReply> }) => Promise<AddResult<CompletedPackAddition>>;
 }
 
-/** Internal preparation path. The public add route remains a refusal until runtime loading lands. */
-export async function runStandaloneAddInternal(args: readonly string[], context: InternalAddContext): Promise<AddResult<unknown>> {
+/** Run the verified managed add transaction for the standalone command. */
+export async function runStandaloneAddInternal(args: readonly string[], context: InternalAddContext): Promise<AddResult<CompletedPackAddition>> {
   const parsed = parseStandaloneAddArguments(args);
   if (!parsed.ok) return parsed;
   if (!isAbsolute(context.projectRoot))
