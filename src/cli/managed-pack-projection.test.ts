@@ -294,12 +294,13 @@ describe("managed pack type-only projection and publication", () => {
   });
 
   test("receipt binds the active lock and the exact owned tree, including no extra files or links", async () => {
-    for (const mutation of ["bytes", "extra", "link", "receipt"] as const) {
+    for (const mutation of ["bytes", "extra", "empty-dir", "link", "receipt"] as const) {
       const given = fixture([pack("bounded-example"), pack("bounded-second")]);
       expect((await given.run()).ok).toBe(true);
       const target = given.projected("bounded-example");
       if (mutation === "bytes") writeFileSync(join(target, "dist", "index.d.ts"), "changed\n");
       if (mutation === "extra") writeFileSync(join(target, "extra.txt"), "unexpected\n");
+      if (mutation === "empty-dir") mkdirSync(join(target, "unexpected-empty-directory"));
       if (mutation === "link") symlinkSync(join(given.root, "outside"), join(target, "extra-link"));
       if (mutation === "receipt") {
         const receipt = JSON.parse(readFileSync(given.receiptPath, "utf8")) as { lockSha256?: string };
