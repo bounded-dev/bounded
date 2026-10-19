@@ -6781,5 +6781,14 @@
       "case": "standalone managed config from a verified snapshot > a journal appearing after capture refuses before module execution"
     },
     "reason": "the host loader test band checks its graph boundary before executing the built module"
+  },
+  {
+    "file": "src/cli/test/standalone-add.test.ts",
+    "case": "compiled public add still refuses before network access or project mutation",
+    "successor": {
+      "file": "src/cli/test/standalone-managed-add.e2e.test.ts",
+      "case": "a compiled archive adds and executes a published pack with no ambient package runtime"
+    },
+    "reason": "verified managed runtime loading completes the public bounded add route; the compiled archive now proves successful add and execution without ambient package runtimes"
   }
 ]
