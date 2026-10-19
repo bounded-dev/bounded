@@ -3,6 +3,7 @@ import { Verdict } from "bounded/domain";
 import { composeHook, DEADLINE_MS, DRAIN_MS } from "./composition-root.ts";
 import { type Decide, FAILED, respond } from "./hook.ts";
 import type { Wiring } from "./composition-root.ts";
+import { readPayload } from "./translate.ts";
 
 export interface Timing {
   readonly deadlineMs?: number;
@@ -24,8 +25,16 @@ async function readStdin(): Promise<string> {
 export async function run(decide: Decide, { deadlineMs = DEADLINE_MS, drainMs = DRAIN_MS }: Timing = {}, extras: Pick<Wiring, "afterTool" | "record" | "recordAgentRunFinish"> = {}): Promise<void> {
   let answer: string;
   try {
-    const hook = composeHook({ ...extras, env: process.env, argv: process.argv.slice(2), decide, deadlineMs });
-    answer = await hook(await readStdin());
+    const stdin = await readStdin();
+    let isJson = true;
+    try { JSON.parse(stdin); } catch { isJson = false; }
+    if (!isJson) {
+      const parsed = readPayload(stdin);
+      answer = parsed.ok ? respond(Verdict.refuse("The hook's input is not JSON", FAILED)) : respond(parsed.error);
+    } else {
+      const hook = composeHook({ ...extras, env: process.env, argv: process.argv.slice(2), decide, deadlineMs });
+      answer = await hook(stdin);
+    }
   } catch (thrown) {
     answer = respond(Verdict.refuse(`bounded's Claude Code hook failed: ${thrown instanceof Error ? thrown.message : String(thrown)}`, FAILED));
   }

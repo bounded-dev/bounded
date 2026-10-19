@@ -72,9 +72,15 @@ function deeper<T>(work: () => T, fallback: T): T {
 
 /** The bash grammar, loaded once for the whole program; a load that fails is tried again next time. */
 export function loadBashGrammar(): Promise<BashGrammar> {
-  bash ??= TreeSitter.Parser.init().then(() =>
-    // A file URL: the package has no exports map, so its grammar file resolves directly.
-    TreeSitter.Language.load(new URL(import.meta.resolve("@vscode/tree-sitter-wasm/wasm/tree-sitter-bash.wasm")) as unknown as string),
+  const embedded: unknown = Reflect.get(globalThis, "__boundedStandaloneWasmPaths");
+  const engine: unknown = embedded === null || typeof embedded !== "object" ? undefined : Reflect.get(embedded, "engine");
+  const grammar: unknown = embedded === null || typeof embedded !== "object" ? undefined : Reflect.get(embedded, "grammar");
+  const standalone = typeof engine === "string" && typeof grammar === "string";
+  bash ??= TreeSitter.Parser.init(standalone ? { locateFile: () => engine } : undefined).then(() =>
+    standalone
+      ? TreeSitter.Language.load(grammar)
+      // A file URL: the package has no exports map, so its grammar file resolves directly.
+      : TreeSitter.Language.load(new URL(import.meta.resolve("@vscode/tree-sitter-wasm/wasm/tree-sitter-bash.wasm")) as unknown as string),
   );
   bash.catch(() => {
     bash = undefined;

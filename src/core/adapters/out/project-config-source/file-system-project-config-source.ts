@@ -21,6 +21,12 @@ function described(value: unknown): string {
  * afresh. A file that resolves outside the project is refused.
  */
 export class FileSystemProjectConfigSource implements ProjectConfigSource {
+  constructor(private readonly modulePath: (file: string, projectRoot: string) => Promise<string> = async (file) => {
+    loadConfigAsModule();
+    // A query on the path (not a file: URL) makes the runtime load the file afresh when it changed.
+    return `${file}?v=${statSync(file).mtimeMs}`;
+  }) {}
+
   async load(projectRoot: string): Promise<Result<Config>> {
     const found = PROJECT_CONFIG_NAMES.filter((name) => existsSync(join(projectRoot, name)));
     const [name] = found;
@@ -32,9 +38,7 @@ export class FileSystemProjectConfigSource implements ProjectConfigSource {
       const home = realpathSync(projectRoot);
       if (!file.startsWith(home + sep)) return { ok: false, error: `${name} resolves outside ${projectRoot}: the configuration must live in the project` };
       // An ES module under node whatever the project's package.json says (config-as-module.ts).
-      loadConfigAsModule();
-      // A query on the path (not a file: URL) makes the runtime load the file afresh when it changed.
-      module = await import(`${file}?v=${statSync(file).mtimeMs}`);
+      module = await import(await this.modulePath(file, projectRoot));
     } catch (thrown) {
       return { ok: false, error: loadFailure(name, thrown) };
     }

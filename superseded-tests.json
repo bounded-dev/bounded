@@ -6637,5 +6637,23 @@
       "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left"
     },
     "reason": "re-review: resolve.exports diverges from Node's exports resolution, so the adapter implements Node's ESM algorithm itself and bounded keeps its three runtime dependencies (ADR 2026-032)"
+  },
+  {
+    "file": "src/cli/release-manifest.test.ts",
+    "case": "standalone release manifest > verifies archive length, digest and every extracted file, rejecting missing or extra entries",
+    "successor": {
+      "file": "src/cli/release-manifest.test.ts",
+      "case": "standalone release manifest > parses verified tar.gz bytes, refusing unexpected members, links and traversal"
+    },
+    "reason": "release verification now reads archive members from the verified tar.gz bytes instead of accepting an unrelated caller-supplied map"
+  },
+  {
+    "file": "src/cli/test/standalone-release.e2e.test.ts",
+    "case": "a native standalone archive contains a verified, self-running Bounded executable",
+    "successor": {
+      "file": "src/cli/test/standalone-release.e2e.test.ts",
+      "case": "a native smoke archive contains a verified, self-running Bounded executable and is not a stable release"
+    },
+    "reason": "a local binary build on a development checkout is explicitly a smoke artifact; its development channel cannot be accepted as a stable release. Stable release assembly uses separate clean native jobs and verifies their smoke records. The executable and hook assertions remain in the successor."
   }
 ]

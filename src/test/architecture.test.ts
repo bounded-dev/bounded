@@ -1421,7 +1421,7 @@ describe("architecture", () => {
       .filter((path) => path.startsWith("src/"))
       .map((path) => path.slice("src/".length));
     expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "published-packs", "test"]);
-    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "package.json", "tsconfig.types.json"]);
+    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "build-release.ts", "package.json", "release-assembly.ts", "release-install-scripts.ts", "standalone-main.ts", "tsconfig.types.json"]);
   });
 
   test("the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root", async () => {
