@@ -241,9 +241,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   backups allow recovery after an interrupted publication. Real TypeScript
   language-server tests resolve Bounded and pack subpaths in a Python project
   with no package manifest or TypeScript configuration, including distinct
-  nested dependency versions. This API remains internal: the standalone
-  executable does not expose `add` or `check`, and it cannot execute a
-  managed published pack yet.
+  nested dependency versions. An internal standalone add handler parses an
+  exact request, bounds one HTTPS response and passes it to this transaction
+  using declarations from a verified installed-release receipt. The compiled
+  `bounded add` command explicitly refuses before network access or project
+  mutation until verified managed-pack runtime loading is present. `check`
+  also remains unavailable, and the executable cannot execute a managed
+  published pack yet.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
   declares the 3.3.0 target set before a tag, refuses stable builds on the
   wrong OS, CPU or Linux libc, and requires verified attestations from the
