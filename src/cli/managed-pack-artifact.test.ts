@@ -388,7 +388,11 @@ describe("managed pack offline verification and plural roots", () => {
     expect((await given.run()).ok).toBe(true);
     expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
     given.calls.length = 0;
-    const result = await given.verifyInstalled();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() => { throw new Error("offline verification contacted the network"); }) as unknown as typeof fetch;
+    let result: VerifyResult;
+    try { result = await given.verifyInstalled(); }
+    finally { globalThis.fetch = originalFetch; }
     expect(result.ok).toBe(true);
     if (result.ok) expect(Object.keys(result.value.roots).sort()).toEqual(["bounded-example", "bounded-second"]);
     expect(given.calls).toEqual([]);
