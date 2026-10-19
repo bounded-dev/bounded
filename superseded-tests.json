@@ -6817,5 +6817,14 @@
       "case": "bounded, the one published package > packed, its manifest names the version, the bin and four runtime dependencies including TypeScript"
     },
     "reason": "the carried Node host now declares the pinned TypeScript parser as a fourth runtime dependency"
+  },
+  {
+    "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+    "case": "archive-only executable routes each distribution command locally or refuses before npm CLI and project mutation",
+    "successor": {
+      "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+      "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
+    },
+    "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
   }
 ]

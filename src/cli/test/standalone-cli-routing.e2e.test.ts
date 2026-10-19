@@ -104,13 +104,13 @@ function projectBytes(f: Fixture): { readonly python: string; readonly settings:
   };
 }
 
-test("archive-only executable routes each distribution command locally or refuses before npm CLI and project mutation", async () => {
+test("archive-only executable routes unsupported commands locally and check requires a project pin", async () => {
   const f = await fixture();
   try {
     expect(run(f, ["--version"])).toMatchObject({ exitCode: 0, stdout: `${f.version}\n`, stderr: "" });
     const before = projectBytes(f);
     for (const args of [
-      ["init", "--host", "pi"], ["update"], ["check"],
+      ["init", "--host", "pi"], ["update"],
       ["host", "pi"], ["catalog", "build"], ["unknown"], ["init", "--no-install"],
     ]) {
       const answer = run(f, args);
@@ -120,6 +120,11 @@ test("archive-only executable routes each distribution command locally or refuse
       expect(projectBytes(f)).toEqual(before);
       expect(existsSync(f.managerLog)).toBe(false);
     }
+    const unpinnedCheck = run(f, ["check"]);
+    expect(unpinnedCheck.exitCode).not.toBe(0);
+    expect(unpinnedCheck.stderr).toMatch(/pin|version\.json|bounded init/i);
+    expect(projectBytes(f)).toEqual(before);
+    expect(existsSync(f.managerLog)).toBe(false);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
@@ -146,6 +151,14 @@ test("archive-only init installs Claude Code hooks and pins its executable in a 
       else expect(command).toContain("exit 2");
     }
     expect(existsSync(f.managerLog)).toBe(false);
+    const checked = run(f, ["check"]);
+    expect(checked).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(checked.stdout).toMatch(/checked|valid|ready/i);
+    expect(existsSync(f.managerLog)).toBe(false);
+    renameSync(join(f.project, "bounded.config.ts"), join(f.project, "bounded.config.ts.saved"));
+    const missingConfig = run(f, ["check"]);
+    expect(missingConfig.exitCode).not.toBe(0);
+    expect(missingConfig.stderr).toMatch(/bounded\.config\.ts|configuration/i);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
