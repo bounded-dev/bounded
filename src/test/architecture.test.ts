@@ -803,7 +803,7 @@ describe("architecture", () => {
   test("the Claude Code adapter is an app depending on the core", () => {
     const app = apps.find((a) => a.name === "bounded-claude-code");
     expect(app?.dir).toBe("src/hosts/claude-code");
-    // The core, bounded's shell command reader, and picomatch to split a search filter's fixed part from its pattern.
+    // The core, shell command reader, picomatch for filters, and TypeScript for standalone source parsing.
     expect(app?.dependencies).toEqual(["bounded", "bounded-shell-command-reader", "picomatch", "typescript"]);
     expect(appFiles.some((path) => path.startsWith("src/hosts/claude-code/"))).toBe(true);
   });
