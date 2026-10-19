@@ -8,10 +8,10 @@ import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
 import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
 import { addManagedPackWithProjection, type ProjectionInput } from "./cli/managed-pack-installer.ts";
-import { locateInstalledRelease } from "./standalone-installed-release.ts";
+import { locateInstalledRelease, userDataRoot } from "./standalone-installed-release.ts";
 import { lstatSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildStandaloneConfigModule } from "./hosts/claude-code/standalone-config-as-module.ts";
 import { prepareStandaloneClaudeHooks } from "./hosts/claude-code/standalone-install.ts";
@@ -24,7 +24,20 @@ const commandRoutes = {
   check: "unavailable",
   host: "unavailable",
   catalog: "unavailable",
+  add: "unavailable",
 } as const;
+
+const standaloneRuntimeExports = Object.freeze({
+  "bounded/domain": domain,
+  "bounded/application": application,
+  "bounded/adapters": adapters,
+  "bounded/open-project": project,
+  "bounded/prereqs": prereqs,
+  "bounded/prereqs/adapters": prereqsAdapters,
+  "bounded/protected-paths": protectedPaths,
+  "bounded/protected-paths/adapters": protectedPathsAdapters,
+  "bounded/shell-command-reader": shellCommandReader,
+});
 
 function refusal(reason: string): void {
   process.stderr.write(`bounded: ${reason}\n`);
@@ -146,17 +159,7 @@ function prepareStandaloneRuntime(): void {
   // Runtime-built configs and local packs use these exact module objects, so
   // nominal brands and pack dependencies match the executable's own core.
   Object.defineProperty(globalThis, "__boundedStandaloneRuntimeExports", {
-    value: Object.freeze({
-      "bounded/domain": domain,
-      "bounded/application": application,
-      "bounded/adapters": adapters,
-      "bounded/open-project": project,
-      "bounded/prereqs": prereqs,
-      "bounded/prereqs/adapters": prereqsAdapters,
-      "bounded/protected-paths": protectedPaths,
-      "bounded/protected-paths/adapters": protectedPathsAdapters,
-      "bounded/shell-command-reader": shellCommandReader,
-    }),
+    value: standaloneRuntimeExports,
     configurable: false,
     writable: false,
   });
@@ -171,12 +174,103 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     await import("./hosts/claude-code/main.ts");
     return;
   }
+  if (command === "add") {
+    refusal("bounded add is unavailable until verified managed-pack runtime loading is available in this release");
+    return;
+  }
   const route = commandRoutes[command as keyof typeof commandRoutes];
   if (route === "project-setup") {
     await initStandalone(args, version);
     return;
   }
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);
+}
+
+type AddResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+type PackReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
+type AddRequest = { readonly request: string; readonly registryUrl: string };
+const defaultRegistryUrl = "https://registry.npmjs.org";
+const exactPackRequest = /^(@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9._-]+)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
+const packResponseLimit = 64 * 1024 * 1024;
+const packRequestTimeoutMs = 15_000;
+
+/** Parse one exact pack request without reading or changing the project. */
+export function parseStandaloneAddArguments(args: readonly string[]): AddResult<AddRequest> {
+  if (args[0] !== "add" || (args.length !== 2 && args.length !== 4))
+    return { ok: false, error: "Use bounded add name@version [--registry https://registry.example]" };
+  const request = args[1];
+  if (request === undefined || !exactPackRequest.test(request))
+    return { ok: false, error: `Pack request ${request ?? "(missing)"} must name an exact package version` };
+  if (args.length === 2) return { ok: true, value: { request, registryUrl: defaultRegistryUrl } };
+  const registryArgument = args[3];
+  if (args[2] !== "--registry" || registryArgument === undefined)
+    return { ok: false, error: "Use --registry followed by an HTTPS npm-compatible registry URL" };
+  try {
+    const registry = new URL(registryArgument);
+    if (registry.protocol !== "https:" || registry.username !== "" || registry.password !== "" || registry.search !== "" || registry.hash !== "")
+      return { ok: false, error: "The pack registry must be an HTTPS URL without credentials, query or fragment" };
+    return { ok: true, value: { request, registryUrl: registryArgument.replace(/\/+$/, "") } };
+  } catch { return { ok: false, error: `Invalid pack registry URL ${registryArgument}` }; }
+}
+
+/** Return one bounded response; the installer checks every redirect itself. */
+export async function fetchStandalonePackResponse(
+  url: string,
+  fetcher: typeof fetch = fetch,
+  limits: { readonly maxBytes: number; readonly timeoutMs: number } = { maxBytes: packResponseLimit, timeoutMs: packRequestTimeoutMs },
+): Promise<PackReply> {
+  if (new URL(url).protocol !== "https:") throw new Error(`Pack requests require HTTPS: ${url}`);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error(`Pack request ${url} exceeded its timeout`)); }, limits.timeoutMs);
+  });
+  try {
+    const response = await Promise.race([fetcher(url, { redirect: "manual", signal: controller.signal }), timeout]);
+    const declaredSize = response.headers.get("content-length");
+    if (declaredSize !== null && Number(declaredSize) > limits.maxBytes) throw new Error(`Pack response ${url} exceeds the size limit`);
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    if (response.body !== null) {
+      const reader = response.body.getReader();
+      for (;;) {
+        const part = await Promise.race([reader.read(), timeout]);
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > limits.maxBytes) { controller.abort(); throw new Error(`Pack response ${url} exceeds the size limit`); }
+        chunks.push(part.value);
+      }
+    }
+    const body = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body };
+  } finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
+interface InternalAddContext {
+  readonly projectRoot: string;
+  readonly boundedVersion: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly get?: (url: string) => Promise<PackReply>;
+  /** Test seam; a production call uses the verified installed-release wrapper. */
+  readonly publish?: (input: { readonly request: string; readonly registryUrl: string; readonly projectRoot: string; readonly boundedVersion: string; readonly get: (url: string) => Promise<PackReply> }) => Promise<AddResult<unknown>>;
+}
+
+/** Internal preparation path. The public add route remains a refusal until runtime loading lands. */
+export async function runStandaloneAddInternal(args: readonly string[], context: InternalAddContext): Promise<AddResult<unknown>> {
+  const parsed = parseStandaloneAddArguments(args);
+  if (!parsed.ok) return parsed;
+  if (!isAbsolute(context.projectRoot))
+    return { ok: false, error: "The dispatched project root must be absolute" };
+  const get = context.get ?? ((url: string) => fetchStandalonePackResponse(url));
+  const input = { ...parsed.value, projectRoot: context.projectRoot, boundedVersion: context.boundedVersion, get };
+  if (context.publish !== undefined) return context.publish(input);
+  let storeRoot: string;
+  try { storeRoot = join(userDataRoot(context.env), "packs", "store"); }
+  catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+  const boundedExportPaths = Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`);
+  return addManagedPackWithInstalledReleaseProjection({ ...input, storeRoot, boundedExportPaths }, context.env);
 }
 
 /** Internal native entry: projection types and digests come from the verified installed release. */
