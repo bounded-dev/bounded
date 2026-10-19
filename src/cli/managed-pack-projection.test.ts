@@ -227,6 +227,18 @@ describe("managed pack type-only projection and publication", () => {
     expect(existsSync(given.projected("bounded-example"))).toBe(false);
   });
 
+  test("declaration imports cannot escape the verified graph or name a missing sibling", async () => {
+    for (const source of ['import { missing } from "ambient-unpinned";\nexport declare const value: typeof missing;\n',
+      'export { missing } from "./missing.js";\n']) {
+      const published = pack("bounded-example");
+      const entries = (published.entries ?? []).map((entry) => entry.name === "package/dist/index.d.ts" ? { ...entry, body: source } : entry);
+      const given = fixture([{ ...published, entries }]);
+      await refused(() => given.run(), "declaration");
+      expect(existsSync(given.lockPath)).toBe(false);
+      expect(existsSync(given.projected("bounded-example"))).toBe(false);
+    }
+  });
+
   test("release declarations must match the verified installed-release manifest before any active write", async () => {
     for (const mutation of ["missing", "tampered"] as const) {
       const given = fixture();
