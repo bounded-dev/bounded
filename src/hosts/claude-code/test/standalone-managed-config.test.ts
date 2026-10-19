@@ -49,6 +49,17 @@ async function load(root: string, selected: Graph) {
 }
 
 describe("standalone managed config from a verified snapshot", () => {
+  test("a selected pack with an exact locked descriptor and export opens", async () => {
+    const published = domain.definePack({ id: domain.packIdsFor("bounded-example")("selected"), dependsOn: [domain.corePack],
+      points: { selectedRules: domain.point({ description: "Selected rules", check: (raw: unknown) => ({ ok: true, value: raw }) }) } });
+    const selected = node("bounded-example", "1.0.0", 'import { definePack, packIdsFor, corePack, point } from "bounded/domain";\nexport const selectedPack = definePack({ id: packIdsFor("bounded-example")("selected"), dependsOn: [corePack], points: { selectedRules: point({ description: "Selected rules", check: (raw) => ({ ok: true, value: raw }) }) } });\n');
+    selected.catalogue = { packs: [cataloguePack(published, "bounded-example", "selectedPack")] };
+    const { root } = project('import { defineConfig } from "bounded/domain";\nimport { selectedPack } from "bounded-example";\nexport default defineConfig({ packs: [selectedPack] });\n');
+    const loaded = await load(root, graph([selected], { "bounded-example": selected.id }));
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(domain.PackDescription.of(loaded.value.listedPacks[0]!).id).toBe("bounded-example/selected");
+  });
+
   test("direct roots resolve distinct importer-local dependency versions and leave an unselected installed pack inert", async () => {
     const first = node("bounded-first", "1.0.0", 'import { version } from "plain-helper"; export const firstVersion = version;\n', { "plain-helper": "plain-helper@1.0.0" });
     const second = node("bounded-second", "1.0.0", 'import { version } from "plain-helper"; export const secondVersion = version;\n', { "plain-helper": "plain-helper@2.0.0" });
