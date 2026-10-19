@@ -203,6 +203,27 @@ test("a validated one-hop marker is consumed before normal handlers run", async 
   }
 });
 
+test("Claude's explicit unpinned project keeps working after its .bounded log directory appears", async () => {
+  const f = await fixture();
+  try {
+    const unpinned = join(f.root, "existing-host-project");
+    mkdirSync(join(unpinned, ".bounded"), { recursive: true });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const hook = runCurrent(f, ["hook", "claude-code"], "not JSON", { env: { CLAUDE_PROJECT_DIR: unpinned } });
+      expect(hook.exitCode).toBe(0);
+      expect(hook.stdout).toContain("not JSON");
+      expect(hook.stderr).not.toMatch(/version\.json|pin/i);
+    }
+    rmSync(join(unpinned, ".bounded"), { recursive: true });
+    symlinkSync(join(f.root, "missing-host-boundary"), join(unpinned, ".bounded"), "dir");
+    const linked = runCurrent(f, ["hook", "claude-code"], "not JSON", { env: { CLAUDE_PROJECT_DIR: unpinned } });
+    expect(linked.exitCode).not.toBe(0);
+    expect(linked.stderr).toMatch(/\.bounded|link|project boundary/i);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
 test("a signalled pinned executable fails closed with an explicit signal diagnostic", async () => {
   const f = await fixture({ pinnedStopsWithSignal: true });
   try {
@@ -300,7 +321,7 @@ test("dispatch refuses every changed installed artifact before invoking the pinn
   }
 }, 180_000);
 
-test("pin root precedence, strict shape, one-hop and missing target fail closed", async () => {
+test("pin root precedence, strict shape, one-hop and missing targets fail closed", async () => {
   const f = await fixture();
   try {
     if (process.platform === "win32") {
@@ -336,13 +357,21 @@ test("pin root precedence, strict shape, one-hop and missing target fail closed"
     writeFileSync(pin, JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
     const nestedBoundary = join(f.project, "src", ".bounded");
     mkdirSync(nestedBoundary);
-    const missingNestedPin = runCurrent(f, ["check"]);
+    const missingNestedPin = runCurrent(f, ["init"]);
     expect(missingNestedPin.exitCode).not.toBe(37);
-    expect(missingNestedPin.stderr).toMatch(/pin|version\.json|missing/i);
+    expect(missingNestedPin.stderr).toMatch(/package\.json/i);
     writeFileSync(join(nestedBoundary, "version.json"), "malformed");
     expect(runCurrent(f, ["check"]).stderr).toMatch(/pin|version\.json|schema/i);
     writeFileSync(join(nestedBoundary, "version.json"), JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
     expect(runCurrent(f, ["check"]).exitCode).toBe(37);
+    rmSync(nestedBoundary, { recursive: true });
+    symlinkSync(join(f.root, "missing-boundary"), nestedBoundary, "dir");
+    const danglingBoundary = runCurrent(f, ["check"]);
+    expect(danglingBoundary.exitCode).not.toBe(37);
+    expect(danglingBoundary.stderr).toMatch(/\.bounded|link|project boundary/i);
+    rmSync(nestedBoundary);
+    mkdirSync(nestedBoundary);
+    writeFileSync(join(nestedBoundary, "version.json"), JSON.stringify({ schema: "bounded-project-version/1", version: PINNED }));
     const oneHop = runCurrent(f, ["check"], "", { env: { BOUNDED_DISPATCHED_VERSION: "other" } });
     expect(oneHop.exitCode).not.toBe(37);
     expect(oneHop.stderr).toMatch(/dispatch|hop|version|pin/i);
