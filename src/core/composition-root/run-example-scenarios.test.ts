@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { NodePackModules } from "bounded/adapters";
+import { BunPackModules } from "bounded/adapters";
 import { ExampleScenarios } from "bounded/domain";
 import { runExampleScenarios, writeProjectFile } from "./run-example-scenarios.test-support.ts";
 
@@ -40,7 +40,7 @@ function throwawayPackage(): string {
 
 /** The fixture's scenarios, loaded as the catalogue build loads them. */
 async function fixtureScenarios(): Promise<unknown> {
-  const loaded = await new NodePackModules().loadDefaultExport(REFUSING_PACKAGE, SCENARIOS);
+  const loaded = await new BunPackModules().loadDefaultExport(REFUSING_PACKAGE, SCENARIOS);
   if (!loaded.ok) throw new Error(loaded.error);
   return loaded.value;
 }

@@ -94,7 +94,7 @@ describe("bounded, the one published package", () => {
     expect(manifest.engines).toEqual({ node: ">=22.18" });
     expect(manifest.files).toEqual(expect.arrayContaining(["dist", "core", "packs"]));
     expect(manifest.bin).toEqual({ bounded: "dist/cli.js" });
-    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts && node dist/cli.js catalog build");
+    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts && bun dist/cli.js catalog build");
   });
 
   test("points to its catalogue from the bounded field, carries the bounded-pack keyword, and lists every shipped pack", () => {

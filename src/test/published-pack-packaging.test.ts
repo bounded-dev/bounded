@@ -138,7 +138,7 @@ describe("the published packs, each its own npm package", () => {
       expect({ dir, repository: manifest.repository }).toEqual({ dir, repository: { type: "git", url: "git+https://github.com/bounded-dev/bounded.git", directory: dir } });
       expect({ dir, engines: manifest.engines }).toEqual({ dir, engines: { node: ">=22.18" } });
       expect({ dir, type: manifest.type }).toEqual({ dir, type: "module" });
-      expect({ dir, prepack: manifest.scripts?.prepack }).toEqual({ dir, prepack: "bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build" });
+      expect({ dir, prepack: manifest.scripts?.prepack }).toEqual({ dir, prepack: "bun ../../build-published-pack.ts && bun ../../dist/cli.js catalog build" });
       expect({ dir, keyword: manifest.keywords?.includes("bounded-pack") }).toEqual({ dir, keyword: true });
       expect({ dir, catalogueFile: manifest.files?.includes("bounded.catalog.json") }).toEqual({ dir, catalogueFile: true });
       expect({ dir, catalogue: manifest.bounded?.catalog }).toEqual({ dir, catalogue: "./bounded.catalog.json" });

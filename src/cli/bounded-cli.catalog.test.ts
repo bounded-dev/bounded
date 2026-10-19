@@ -1,5 +1,5 @@
 // `bounded catalog build` (ADR 2026-029): run, as a pack author runs it, by the
-// built CLI under Node in a copy of the demonstration package
+// built CLI under bun (the bun running these tests) in a copy of the demonstration package
 // (src/core/test/fixtures/catalog/demo-package/), its pack built to
 // JavaScript with Bun.build, bounded installed as a link to src/ and the
 // libraries the build resolves from the package linked to the repository's.
@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { NodePackModules } from "bounded/adapters";
+import { BunPackModules } from "bounded/adapters";
 import { ExampleScenarios, PackageCatalog } from "bounded/domain";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../..");
@@ -29,11 +29,15 @@ interface DemoOptions {
   readonly libraries?: readonly string[];
   /** Whether the second pack, packs/alpha, is copied in and built to dist/alpha/index.js too. */
   readonly withAlpha?: boolean;
+  /** The directory to copy the package into, made here; a fresh temporary directory by default. */
+  readonly into?: (temporaryDir: string) => string;
 }
 
 /** A fresh copy of the demonstration package, its pack built to dist/demo/index.js. */
 async function demoPackage(options: DemoOptions = {}): Promise<string> {
-  const packageDir = realpathSync(mkdtempSync(join(tmpdir(), "bounded-catalog-cli-")));
+  const temporaryDir = realpathSync(mkdtempSync(join(tmpdir(), "bounded-catalog-cli-")));
+  const packageDir = options.into === undefined ? temporaryDir : options.into(temporaryDir);
+  mkdirSync(packageDir, { recursive: true });
   cpSync(DEMO_PACKAGE, packageDir, { recursive: true });
   if (options.withAlpha === true) cpSync(ALPHA_PACK, packageDir, { recursive: true });
   for (const path of options.remove ?? []) rmSync(join(packageDir, path), { recursive: true, force: true });
@@ -57,9 +61,9 @@ async function demoPackage(options: DemoOptions = {}): Promise<string> {
   return packageDir;
 }
 
-/** `bounded <args>`, the built CLI, under Node in `cwd`. */
-function bounded(args: readonly string[], cwd: string): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
-  const ran = spawnSync("node", [CLI, ...args], { cwd, encoding: "utf8" });
+/** `bounded <args>`, the built CLI, under bun (the bun running these tests) in `cwd`; `runtime` runs it under another. */
+function bounded(args: readonly string[], cwd: string, runtime: string = process.execPath): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+  const ran = spawnSync(runtime, [CLI, ...args], { cwd, encoding: "utf8" });
   return { status: ran.status, stdout: ran.stdout ?? "", stderr: ran.stderr ?? "" };
 }
 
@@ -80,7 +84,7 @@ interface DemoEntry {
 
 /** The scenarios file at `path` in `packageDir`, loaded as the build loads it, in their normal form. */
 async function normalScenariosIn(packageDir: string, path: string): Promise<unknown> {
-  const loaded = await new NodePackModules().loadDefaultExport(packageDir, path);
+  const loaded = await new BunPackModules().loadDefaultExport(packageDir, path);
   if (!loaded.ok) throw new Error(loaded.error);
   const parsed = ExampleScenarios.parse(loaded.value);
   if (!parsed.ok) throw new Error(parsed.error);
@@ -344,7 +348,48 @@ export const noteArchivePort = portKeysFor(demoId)<NoteArchive>("noteArchive");
       const ran = bounded(args, packageDir);
       expect({ args, status: ran.status, stdout: ran.stdout }).toEqual({ args, status: 2, stdout: "" });
       expect(ran.stderr).toContain("bounded catalog build");
+      expect(ran.stderr).toContain("bunx --bun bounded catalog build");
     }
     expect(existsSync(join(packageDir, "bounded.catalog.json"))).toBe(false);
+  });
+
+  test("refuses under Node, naming bun and the command to run, and writes nothing", async () => {
+    const packageDir = await demoPackage();
+    expectRefused(packageDir, bounded(["catalog", "build"], packageDir, "node"), "under bun", "bunx --bun bounded catalog build");
+  });
+
+  test("refuses an export whose default target was never built, though its bun source exists, naming the target and saying to build the package first", async () => {
+    const packageDir = await demoPackage({ manifest: (manifest) => ({ ...manifest, exports: { "./demo": { bun: "./packs/demo/index.ts", default: "./dist/demo/index.js" } } }) });
+    rmSync(join(packageDir, "dist"), { recursive: true });
+    expectRefused(packageDir, bounded(["catalog", "build"], packageDir), "./dist/demo/index.js", "build the package first");
+  });
+
+  test("loads the default target's JavaScript, never the bun source, when both exist", async () => {
+    const packageDir = await demoPackage({ manifest: (manifest) => ({ ...manifest, exports: { "./demo": { bun: "./packs/demo/index.ts", default: "./dist/demo/index.js" } } }) });
+    const source = join(packageDir, "packs", "demo", "index.ts");
+    writeFileSync(source, `${readFileSync(source, "utf8")}throw new Error("the catalogue build loaded the bun source");\n`);
+    const ran = bounded(["catalog", "build"], packageDir);
+    expect(ran.stderr).toBe("");
+    expect(ran.status).toBe(0);
+    expect(demoEntryIn(packageDir).id).toBe("demo-package/demo");
+  });
+
+  test("builds the catalogue of a package that sits under node_modules, its scenarios included", async () => {
+    const packageDir = await demoPackage({ into: (temporaryDir) => join(temporaryDir, "node_modules", "demo-package") });
+    const ran = bounded(["catalog", "build"], packageDir);
+    expect(ran.stderr).toBe("");
+    expect(ran.status).toBe(0);
+    const example = demoEntryIn(packageDir).examples.find(({ path }) => path === EXAMPLE);
+    expect(example?.scenarios).toEqual(await normalScenariosIn(packageDir, SCENARIOS));
+  });
+
+  test("a pack author's prepack form, `bunx --bun bounded catalog build`, builds the catalogue", async () => {
+    const packageDir = await demoPackage();
+    mkdirSync(join(packageDir, "node_modules", ".bin"));
+    symlinkSync("../bounded/dist/cli.js", join(packageDir, "node_modules", ".bin", "bounded"));
+    const ran = spawnSync(process.execPath, ["x", "--bun", "bounded", "catalog", "build"], { cwd: packageDir, encoding: "utf8" });
+    expect(ran.stderr).toBe("");
+    expect(ran.status).toBe(0);
+    expect(ran.stdout).toContain("Wrote bounded.catalog.json");
   });
 });

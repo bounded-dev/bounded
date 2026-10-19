@@ -11,7 +11,7 @@ import { Glob } from "bun";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { NodePackModules } from "bounded/adapters";
+import { BunPackModules } from "bounded/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { runExampleScenarios } from "bounded/testing/example-scenarios";
@@ -32,7 +32,7 @@ describe("shipped packs' example scenarios", () => {
     await shellCommandReading.prepare();
     for (const examplePath of examplePaths) {
       const scenariosPath = examplePath.replace(/\.config\.ts$/, ".scenarios.ts");
-      const loaded = await new NodePackModules().loadDefaultExport(BOUNDED, scenariosPath);
+      const loaded = await new BunPackModules().loadDefaultExport(BOUNDED, scenariosPath);
       expect({ scenariosPath, loaded: loaded.ok ? "loaded" : loaded.error }).toEqual({ scenariosPath, loaded: "loaded" });
       if (!loaded.ok) continue;
       const report = await runExampleScenarios({
