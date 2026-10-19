@@ -233,6 +233,17 @@ when written; keep it current (AGENTS.md, "Working with the user").
   The published Node CLI remains available for npm projects. The executable
   running a same-version hook is not rehashed from an installation receipt
   on every invocation; a different pinned version uses the verified locator.
+- **The internal managed-pack editor projection**
+  ([ADR 2026-038](adr/2026-038-managed-pack-type-projection.md)) prepares a
+  verified plural-root pack graph without publishing it, then uses one
+  project writer to publish type-only `node_modules` packages and the lock
+  last. A receipt binds their exact files to the lock; a journal and durable
+  backups allow recovery after an interrupted publication. Real TypeScript
+  language-server tests resolve Bounded and pack subpaths in a Python project
+  with no package manifest or TypeScript configuration, including distinct
+  nested dependency versions. This API remains internal: the standalone
+  executable does not expose `add` or `check`, and it cannot execute a
+  managed published pack yet.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
   declares the 3.3.0 target set before a tag, refuses stable builds on the
   wrong OS, CPU or Linux libc, and requires verified attestations from the

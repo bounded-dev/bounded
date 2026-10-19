@@ -12,6 +12,7 @@
     "bounded": "workspace:*",
     "bounded-shell-command-reader": "workspace:*",
     "tar-stream": "^3.2.2",
+    "typescript": "5.9.3",
     "yauzl": "^3.4.0"
   }
 }
