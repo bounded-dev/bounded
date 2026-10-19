@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, parse, posix, relative, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -20,6 +20,13 @@ interface InstallInput {
   /** One HTTP response only; the adapter must disable automatic redirects so each hop is checked here. */
   readonly get: (url: string) => Promise<Reply>;
   readonly publishLock?: (path: string, contents: string) => Promise<void>;
+  readonly afterExistingLockVerified?: (lockSha256: string) => Promise<void>;
+}
+interface VerifyInput {
+  readonly boundedVersion: string;
+  readonly boundedExportPaths: readonly string[];
+  readonly projectRoot: string;
+  readonly storeRoot: string;
 }
 type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 type FileInventory = Readonly<Record<string, { readonly size: number; readonly sha256: string }>>;
@@ -37,7 +44,14 @@ interface LockNode {
   readonly tarballUrl: string;
   readonly integrity: string | null;
   readonly sha256: string;
+  readonly inventorySha256: string;
   readonly dependencies: Readonly<Record<string, string>>;
+}
+interface PackLock {
+  readonly schema: "bounded-packs-lock/2";
+  readonly boundedVersion: string;
+  readonly roots: Readonly<Record<string, string>>;
+  readonly nodes: Readonly<Record<string, LockNode>>;
 }
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
@@ -299,15 +313,151 @@ function inventory(files: Readonly<Record<string, Uint8Array>>): FileInventory {
   return Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, { size: bytes.byteLength, sha256: sha256(bytes) }]));
 }
 
-async function verifiedStore(path: string, expected: FileInventory): Promise<boolean> {
+const inventoryBytes = (files: FileInventory): Uint8Array => new TextEncoder().encode(`${JSON.stringify({ schema: "bounded-pack-inventory/1", files })}\n`);
+const digestPattern = /^[a-f0-9]{64}$/;
+const packageNamePattern = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9._-]+)$/;
+
+/** Reads a complete pinned graph without network access or running package code. */
+export async function verifyManagedPackLock(input: VerifyInput): Promise<Result<PackLock>> {
+  const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
+  const safeLock = await noLinkedComponents(lockPath);
+  if (!safeLock.ok) return safeLock;
+  let lockBytes: Uint8Array;
   try {
-    const raw = JSON.parse(await readFile(join(path, "inventory.json"), "utf8")) as unknown;
+    if (!(await lstat(lockPath)).isFile()) return refusal(`Project pack lock ${lockPath} is not a regular file; re-add the packs`);
+    lockBytes = await readFile(lockPath);
+  } catch (error) { return refusal(`Cannot read project pack lock ${lockPath}: ${errorText(error)}; re-add the packs`); }
+  const parsed = json(lockBytes, "Project pack lock");
+  if (!parsed.ok) return parsed;
+  if (!record(parsed.value)) return refusal("Project pack lock is malformed; re-add the packs");
+  if (parsed.value.schema === "bounded-packs-lock/1") return refusal("Legacy bounded-packs-lock/1 cannot be migrated without re-verifying exact tarball bytes; re-add each published pack with bounded add name@version");
+  if (parsed.value.schema !== "bounded-packs-lock/2" || parsed.value.boundedVersion !== input.boundedVersion || !record(parsed.value.roots) || !record(parsed.value.nodes))
+    return refusal(`Project pack lock schema or Bounded version does not match ${input.boundedVersion}; re-add the packs for this Bounded version`);
+  const roots: Record<string, string> = {};
+  const nodes: Record<string, LockNode> = {};
+  for (const [name, id] of Object.entries(parsed.value.roots)) {
+    if (!packageNamePattern.test(name) || typeof id !== "string" || roots[name] !== undefined) return refusal(`Project pack root ${name} is malformed; re-add the pack`);
+    roots[name] = id;
+  }
+  if (Object.keys(roots).length === 0) return refusal("Project pack lock has no directly selected roots; re-add a pack");
+  const identities = new Set<string>();
+  for (const [key, raw] of Object.entries(parsed.value.nodes)) {
+    if (!record(raw) || typeof raw.id !== "string" || raw.id !== key || typeof raw.name !== "string" || !packageNamePattern.test(raw.name)
+      || typeof raw.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(raw.version)
+      || typeof raw.sha256 !== "string" || !digestPattern.test(raw.sha256) || key !== `${raw.name}@${raw.version}#${raw.sha256}`
+      || typeof raw.inventorySha256 !== "string" || !digestPattern.test(raw.inventorySha256)
+      || typeof raw.tarballUrl !== "string" || !raw.tarballUrl.startsWith("https://")
+      || (raw.integrity !== null && typeof raw.integrity !== "string") || !record(raw.dependencies)) return refusal(`Project pack node ${key} or its inventory digest is malformed; re-add that package`);
+    const identity = `${raw.name}@${raw.version}`;
+    if (identities.has(identity)) return refusal(`Project pack has duplicate identity ${identity}; re-add that package`);
+    identities.add(identity);
+    const edges: Record<string, string> = {};
+    for (const [dependencyName, target] of Object.entries(raw.dependencies)) {
+      if (!packageNamePattern.test(dependencyName) || typeof target !== "string") return refusal(`${identity} has a malformed dependency edge ${dependencyName}; re-add that package`);
+      edges[dependencyName] = target;
+    }
+    nodes[key] = { id: key, name: raw.name, version: raw.version, sha256: raw.sha256, inventorySha256: raw.inventorySha256,
+      tarballUrl: raw.tarballUrl, integrity: raw.integrity, dependencies: edges };
+  }
+  for (const [name, id] of Object.entries(roots)) if (nodes[id]?.name !== name) return refusal(`Project root ${name} names missing or mismatched node ${id}; re-add ${name}`);
+  const stored = new Map<string, { files: Readonly<Record<string, Uint8Array>>; manifest: ArchiveManifest; imports: readonly PackageImport[] }>();
+  for (const [id, node] of Object.entries(nodes)) {
+    const storePath = join(input.storeRoot, node.sha256);
+    const safeStore = await noLinkedComponents(storePath);
+    if (!safeStore.ok) return refusal(`${id}: ${safeStore.error}; re-add ${node.name}`);
+    try {
+      if (!(await lstat(storePath)).isDirectory()) return refusal(`${id} store is not a directory; re-add ${node.name}`);
+      const inventoryPath = join(storePath, "inventory.json");
+      if (!(await lstat(inventoryPath)).isFile()) return refusal(`${id} inventory is not a regular file; re-add ${node.name}`);
+      const bytes = await readFile(inventoryPath);
+      if (sha256(bytes) !== node.inventorySha256) return refusal(`${id} inventory digest differs from the lock; re-add ${node.name}`);
+      const inventoryJson = json(bytes, `${id} inventory`);
+      if (!inventoryJson.ok) return refusal(`${inventoryJson.error}; re-add ${node.name}`);
+      if (!record(inventoryJson.value) || inventoryJson.value.schema !== "bounded-pack-inventory/1" || !record(inventoryJson.value.files)) return refusal(`${id} inventory is malformed; re-add ${node.name}`);
+      const files: Record<string, Uint8Array> = {};
+      for (const [name, details] of Object.entries(inventoryJson.value.files)) {
+        const safeName = safeMember(`package/${name}`);
+        if (!safeName.ok || safeName.value !== name || !record(details) || !Number.isSafeInteger(details.size) || (details.size as number) < 0
+          || typeof details.sha256 !== "string" || !digestPattern.test(details.sha256)) return refusal(`${id} inventory entry ${name} is malformed; re-add ${node.name}`);
+        const filePath = join(storePath, "package", name);
+        const safeFile = await noLinkedComponents(filePath);
+        if (!safeFile.ok) return refusal(`${id}: ${safeFile.error}; re-add ${node.name}`);
+        const info = await lstat(filePath);
+        if (!info.isFile() || info.size !== details.size) return refusal(`${id} file ${name} differs from its inventory; re-add ${node.name}`);
+        const content = await readFile(filePath);
+        if (sha256(content) !== details.sha256) return refusal(`${id} file ${name} differs from its inventory; re-add ${node.name}`);
+        files[name] = content;
+      }
+      const found = await filesRecursively(storePath);
+      const expectedPaths = new Set([join(storePath, "inventory.json"), ...Object.keys(files).map((name) => join(storePath, "package", name))]);
+      if (found.length !== expectedPaths.size || found.some((path) => !expectedPaths.has(path))) return refusal(`${id} store has missing or unexpected files; re-add ${node.name}`);
+      const packageBytes = files["package.json"];
+      if (packageBytes === undefined) return refusal(`${id} has no package.json; re-add ${node.name}`);
+      const packageJson = json(packageBytes, `${id} package.json`);
+      if (!packageJson.ok || !record(packageJson.value)) return refusal(`${id} package.json is malformed; re-add ${node.name}`);
+      const dependencies = stringMap(packageJson.value.dependencies, `${id} dependencies`);
+      const peers = stringMap(packageJson.value.peerDependencies, `${id} peers`);
+      if (!dependencies.ok || !peers.ok) return refusal(`${id} package dependencies are malformed; re-add ${node.name}`);
+      const expected: RegistryVersion = { name: node.name, version: node.version, dependencies: dependencies.value, peerDependencies: peers.value,
+        dist: { tarball: node.tarballUrl, ...(node.integrity === null ? {} : { integrity: node.integrity }) } };
+      const isPack = Object.values(roots).includes(id) || packageJson.value.bounded !== undefined;
+      const manifest = archiveManifest(files, expected, isPack, input.boundedVersion);
+      if (!manifest.ok) return refusal(`${id}: ${manifest.error}; re-add ${node.name}`);
+      if (isPack) { const catalog = checkCatalog(files, manifest.value); if (!catalog.ok) return refusal(`${id}: ${catalog.error}; re-add ${node.name}`); }
+      const imports = inspectJavaScript(files, manifest.value, input.boundedExportPaths);
+      if (!imports.ok) return refusal(`${id}: ${imports.error}; re-add ${node.name}`);
+      if (JSON.stringify(Object.keys(node.dependencies).sort()) !== JSON.stringify(Object.keys(manifest.value.dependencies).sort())) return refusal(`${id} dependency edges differ from package.json; re-add ${node.name}`);
+      stored.set(id, { files, manifest: manifest.value, imports: imports.value });
+    } catch (error) { return refusal(`${id} store cannot be verified: ${errorText(error)}; re-add ${node.name}`); }
+  }
+  const reachable = new Set<string>();
+  const visiting = new Set<string>();
+  const walk = (id: string, available: Readonly<Record<string, string>>): Result<void> => {
+    const node = nodes[id];
+    const data = stored.get(id);
+    if (node === undefined || data === undefined) return refusal(`Missing package node ${id}; re-add the pack`);
+    if (visiting.has(id)) return refusal(`${id} has a dependency cycle; re-add ${node.name}`);
+    for (const [peer, range] of Object.entries(data.manifest.peerDependencies)) if (available[peer] === undefined || !Bun.semver.satisfies(available[peer], range))
+      return refusal(`${id} peer ${peer}@${range} is not satisfied; re-add ${node.name}`);
+    if (reachable.has(id)) return { ok: true, value: undefined };
+    visiting.add(id);
+    const childAvailable: Record<string, string> = { ...available };
+    for (const [dependencyName, childId] of Object.entries(node.dependencies)) {
+      const child = nodes[childId];
+      if (child === undefined || child.name !== dependencyName || !Bun.semver.satisfies(child.version, data.manifest.dependencies[dependencyName] ?? ""))
+        return refusal(`${id} dependency ${dependencyName} points to missing or mismatched node ${childId}; re-add ${node.name}`);
+      childAvailable[dependencyName] = child.version;
+    }
+    for (const imported of data.imports) {
+      const childId = node.dependencies[imported.dependencyName];
+      const child = childId === undefined ? undefined : stored.get(childId);
+      if (child === undefined) return refusal(`${id} import ${imported.dependencyName} has no dependency edge; re-add ${node.name}`);
+      const target = exportTarget(child.manifest.exports, imported.exportPath);
+      if (!target.ok || child.files[target.value] === undefined) return refusal(`${id} import ${imported.dependencyName} has missing export; re-add ${node.name}`);
+    }
+    for (const childId of Object.values(node.dependencies)) { const result = walk(childId, childAvailable); if (!result.ok) return result; }
+    visiting.delete(id);
+    reachable.add(id);
+    return { ok: true, value: undefined };
+  };
+  for (const id of Object.values(roots)) { const result = walk(id, { bounded: input.boundedVersion }); if (!result.ok) return result; }
+  if (reachable.size !== Object.keys(nodes).length) return refusal("Project pack lock contains unreachable nodes; re-add the packs");
+  return { ok: true, value: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes } };
+}
+
+async function verifiedStore(path: string, expected: FileInventory, expectedInventorySha256: string): Promise<boolean> {
+  try {
+    const inventoryPath = join(path, "inventory.json");
+    if (!(await lstat(inventoryPath)).isFile()) return false;
+    const bytes = await readFile(inventoryPath);
+    if (sha256(bytes) !== expectedInventorySha256) return false;
+    const raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
     if (!record(raw) || JSON.stringify(raw.files) !== JSON.stringify(expected)) return false;
     const found = await filesRecursively(path);
     if (found.length !== Object.keys(expected).length + 1) return false;
     for (const [name, details] of Object.entries(expected)) {
       const file = join(path, "package", name);
-      const info = await stat(file);
+      const info = await lstat(file);
       if (!info.isFile() || info.size !== details.size || sha256(await readFile(file)) !== details.sha256) return false;
     }
     return true;
@@ -349,11 +499,11 @@ async function noLinkedComponents(path: string): Promise<Result<void>> {
   return { ok: true, value: undefined };
 }
 
-async function publishStore(storeRoot: string, digest: string, files: Readonly<Record<string, Uint8Array>>, expected: FileInventory): Promise<Result<void>> {
+async function publishStore(storeRoot: string, digest: string, files: Readonly<Record<string, Uint8Array>>, expected: FileInventory, expectedInventorySha256: string): Promise<Result<void>> {
   const finalPath = join(storeRoot, digest);
   const safe = await noLinkedComponents(finalPath);
   if (!safe.ok) return safe;
-  if (existsSync(finalPath)) return await verifiedStore(finalPath, expected) ? { ok: true, value: undefined } : refusal(`Stored package ${digest} fails inventory verification`);
+  if (existsSync(finalPath)) return await verifiedStore(finalPath, expected, expectedInventorySha256) ? { ok: true, value: undefined } : refusal(`Stored package ${digest} fails inventory verification`);
   await mkdir(storeRoot, { recursive: true });
   const stage = join(storeRoot, `.staging-${randomUUID()}`);
   await mkdir(stage);
@@ -363,11 +513,11 @@ async function publishStore(storeRoot: string, digest: string, files: Readonly<R
       await mkdir(join(path, ".."), { recursive: true });
       await writeFile(path, content, { flag: "wx" });
     }
-    await writeFile(join(stage, "inventory.json"), `${JSON.stringify({ schema: "bounded-pack-inventory/1", files: expected })}\n`, { flag: "wx" });
-    if (!await verifiedStore(stage, expected)) return refusal(`Staged package ${digest} fails inventory verification`);
+    await writeFile(join(stage, "inventory.json"), inventoryBytes(expected), { flag: "wx" });
+    if (!await verifiedStore(stage, expected, expectedInventorySha256)) return refusal(`Staged package ${digest} fails inventory verification`);
     try { await rename(stage, finalPath); }
     catch (error) {
-      if (!existsSync(finalPath) || !await verifiedStore(finalPath, expected)) return refusal(`Cannot publish stored package ${digest}: ${errorText(error)}`);
+      if (!existsSync(finalPath) || !await verifiedStore(finalPath, expected, expectedInventorySha256)) return refusal(`Cannot publish stored package ${digest}: ${errorText(error)}`);
     }
     return { ok: true, value: undefined };
   } finally { await rm(stage, { recursive: true, force: true }); }
@@ -379,6 +529,25 @@ async function atomicLock(path: string, contents: string): Promise<void> {
   const temporary = join(directory, `.packs.lock-${randomUUID()}.tmp`);
   try { await writeFile(temporary, contents, { flag: "wx" }); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
+}
+
+async function acquireProjectWriter(lockPath: string): Promise<Result<() => Promise<void>>> {
+  const writerPath = join(lockPath, "..", ".packs-lock-writer");
+  const safe = await noLinkedComponents(writerPath);
+  if (!safe.ok) return safe;
+  await mkdir(join(lockPath, ".."), { recursive: true });
+  for (let attempt = 0; attempt < 300; attempt++) {
+    try {
+      await mkdir(writerPath);
+      return { ok: true, value: () => rm(writerPath, { recursive: true, force: true }) };
+    } catch (error) {
+      if (!record(error) || error.code !== "EEXIST") return refusal(`Cannot acquire project pack writer: ${errorText(error)}`);
+      const checked = await noLinkedComponents(writerPath);
+      if (!checked.ok) return checked;
+      await Bun.sleep(50);
+    }
+  }
+  return refusal(`Project pack writer is busy at ${writerPath}; retry the add or repair the stale writer directory`);
 }
 
 /** Installs the verified npm-compatible artifact graph without running a package manager or package scripts. */
@@ -465,10 +634,11 @@ export async function installManagedPack(input: InstallInput): Promise<Result<{ 
         if (child.files[target.value] === undefined) return refusal(`${identity} imports ${imported.dependencyName}, whose exported JavaScript ${target.value} is missing`);
       }
       const fileInventory = inventory(extracted.value);
-      const stored = await publishStore(input.storeRoot, digest, extracted.value, fileInventory);
+      const inventorySha256 = sha256(inventoryBytes(fileInventory));
+      const stored = await publishStore(input.storeRoot, digest, extracted.value, fileInventory, inventorySha256);
       if (!stored.ok) return stored;
       nodes[id] = { id, name, version: version.version, tarballUrl: downloaded.value.url,
-        integrity: version.dist.integrity ?? null, sha256: digest, dependencies: edges };
+        integrity: version.dist.integrity ?? null, sha256: digest, inventorySha256, dependencies: edges };
       installed.set(identity, { id, peers: manifest.value.peerDependencies });
       installedExports.set(id, { exports: manifest.value.exports, files: extracted.value });
       return { ok: true, value: id };
@@ -480,10 +650,32 @@ export async function installManagedPack(input: InstallInput): Promise<Result<{ 
     const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
     const safeLock = await noLinkedComponents(lockPath);
     if (!safeLock.ok) return safeLock;
-    const contents = `${JSON.stringify({ schema: "bounded-packs-lock/1", boundedVersion: input.boundedVersion,
-      root: root.value, nodes }, null, 2)}\n`;
-    try { await (input.publishLock ?? atomicLock)(lockPath, contents); }
-    catch (error) { return refusal(`Cannot publish project lock: ${errorText(error)}`); }
+    const writer = await acquireProjectWriter(lockPath);
+    if (!writer.ok) return writer;
+    try {
+      let prior: PackLock | undefined;
+      if (existsSync(lockPath)) {
+        const verified = await verifyManagedPackLock(input);
+        if (!verified.ok) return verified;
+        prior = verified.value;
+        if (input.afterExistingLockVerified !== undefined) await input.afterExistingLockVerified(sha256(await readFile(lockPath)));
+      }
+      const roots: Record<string, string> = { ...prior?.roots, [request.value.name]: root.value };
+      const candidates: Record<string, LockNode> = { ...prior?.nodes, ...nodes };
+      const kept: Record<string, LockNode> = {};
+      const retain = (id: string): void => {
+        if (kept[id] !== undefined) return;
+        const node = candidates[id];
+        if (node === undefined) throw new Error(`Project pack root or dependency node ${id} is missing`);
+        kept[id] = node;
+        for (const childId of Object.values(node.dependencies)) retain(childId);
+      };
+      for (const id of Object.values(roots)) retain(id);
+      const contents = `${JSON.stringify({ schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion,
+        roots, nodes: kept }, null, 2)}\n`;
+      try { await (input.publishLock ?? atomicLock)(lockPath, contents); }
+      catch (error) { return refusal(`Cannot publish project lock: ${errorText(error)}`); }
+    } finally { await writer.value(); }
     return { ok: true, value: { lockPath } };
   } catch (error) { return refusal(`Cannot install ${input.request}: ${errorText(error)}`); }
 }
