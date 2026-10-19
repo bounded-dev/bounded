@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { catalogue, manifest, packageArchive, packageEntries, sha256, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
@@ -96,6 +96,11 @@ const filesUnder = (root: string): string[] => existsSync(root)
 const plainPackageEntries = (name: string, version: string, dependencies: Readonly<Record<string, string>> = {}): TarEntry[] => [
   { name: "package/package.json", body: JSON.stringify({ name, version, type: "module", exports: { ".": "./index.js" }, dependencies }) },
   { name: "package/index.js", body: `export const version = ${JSON.stringify(version)};\n` },
+];
+
+const plainPackageWithPeers = (name: string, version: string, peers: Readonly<Record<string, string>>): TarEntry[] => [
+  { name: "package/package.json", body: JSON.stringify({ name, version, type: "module", exports: { ".": "./index.js" }, peerDependencies: peers }) },
+  { name: "package/index.js", body: "export const value = 1;\n" },
 ];
 
 describe("managed published pack artifact, lock and store contract", () => {
@@ -207,6 +212,13 @@ describe("managed published pack artifact, lock and store contract", () => {
     }
   });
 
+  test("a null Node import condition blocks a later default target", async () => {
+    const entries = packageEntries({ ...manifest(), exports: { ".": { import: null, default: "./dist/index.js" } } });
+    const given = fixture([{ name: "bounded-example", version: "1.0.0", entries }]);
+    await refused(given.run, "export");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
   test("pins a complete dependency closure", async () => {
     const given = fixture([
       { name: "bounded-example", version: "1.0.0", dependencies: { "plain-helper": "1.0.0" } },
@@ -252,6 +264,59 @@ describe("managed published pack artifact, lock and store contract", () => {
     expect(parentA?.dependencies["plain-helper"]).not.toBe(parentB?.dependencies["plain-helper"]);
     expect(given.calls).toContain(tarUrl("plain-helper", "1.0.0"));
     expect(given.calls).toContain(tarUrl("plain-helper", "2.0.0"));
+  });
+
+  test("rejects a dependency peer missing from its consumer's resolved graph", async () => {
+    const given = fixture([
+      { name: "bounded-example", version: "1.0.0", dependencies: { "plain-helper": "1.0.0" } },
+      { name: "plain-helper", version: "1.0.0", peerDependencies: { react: "^18.0.0" }, entries: plainPackageWithPeers("plain-helper", "1.0.0", { react: "^18.0.0" }) },
+    ]);
+    await refused(given.run, "react");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
+  test("rejects an imported dependency subpath that the pinned package does not export", async () => {
+    const rootEntries = packageEntries({ ...manifest(), dependencies: { "plain-helper": "1.0.0" } }).map((entry) => entry.name === "package/dist/index.js"
+      ? { ...entry, body: 'import { version } from "plain-helper/missing"; export const refusedToolsPack = {};\n' }
+      : entry);
+    const given = fixture([
+      { name: "bounded-example", version: "1.0.0", dependencies: { "plain-helper": "1.0.0" }, entries: rootEntries },
+      { name: "plain-helper", version: "1.0.0", entries: plainPackageEntries("plain-helper", "1.0.0") },
+    ]);
+    await refused(given.run, "export");
+    expect(existsSync(given.lockPath)).toBe(false);
+  });
+
+  test("refuses linked store roots, linked digest entries and linked project lock directories", async () => {
+    const linkedRoot = fixture();
+    const outsideStore = join(linkedRoot.root, "outside-store");
+    mkdirSync(outsideStore);
+    symlinkSync(outsideStore, linkedRoot.storeRoot, "dir");
+    await refused(linkedRoot.run, "link");
+    expect(readdirSync(outsideStore)).toEqual([]);
+    expect(existsSync(linkedRoot.lockPath)).toBe(false);
+
+    const linkedDigest = fixture();
+    const first = await linkedDigest.run();
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const priorLock = readFileSync(linkedDigest.lockPath, "utf8");
+    const digest = (JSON.parse(priorLock) as { root: string }).root.split("#")[1];
+    expect(digest).toBeDefined();
+    if (digest === undefined) return;
+    const realStore = join(linkedDigest.root, "moved-store");
+    renameSync(join(linkedDigest.storeRoot, digest), realStore);
+    symlinkSync(realStore, join(linkedDigest.storeRoot, digest), "dir");
+    await refused(linkedDigest.run, "link");
+    expect(readFileSync(linkedDigest.lockPath, "utf8")).toBe(priorLock);
+
+    const linkedProject = fixture();
+    mkdirSync(linkedProject.projectRoot);
+    const outsideLock = join(linkedProject.root, "outside-lock");
+    mkdirSync(outsideLock);
+    symlinkSync(outsideLock, join(linkedProject.projectRoot, ".bounded"), "dir");
+    await refused(linkedProject.run, "link");
+    expect(readdirSync(outsideLock)).toEqual([]);
   });
 
   test("rejects an incompatible Bounded peer, nested Bounded dependency and missing closure node", async () => {
