@@ -21,12 +21,15 @@
 //
 // `bounded catalog build`, run in a package's directory, writes the package's
 // catalogue of its packs (ADR 2026-029) with the core's build-package-catalog
-// feature; bounded's own prepack runs it after building dist/.
+// feature; bounded's own prepack runs it after building dist/. It runs under bun
+// only (ADR 2026-032), and the bin's shebang names node, so under any other
+// runtime it refuses first, naming the command to run:
+// `bunx --bun bounded catalog build`.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FileSystemPackageCatalogFiles, FileSystemProjectSetupFiles, MarkedMarkdownSections, NodeModulesHostInstallerSource, NodePackModules, TypeScriptPackSourceApi } from "bounded/adapters";
+import { FileSystemPackageCatalogFiles, FileSystemProjectSetupFiles, MarkedMarkdownSections, NodeModulesHostInstallerSource, BunPackModules, TypeScriptPackSourceApi } from "bounded/adapters";
 import {
   BuildPackageCatalogCommand,
   BuildPackageCatalogHandler,
@@ -89,7 +92,8 @@ export const USAGE = `Usage:
   bounded update --no-upgrade                        refresh the hooks of the hosts found to point at the installed version
   bounded catalog build                              in a package's directory: write its catalogue of the packs its package.json lists
                                                      in bounded.packs, where bounded.catalog says (needs typescript,
-                                                     ts-json-schema-generator and marked installed in the package)
+                                                     ts-json-schema-generator and marked installed in the package);
+                                                     runs under bun: bunx --bun bounded catalog build
 `;
 
 /** The hosts bounded carries an adapter for, found by their directory in the project. */
@@ -446,12 +450,13 @@ function initOptions(projectRoot: string, options: readonly string[]): { noInsta
 /**
  * `bounded catalog build`, run in a package's directory: builds the package's
  * catalogue of its packs and writes it (ADR 2026-029), or says why not and
- * writes nothing.
+ * writes nothing. Under any runtime but bun it refuses first (ADR 2026-032).
  */
 async function buildCatalog(packageDir: string): Promise<CliRun> {
+  if (process.versions.bun === undefined) return refused(`bounded catalog build runs under bun, and this is ${process.versions.node === undefined ? "a runtime other than bun" : `Node ${process.version}`}: run it with bunx --bun bounded catalog build`);
   const command = BuildPackageCatalogCommand.parse({ packageDir });
   if (!command.ok) return refused(command.error);
-  const built = await new BuildPackageCatalogHandler(new FileSystemPackageCatalogFiles(), new NodePackModules(), new TypeScriptPackSourceApi(), new MarkedMarkdownSections()).execute(command.value);
+  const built = await new BuildPackageCatalogHandler(new FileSystemPackageCatalogFiles(), new BunPackModules(), new TypeScriptPackSourceApi(), new MarkedMarkdownSections()).execute(command.value);
   if (!built.ok) return refused(built.error);
   const ids = built.value.catalog.packs.map(({ id }) => id);
   return { exitCode: 0, stdout: `Wrote ${built.value.path}: ${ids.length} ${ids.length === 1 ? "pack" : "packs"} (${ids.join(", ")})

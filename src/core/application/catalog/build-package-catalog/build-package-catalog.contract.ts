@@ -65,15 +65,17 @@ export interface ModuleExport {
 }
 
 /**
- * The modules a package's export paths name, loaded as Node loads them.
- * @implementedBy NodePackModules
+ * The modules a package's export paths name: the JavaScript each export path's
+ * entry names for `default`, `require` or `node`, loaded by the runtime the
+ * build runs in.
+ * @implementedBy BunPackModules
  */
 export interface PackModules {
   /**
    * Every export of the module an export path of the package (`./prereqs`,
    * or `.` for the package root) names. Refuses an export path its package.json does not list, and one
    * whose entry has no `default`, `require` or `node` target, before
-   * resolving it, so it refuses alike under every runtime.
+   * reading anything else, and one whose target does not exist.
    */
   load(packageDir: string, exportPath: string): Promise<Result<readonly ModuleExport[]>>;
   /**

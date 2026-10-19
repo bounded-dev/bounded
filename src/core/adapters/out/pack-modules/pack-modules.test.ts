@@ -38,6 +38,20 @@ describe("BunPackModules", () => {
     expect(underNode.loadDefaultExport.error).toContain("under bun");
   });
 
+  test("refuses a default target outside the package, naming it", async () => {
+    const packageDir = await packageWith({ default: "../elsewhere/index.js" });
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok).toBe(false);
+    expect(!loaded.ok && loaded.error).toContain("../elsewhere/index.js");
+    expect(!loaded.ok && loaded.error).toContain("not a file in the package");
+  });
+
+  test("takes the first of default, require or node in written order, never bun or import", async () => {
+    const packageDir = await packageWith({ bun: "./packs/demo/missing.ts", import: "./missing.js", node: { require: "./dist/demo/index.js" }, default: "./missing.js" });
+    const loaded = await new BunPackModules().load(packageDir, "./demo");
+    expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+  });
+
   test("refuses an import-only entry, saying to add a default condition, in full", async () => {
     const packageDir = await packageWith({ import: "./dist/demo/index.js" });
     const loaded = await new BunPackModules().load(packageDir, "./demo");

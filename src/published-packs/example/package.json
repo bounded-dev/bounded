@@ -17,7 +17,7 @@
   },
   "type": "module",
   "scripts": {
-    "prepack": "bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build"
+    "prepack": "bun ../../build-published-pack.ts && bun ../../dist/cli.js catalog build"
   },
   "files": [
     "dist",
