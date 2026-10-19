@@ -59,7 +59,8 @@ test("macOS workflow signs before packaging, notarizes the exact ZIP and attests
   const sign = workflow.indexOf("codesign");
   const packageSigned = workflow.indexOf("--package-signed");
   const notarize = workflow.indexOf("notarytool");
-  const attest = workflow.indexOf("actions/attest");
+  // The prepare job attests its feasibility probe first; the native job attests after notarization.
+  const attest = workflow.lastIndexOf("actions/attest");
   expect(sign).toBeGreaterThan(-1);
   expect(packageSigned).toBeGreaterThan(sign);
   expect(notarize).toBeGreaterThan(packageSigned);

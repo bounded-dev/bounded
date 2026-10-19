@@ -1,0 +1,10 @@
+{
+  "schema": "bounded-release-targets/1",
+  "version": "3.3.0",
+  "targets": [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-x64-gnu",
+    "windows-x64"
+  ]
+}

@@ -3,12 +3,11 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSy
 import { join } from "node:path";
 import { readReleaseManifest, verifyReleaseArchive, type ReleaseManifest, type ReleaseTarget } from "./cli/release-manifest.ts";
 import { installerScripts } from "./release-install-scripts.ts";
+import { readDeclaredReleaseTargets } from "./release-targets.ts";
 
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
-const targetIds = [
-  "darwin-arm64", "darwin-x64", "linux-arm64-gnu", "linux-arm64-musl",
-  "linux-x64-gnu", "linux-x64-musl", "windows-arm64", "windows-x64",
-];
+const repository = "bounded-dev/bounded";
+const signerWorkflow = `${repository}/.github/workflows/release.yml`;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 interface Job {
@@ -16,6 +15,57 @@ interface Job {
   readonly target: ReleaseTarget;
   readonly manifest: ReleaseManifest;
   readonly archivePath: string;
+}
+
+export interface VerifiedAttestation {
+  readonly subjectSha256: string;
+  readonly repository: string;
+  readonly signerWorkflow: string;
+  readonly sourceCommit: string;
+  readonly sourceRef: string;
+  readonly certificate: { readonly runInvocationURI?: string };
+}
+
+export interface AssemblyVerification {
+  readonly declaredTargetIds: readonly string[];
+  readonly expectedRunInvocationURI: string;
+  readonly verifyAttestation: (archivePath: string, targetId: string) => Promise<readonly VerifiedAttestation[]>;
+}
+
+const record = (value: unknown): Record<string, unknown> | undefined => isRecord(value) ? value : undefined;
+const nested = (value: unknown, ...keys: readonly string[]): unknown => keys.reduce<unknown>((parent, key) => Array.isArray(parent) ? parent[Number(key)] : record(parent)?.[key], value);
+
+async function verifyGithubAttestation(archivePath: string, _targetId: string, commit: string, version: string): Promise<readonly VerifiedAttestation[]> {
+  const command = ["gh", "attestation", "verify", archivePath, "--repo", repository, "--signer-workflow", signerWorkflow,
+    "--source-digest", commit, "--source-ref", `refs/tags/v${version}`, "--deny-self-hosted-runners", "--format", "json"];
+  const result = Bun.spawnSync(command, { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(`verified attestation unavailable: ${result.stderr.toString()}`);
+  let parsed: unknown;
+  try { parsed = JSON.parse(result.stdout.toString()); } catch { throw new Error("verified attestation output is malformed"); }
+  if (!Array.isArray(parsed)) throw new Error("verified attestation output is malformed");
+  return parsed.map((entry: unknown): VerifiedAttestation => {
+    const digest = nested(entry, "verificationResult", "statement", "subject", "0", "digest", "sha256");
+    const certificate = nested(entry, "verificationResult", "signature", "certificate");
+    const runInvocationURI = record(certificate)?.runInvocationURI;
+    if (typeof digest !== "string" || typeof runInvocationURI !== "string") throw new Error("verified attestation certificate or subject is missing");
+    return { subjectSha256: digest, repository, signerWorkflow, sourceCommit: commit, sourceRef: `refs/tags/v${version}`, certificate: { runInvocationURI } };
+  });
+}
+
+function productionVerification(version: string, commit: string, declaredTargetIds: readonly string[]): AssemblyVerification {
+  const runId = process.env.GITHUB_RUN_ID;
+  const runAttempt = process.env.GITHUB_RUN_ATTEMPT;
+  const sha = process.env.GITHUB_SHA;
+  const ref = process.env.GITHUB_REF;
+  const repo = process.env.GITHUB_REPOSITORY;
+  if (!runId || !/^\d+$/.test(runId) || !runAttempt || !/^\d+$/.test(runAttempt) || sha !== commit || ref !== `refs/tags/v${version}` || repo !== repository) {
+    throw new Error("verified attestation requires the protected release workflow run identity");
+  }
+  return {
+    declaredTargetIds,
+    expectedRunInvocationURI: `https://github.com/${repository}/actions/runs/${runId}/attempts/${runAttempt}`,
+    verifyAttestation: (archivePath, targetId) => verifyGithubAttestation(archivePath, targetId, commit, version),
+  };
 }
 
 async function readJob(directory: string): Promise<Job> {
@@ -54,7 +104,7 @@ async function readJob(directory: string): Promise<Job> {
   return { targetId, target, manifest, archivePath };
 }
 
-export async function assembleRelease(inputDirectories: readonly string[], outputDirectory: string): Promise<void> {
+export async function assembleRelease(inputDirectories: readonly string[], outputDirectory: string, injectedVerification?: AssemblyVerification): Promise<void> {
   if (inputDirectories.length === 0) throw new Error("release assembly requires at least one native job");
   const jobs: Job[] = [];
   for (const inputDirectory of inputDirectories) jobs.push(await readJob(inputDirectory));
@@ -68,8 +118,21 @@ export async function assembleRelease(inputDirectories: readonly string[], outpu
       throw new Error("native jobs have mismatched release identity or channel");
     }
   }
+  const declared = injectedVerification?.declaredTargetIds ?? readDeclaredReleaseTargets(first.manifest.version);
+  if (declared.length === 0 || new Set(declared).size !== declared.length) throw new Error("release requires a nonempty unique declared target set");
+  for (const targetId of declared) if (!seen.has(targetId)) throw new Error(`missing declared release target ${targetId}`);
+  for (const targetId of seen) if (!declared.includes(targetId)) throw new Error(`extra undeclared release target ${targetId}`);
+  const verification = injectedVerification ?? productionVerification(first.manifest.version, first.manifest.sourceCommit, declared);
+  for (const job of jobs) {
+    const claims = await verification.verifyAttestation(job.archivePath, job.targetId);
+    if (claims.length !== 1) throw new Error(`verified attestation for ${job.targetId} is missing or ambiguous`);
+    const claim = claims[0];
+    if (claim === undefined || claim.subjectSha256 !== job.target.archive.sha256 || claim.repository !== repository || claim.signerWorkflow !== signerWorkflow || claim.sourceCommit !== job.manifest.sourceCommit || claim.sourceRef !== `refs/tags/v${job.manifest.version}` || claim.certificate?.runInvocationURI !== verification.expectedRunInvocationURI) {
+      throw new Error(`verified attestation provenance or certificate identity mismatch for ${job.targetId}`);
+    }
+  }
   const targets: Record<string, ReleaseTarget> = {};
-  for (const targetId of targetIds) {
+  for (const targetId of declared) {
     const job = jobs.find((candidate) => candidate.targetId === targetId);
     if (job !== undefined) targets[targetId] = job.target;
   }
