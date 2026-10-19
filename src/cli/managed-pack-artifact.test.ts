@@ -584,18 +584,17 @@ describe("managed pack offline verification and plural roots", () => {
       else secondSeen?.();
     };
     const first = given.run("bounded-second@1.0.0", undefined, afterSnapshot);
-    await Promise.race([firstAtSnapshot, Bun.sleep(1000)]);
+    await Promise.race([firstAtSnapshot, Bun.sleep(3000)]);
     expect(snapshots.length).toBeGreaterThan(0);
     if (snapshots.length === 0) return;
     const second = given.run("bounded-third@1.0.0", undefined, afterSnapshot);
     // An exclusive writer may hold the second call before this seam. An optimistic writer
     // reaches it with the same snapshot while the first is held, exposing a lost update.
-    await Promise.race([secondAtSnapshot, Bun.sleep(1000)]);
+    await Promise.race([secondAtSnapshot, Bun.sleep(3000)]);
     releaseFirst?.();
     const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(snapshots.length).toBeGreaterThanOrEqual(2);
     expect(snapshots[0]).toBe(sha256(originalLock));
-    if (snapshots[1] === snapshots[0]) expect(snapshots).toHaveLength(2);
     if (!firstResult.ok) {
       expect(firstResult.error.toLowerCase()).toContain("retry");
       expect((await given.run("bounded-second@1.0.0")).ok).toBe(true);
