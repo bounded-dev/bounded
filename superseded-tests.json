@@ -6664,5 +6664,14 @@
       "case": "pin root precedence, strict shape, one-hop and missing targets fail closed"
     },
     "reason": "a real nearest .bounded directory without version.json is an unpinned project boundary: it stops ancestor search and runs the active binary, while a malformed present pin or linked boundary still refuses"
+  },
+  {
+    "file": "src/test/architecture.test.ts",
+    "case": "architecture > an app's test file may import its devDependencies; its other files may not",
+    "successor": {
+      "file": "src/test/architecture.test.ts",
+      "case": "architecture > the CLI bridge imports its declared reader dependency; devDependencies remain test-only"
+    },
+    "reason": "the standalone CLI now uses the shell command reader bridge in production, so bounded-cli must declare the reader as a dependency; the successor also retains the test-only devDependency rule"
   }
 ]

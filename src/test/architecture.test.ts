@@ -694,9 +694,9 @@ violations.push(...valueObjectImplementationViolations(contextSources));
  * time, ADR 2026-016). An app's tests may import its devDependencies too; its
  * other files may not.
  */
-function appImportViolations(path: string, text: string): string[] {
+function appImportViolations(path: string, text: string, appContexts: readonly Context[] = apps): string[] {
   const unit = placedUnitOf(path);
-  const app = unit?.kind === "app" ? apps.find((a) => a.dir === unit.packageDir) : undefined;
+  const app = unit?.kind === "app" ? appContexts.find((a) => a.dir === unit.packageDir) : undefined;
   if (app === undefined) return [`${path} — every app file sits in an app's directory (src/hosts/<name> or src/cli) with a package.json`];
   const isTest = /\.test(-support)?\.ts$/.test(path);
   const out: string[] = [];
@@ -709,7 +709,7 @@ function appImportViolations(path: string, text: string): string[] {
       continue;
     }
     const isPackage = (name: string): boolean => spec === name || spec.startsWith(`${name}/`);
-    const otherApp = apps.find((a) => isPackage(a.name));
+    const otherApp = appContexts.find((a) => isPackage(a.name));
     if (otherApp !== undefined) {
       out.push(`${at} — an app never imports an app`);
       continue;
@@ -937,11 +937,16 @@ describe("architecture", () => {
     ]);
   });
 
-  test("an app's test file may import its devDependencies; its other files may not", () => {
+  test("the CLI bridge imports its declared reader dependency; devDependencies remain test-only", () => {
     const reader = 'import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";\n';
-    expect(apps.find((app) => app.name === "bounded-cli")?.devDependencies).toContain("bounded-shell-command-reader");
-    expect(appImportViolations("src/cli/x.test.ts", reader)).toEqual([]);
-    expect(appImportViolations("src/cli/x.ts", reader)).toEqual([
+    const cli = apps.find((app) => app.name === "bounded-cli");
+    if (cli === undefined) throw new Error("bounded-cli app is missing");
+    expect(cli.dependencies).toContain("bounded-shell-command-reader");
+    expect(appImportViolations("src/cli/x.ts", reader)).toEqual([]);
+
+    const devOnlyReader: Context = { ...cli, dependencies: cli.dependencies.filter((name) => name !== "bounded-shell-command-reader"), devDependencies: [...cli.devDependencies, "bounded-shell-command-reader"] };
+    expect(appImportViolations("src/cli/x.test.ts", reader, [devOnlyReader])).toEqual([]);
+    expect(appImportViolations("src/cli/x.ts", reader, [devOnlyReader])).toEqual([
       'src/cli/x.ts:1 imports "bounded-shell-command-reader/adapters" — bounded-cli does not declare bounded-shell-command-reader as a dependency (devDependencies serve its tests only)',
     ]);
   });
@@ -1421,7 +1426,7 @@ describe("architecture", () => {
       .filter((path) => path.startsWith("src/"))
       .map((path) => path.slice("src/".length));
     expect([...new Set(underSrc.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))].sort()).toEqual(["cli", "core", "hosts", "lib", "packs", "published-packs", "test"]);
-    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "build-release.ts", "package.json", "release-assembly.ts", "release-install-scripts.ts", "standalone-main.ts", "tsconfig.types.json"]);
+    expect(underSrc.filter((path) => !path.includes("/")).sort()).toEqual(["LICENSE", "README.md", "build-dist.ts", "build-published-pack.ts", "build-release.ts", "package.json", "release-assembly.ts", "release-install-scripts.ts", "standalone-dispatch.ts", "standalone-installed-release.ts", "standalone-main.ts", "standalone-runtime.ts", "tsconfig.types.json"]);
   });
 
   test("the workspaces are bounded (src), its libraries, the hosts, the cli and the published packs, under a private root", async () => {
