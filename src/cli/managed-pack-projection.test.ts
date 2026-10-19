@@ -30,7 +30,7 @@ type Add = (input: Input) => Promise<Result<{ readonly lockPath: string; readonl
 type Prepare = (input: Input) => Promise<Result<{ readonly lock: { readonly roots: Readonly<Record<string, string>> } }>>;
 const prepare = (projectionModule as unknown as { readonly prepareManagedPackAddition: Prepare }).prepareManagedPackAddition;
 type Verify = (input: Pick<Input, "boundedVersion" | "boundedExportPaths" | "projectRoot" | "storeRoot" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">) => Promise<Result<unknown>>;
-type Recover = Verify;
+type Recover = (input: Parameters<Verify>[0] & { readonly faultAfterRecoveryStep?: string }) => ReturnType<Verify>;
 // The production API is intentionally absent at the red commit. The casts keep the contract test-only.
 const add = (projectionModule as unknown as { readonly addManagedPackWithProjection: Add }).addManagedPackWithProjection;
 const verify = (projectionModule as unknown as { readonly verifyManagedPackProjection: Verify }).verifyManagedPackProjection;
@@ -98,7 +98,7 @@ function fixture(published: readonly Published[] = [pack("bounded-example")]) {
   const run = (request = "bounded-example@1.0.0", options: Pick<Input, "faultAfter" | "afterExistingStateVerified"> = {}) =>
     add({ ...base, request, registryUrl: registry, get, ...options });
   const check = () => verify(base);
-  const restart = () => recover(base);
+  const restart = (faultAfterRecoveryStep?: string) => recover({ ...base, ...(faultAfterRecoveryStep === undefined ? {} : { faultAfterRecoveryStep }) });
   return { root, projectRoot, storeRoot, releaseTypesRoot, releaseTypeFilesFromVerifiedManifest, get, run, check, restart, calls,
     lockPath: join(projectRoot, ".bounded", "packs.lock.json"),
     receiptPath: join(projectRoot, ".bounded", "types-receipt.json"),
@@ -390,6 +390,23 @@ describe("managed pack type-only projection and publication", () => {
       expect(readFileSync(given.lockPath)).toEqual(activeBefore);
       expect(existsSync(given.journalPath)).toBe(true);
     }
+  });
+
+  test("a second restart retries recovery after a crash during staged restoration", async () => {
+    const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+    expect((await given.run()).ok).toBe(true);
+    const oldLock = readFileSync(given.lockPath);
+    const oldReceipt = readFileSync(given.receiptPath);
+    const oldProjection = snapshot(join(given.projectRoot, "node_modules"));
+    await given.run("bounded-second@1.0.0", { faultAfter: "publish-b" });
+    await refused(() => given.restart("stage-restore"), "injected");
+    expect(existsSync(given.journalPath)).toBe(true);
+    const recovered = await given.restart();
+    expect(recovered.ok).toBe(true);
+    expect(readFileSync(given.lockPath)).toEqual(oldLock);
+    expect(readFileSync(given.receiptPath)).toEqual(oldReceipt);
+    expect(snapshot(join(given.projectRoot, "node_modules"))).toEqual(oldProjection);
+    expect((await given.check()).ok).toBe(true);
   });
 
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
