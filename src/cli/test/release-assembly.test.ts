@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -27,7 +27,7 @@ type VerifiedAttestation = {
 type AssemblyVerification = {
   readonly declaredTargetIds: readonly string[];
   readonly expectedRunInvocationURI: string;
-  readonly verifyAttestation: (archivePath: string, targetId: string) => Promise<VerifiedAttestation>;
+  readonly verifyAttestation: (archivePath: string, targetId: string) => Promise<readonly VerifiedAttestation[]>;
 };
 const assembleVerified = releaseAssembly.assembleRelease as unknown as (inputs: readonly string[], out: string, verification: AssemblyVerification) => Promise<void>;
 const verifiedClaim = (digest: string, changes: Partial<VerifiedAttestation> = {}): VerifiedAttestation => ({
@@ -124,7 +124,7 @@ test("assembly combines exactly the declared attested native jobs in target orde
       declaredTargetIds: ["linux-arm64-gnu", "windows-arm64"], expectedRunInvocationURI: EXPECTED_RUN,
       verifyAttestation: async (archivePath, targetId) => {
         verifiedTargets.push(targetId);
-        return verifiedClaim(sha256(readFileSync(archivePath)));
+        return [verifiedClaim(sha256(readFileSync(archivePath)))];
       },
     };
     await assembleVerified([join(scratch, "windows"), join(scratch, "linux")], first, verification);
@@ -169,7 +169,7 @@ test("assembly binds the exact nonempty version declaration, rejecting missing a
       const out = join(scratch, `out-${declaredTargetIds.length}-${inputs.length}`);
       await expect(assembleVerified(inputs, out, {
         declaredTargetIds, expectedRunInvocationURI: EXPECTED_RUN,
-        verifyAttestation: async (archivePath) => verifiedClaim(sha256(readFileSync(archivePath))),
+        verifyAttestation: async (archivePath) => [verifiedClaim(sha256(readFileSync(archivePath)))],
       })).rejects.toThrow(reason);
       expect(outputIsEmpty(out)).toBe(true);
     }
@@ -198,7 +198,7 @@ test("assembly rejects claims with the wrong certificate run, attempt, subject, 
       const out = join(scratch, `out-${name.replaceAll(" ", "-")}`);
       await expect(assembleVerified([input], out, {
         declaredTargetIds: ["linux-arm64-gnu"], expectedRunInvocationURI: EXPECTED_RUN,
-        verifyAttestation: async () => claim,
+        verifyAttestation: async () => [claim],
       })).rejects.toThrow(/attestation|provenance|certificate|identity|digest|source|workflow/i);
       expect(outputIsEmpty(out)).toBe(true);
     }
@@ -218,9 +218,26 @@ test("two structurally valid declared jobs still fail when only one has verified
       declaredTargetIds: ["linux-arm64-gnu", "windows-arm64"], expectedRunInvocationURI: EXPECTED_RUN,
       verifyAttestation: async (archivePath, targetId) => {
         if (targetId === "windows-arm64") throw new Error("no verified attestation for windows-arm64");
-        return verifiedClaim(sha256(readFileSync(archivePath)));
+        return [verifiedClaim(sha256(readFileSync(archivePath)))];
       },
     })).rejects.toThrow(/attestation|provenance/i);
+    expect(outputIsEmpty(out)).toBe(true);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("assembly refuses multiple acceptable verified attestations for one archive", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-assembly-ambiguous-"));
+  try {
+    const input = join(scratch, "input");
+    const { archiveBytes } = await nativeJob(input, "linux-arm64-gnu", VERSION);
+    const claim = verifiedClaim(sha256(archiveBytes));
+    const out = join(scratch, "out");
+    await expect(assembleVerified([input], out, {
+      declaredTargetIds: ["linux-arm64-gnu"], expectedRunInvocationURI: EXPECTED_RUN,
+      verifyAttestation: async () => [claim, claim],
+    })).rejects.toThrow(/ambiguous|multiple|attestation/i);
     expect(outputIsEmpty(out)).toBe(true);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -323,6 +340,37 @@ test("production assembly refuses a complete declared subset with only self-writ
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr?.toString()).toMatch(/provenance|attestation|verified/i);
     expect(outputIsEmpty(output)).toBe(true);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("production assembly refuses missing and extra jobs against its version target declaration", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-assembly-cli-targets-"));
+  try {
+    const checkout = join(scratch, "checkout");
+    const cloned = Bun.spawnSync(["git", "clone", "--local", "--no-hardlinks", "--quiet", REPO, checkout], { stdout: "pipe", stderr: "pipe" });
+    expect(cloned.exitCode).toBe(0);
+    cpSync(join(REPO, "node_modules"), join(checkout, "node_modules"), { recursive: true });
+    writeFileSync(join(checkout, "src", "release-targets.json"), `${JSON.stringify({
+      schema: "bounded-release-targets/1", version: VERSION, targets: ["linux-arm64-gnu"],
+    })}\n`);
+    const declared = join(scratch, "declared");
+    const undeclared = join(scratch, "undeclared");
+    await nativeJob(declared, "linux-arm64-gnu", VERSION);
+    await nativeJob(undeclared, "windows-arm64", VERSION);
+    for (const [name, inputs, reason] of [
+      ["missing", [undeclared], /missing|declared.*linux-arm64-gnu/i],
+      ["extra", [declared, undeclared], /extra|undeclared.*windows-arm64/i],
+    ] as const) {
+      const out = join(scratch, name);
+      const result = Bun.spawnSync([process.execPath, join(checkout, "src", "build-release.ts"), "--assemble", ...inputs.flatMap((input) => ["--input", input]), "--out", out], {
+        cwd: checkout, stdout: "pipe", stderr: "pipe",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr?.toString()).toMatch(reason);
+      expect(outputIsEmpty(out)).toBe(true);
+    }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
