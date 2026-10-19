@@ -409,6 +409,23 @@ describe("managed pack type-only projection and publication", () => {
     expect((await given.check()).ok).toBe(true);
   });
 
+  test("a restart retries after active projection is renamed away during recovery", async () => {
+    for (const cut of ["rename-active", "restore-old"]) {
+      const given = fixture([pack("bounded-example"), pack("bounded-second")]);
+      expect((await given.run()).ok).toBe(true);
+      const oldLock = readFileSync(given.lockPath);
+      const oldReceipt = readFileSync(given.receiptPath);
+      const oldProjection = snapshot(join(given.projectRoot, "node_modules"));
+      await given.run("bounded-second@1.0.0", { faultAfter: "publish-b" });
+      await refused(() => given.restart(cut), "injected");
+      expect(existsSync(given.journalPath)).toBe(true);
+      expect((await given.restart()).ok).toBe(true);
+      expect(readFileSync(given.lockPath)).toEqual(oldLock);
+      expect(readFileSync(given.receiptPath)).toEqual(oldReceipt);
+      expect(snapshot(join(given.projectRoot, "node_modules"))).toEqual(oldProjection);
+    }
+  });
+
   test("one shared writer serializes preparation and publication without stale writer or lost roots", async () => {
     const given = fixture([pack("bounded-example"), pack("bounded-second"), pack("bounded-third")]);
     expect((await given.run()).ok).toBe(true);
