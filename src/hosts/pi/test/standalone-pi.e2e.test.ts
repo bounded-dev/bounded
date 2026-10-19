@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { verifyReleaseArchive } from "../../../cli/release-manifest.ts";
@@ -160,4 +160,58 @@ console.log(JSON.stringify({ first, second }));`);
   expect(answer.first?.block).not.toBe(true);
   expect(answer.second?.block).toBe(true);
   expect(answer.second?.reason).toMatch(/changed|restart|snapshot/i);
+}, 240_000);
+
+test("Pi result is paired with its accepted call snapshot and warns when after-tool checking cannot run", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const call = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "paired-call", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.appendFileSync("bounded.config.ts", "\\n// changed after call\\n");
+const patch = await handlers.get("tool_result")({ type: "tool_result", toolCallId: "paired-call", toolName: "read", input: { path: "main.py" }, content: [{ type: "text", text: "done" }], isError: false }, { cwd: process.cwd() });
+console.log(JSON.stringify({ call, patch }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { call?: { block?: boolean }; patch?: { isError?: boolean; content?: { text?: string }[] } };
+  expect(answer.call?.block).not.toBe(true);
+  expect(answer.patch?.isError).toBe(true);
+  expect(JSON.stringify(answer.patch?.content)).toMatch(/changed|snapshot|after.tool/i);
+}, 240_000);
+
+test("Pi bridge notices newly pending managed projection state before another call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.writeFileSync(".bounded/types-journal.json", "{pending}");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "after", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/projection|journal|restart|changed/i);
+}, 240_000);
+
+test("real Pi loader registers a blocking handler even when the installed executable is missing", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const missing = `${archive.executable}.missing`;
+  renameSync(archive.executable, missing);
+  try {
+    const result = invokeUnderPi(root, `
+const events = [...handlers.keys()];
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "missing", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ events, answer }));`);
+    expect(result.code).toBe(0);
+    const answer = JSON.parse(result.stdout.trim()) as { events: string[]; answer?: { block?: boolean; reason?: string } };
+    expect(answer.events).toContain("tool_call");
+    expect(answer.answer?.block).toBe(true);
+    expect(answer.answer?.reason).toMatch(/executable|install|restart/i);
+    expect(existsSync(archive.managerLog)).toBe(false);
+  } finally { renameSync(missing, archive.executable); }
 }, 240_000);
