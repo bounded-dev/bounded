@@ -8,7 +8,9 @@ on their own; bounded's build is unchanged) and
 [ADR 2026-024](2026-024-src-layout.md) (`src/` gains `published-packs/` and
 `build-published-pack.ts`; the unit model gains a published pack and a
 published pack's package's `test/`; the workspaces gain
-`src/published-packs/*`).
+`src/published-packs/*`). Amended by
+[ADR 2026-032](2026-032-catalogue-build-on-bun.md): a package's prepack
+runs the catalogue build with bun.
 
 ## Context
 
@@ -117,8 +119,8 @@ installs such a copy and sees it refused.
   declarations exist ("bounded's declarations are not built
   (src/dist/types is missing): build bounded first with bun
   src/build-dist.ts"). bounded's own build and its refusals are unchanged.
-- A package's prepack is `bun ../../build-published-pack.ts && node
-  ../../dist/cli.js catalog build`, mirroring bounded's: it runs this
+- A package's prepack is `bun ../../build-published-pack.ts && bun
+  ../../dist/cli.js catalog build` (under bun, ADR 2026-032), mirroring bounded's: it runs this
   checkout's built CLI, and applies ADR 2026-029's README and example rules
   at pack time. Each package carries its own catalogue (the `bounded` field,
   the `bounded-pack` keyword, the generated, gitignored

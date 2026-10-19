@@ -13,7 +13,10 @@ scenarios file without its example, scenarios that do not parse, a TSDoc
 that runs past its purpose and a README whose Examples section does not
 name both files) and [ADR 2026-030](2026-030-published-packs.md) (a
 published pack's package runs its scenarios in its own
-`test/example-scenarios.test.ts`).
+`test/example-scenarios.test.ts`). Amended by
+[ADR 2026-032](2026-032-catalogue-build-on-bun.md): the catalogue build
+runs under bun, which loads scenarios files anywhere, `node_modules`
+included.
 
 ## Context
 
@@ -260,14 +263,16 @@ The per-example cases of `pack-examples.test.ts` are recorded as
 superseded: the completeness case by R7's sibling rule, the five
 per-example cases by their scenarios files, with no successor case.
 
-### Loading under Node is transitional
+### Loading scenarios
 
-The catalogue build runs under Node (`node dist/cli.js catalog build`, in
-bounded's prepack and in each published package's) and loads a
-`<slug>.scenarios.ts` with a plain `import()`, through Node's TypeScript
-type stripping. This is a Node dependency and it is transitional: the
-maintainer is moving to a bundled bun binary, which loads TypeScript
-natively. A throwaway spike before the red commit recorded:
+The catalogue build loads a `<slug>.scenarios.ts` with a plain `import()`.
+It first ran under Node (`node dist/cli.js catalog build`), through Node's
+TypeScript type stripping, which a throwaway spike found working on Node 24
+and 26, untested on Node 22.18 and refused under `node_modules`. Since
+[ADR 2026-032](2026-032-catalogue-build-on-bun.md) it runs under bun
+(`bun dist/cli.js catalog build` in bounded's prepack and in each published
+package's), which loads TypeScript natively, `node_modules` included, and
+refuses under Node. The spike, kept as history, recorded:
 
 - Node v24.18.1 (and v26.5.0): in `src/` and in `src/published-packs/example/`
   the build loads every scenarios file, exits 0, and writes nothing on

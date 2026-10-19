@@ -35,9 +35,9 @@ Its code reaches `bounded` through `bounded/domain` only, its own files by
 relative path, and libraries its `package.json` declares; nothing outside
 the package imports it. Each export has `bun`, `types` and `default`
 conditions, and the package's prepack is
-`bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build`:
+`bun ../../build-published-pack.ts && bun ../../dist/cli.js catalog build`:
 the repository's shared build, then this checkout's built CLI. A package
-outside this repository runs `bounded catalog build` instead (see the
+outside this repository runs `bunx --bun bounded catalog build` instead (see the
 package catalogue, below). `src/published-packs/example/` (`bounded-example`,
 a private fixture) is a worked example.
 
@@ -182,7 +182,7 @@ export default defineExampleScenarios({
   filter and execute `cwd` (null for none) and the project files (`{}` for
   none); leave out what it writes as null.
 - A scenarios file imports only `bounded/domain`, and nothing imports it.
-  The tests load it as the catalogue build does (`NodePackModules`'
+  The tests load it as the catalogue build does (`BunPackModules`'
   `loadDefaultExport`) and run it with `runExampleScenarios` from
   `bounded/testing/example-scenarios`: give it the example's absolute path,
   the scenarios, `linkedPackages` (each package the example imports other
@@ -219,9 +219,10 @@ an Examples section that does not name both files of each example, a
 contract that disagrees with the pack object, or a missing library is
 refused, and nothing is written. It stores the scenarios; it does not run
 them, so a catalogue shows checked verdicts only when the package's tests
-run them. It loads each scenarios file under Node, which strips its types
-(tested on Node 24 and 26; Node 22.18, the engines floor, is untested for
-it; never a file under `node_modules`, where Node refuses).
+run them. It runs under bun only and refuses under Node
+([ADR 2026-032](adr/2026-032-catalogue-build-on-bun.md)): run it as
+`bunx --bun bounded catalog build`. It loads each scenarios file as bun
+does, TypeScript anywhere, under `node_modules` too.
 
 - **package.json.** List each export path that exports a pack, with the
   pack's source directory, in the `bounded` field, list the catalogue in
@@ -231,7 +232,7 @@ it; never a file under `node_modules`, where Node refuses).
   {
     "keywords": ["bounded-pack"],
     "files": ["dist", "packs", "bounded.catalog.json"],
-    "scripts": { "prepack": "<your build> && bounded catalog build" },
+    "scripts": { "prepack": "<your build> && bunx --bun bounded catalog build" },
     "bounded": { "catalog": "./bounded.catalog.json", "packs": { "./my-pack": "packs/my-pack" } }
   }
   ```
@@ -239,12 +240,14 @@ it; never a file under `node_modules`, where Node refuses).
   A pack exported from the package root is listed as `"."`. Each listed
   export path exports exactly one pack, whose id is rooted at
   the package's name (`packIdsFor("<package name>")`).
-- **The export-entry rule.** The build loads each pack under Node, through
-  the package's own export path. Its entry must have a `default`, `require`
+- **The export-entry rule.** The build loads, under bun, the JavaScript
+  each export's entry names for Node (`default`, `require` or `node`), as
+  hosts load it, never a `bun` source. Its entry must have a `default`, `require`
   or `node` target naming JavaScript (`{ "./my-pack": { "types": "…", "default": "./dist/my-pack/index.js" } }`);
   an entry with only `import` is refused, asking for a `default`
   condition. A package with no `exports` may list its root, `.`, which
-  loads through `main`. Build the package first.
+  loads through `main`. Build the package first: a target that does not
+  exist is refused.
 - **The libraries.** Install `typescript` (major 5), `ts-json-schema-generator`
   and `marked` as devDependencies of the package: the build resolves them
   from it and refuses, naming the one missing. The generator must share the

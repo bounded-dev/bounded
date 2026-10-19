@@ -35,9 +35,10 @@ an outward action (AGENTS.md).
    test (`npx bounded init` and `npx bounded update --from` from the
    tarball, with bun and with npm without bun).
 3. **Dry-run first.** In `src`, run `bun publish --dry-run`. Its
-   prepack (`bun build-dist.ts && node dist/cli.js catalog build`) builds
+   prepack (`bun build-dist.ts && bun dist/cli.js catalog build`) builds
    `dist/` afresh, then the package catalogue, `bounded.catalog.json`
-   ([ADR 2026-029](adr/2026-029-package-catalogue.md)), with Node. Check the file list:
+   ([ADR 2026-029](adr/2026-029-package-catalogue.md)), with bun
+   ([ADR 2026-032](adr/2026-032-catalogue-build-on-bun.md)). Check the file list:
    - `dist/` (the library, its declarations in `dist/types/`, `dist/cli.js`
      and `dist/hosts/`, with the prereqs status band's plugin folder in
      `dist/hosts/claude-code/prereqs-status-band/`);
@@ -81,7 +82,7 @@ The fixture `bounded-example` stays private.
    beside `bounded` (`src/test/published-pack-packaging.test.ts`).
 4. **Dry-run, then publish, in the package's directory.** Run
    `bun publish --dry-run`, then `bun publish`. Its prepack
-   (`bun ../../build-published-pack.ts && node ../../dist/cli.js catalog build`)
+   (`bun ../../build-published-pack.ts && bun ../../dist/cli.js catalog build`)
    builds its `dist/` and its `bounded.catalog.json`; bun rewrites its
    `workspace:*` devDependency. The tarball holds `package.json`,
    `README.md`, `LICENSE`, `bounded.catalog.json`, `dist/` and its packs'
