@@ -74,7 +74,7 @@ interface Fixture {
   readonly env: Record<string, string | undefined>;
 }
 
-async function fixture(): Promise<Fixture> {
+async function fixture(options: { readonly pinnedStopsWithSignal?: boolean } = {}): Promise<Fixture> {
   const root = mkdtempSync(join(tmpdir(), "bounded-dispatch-red-"));
   const target = nativeTarget();
   const data = join(root, "user-data");
@@ -90,7 +90,10 @@ async function fixture(): Promise<Fixture> {
   for (const dir of [nested, assets, fakeBin, join(root, "home"), join(payload, "bin")]) mkdirSync(dir, { recursive: true });
   compile(join(REPO, "src", "standalone-main.ts"), current);
   const fixtureSource = join(root, "pinned-fixture.ts");
-  writeFileSync(fixtureSource, `const args = process.argv.slice(2); if (args.length === 1 && args[0] === "--version") { console.log("${PINNED}"); } else { const input = await Bun.stdin.text(); process.stdout.write(JSON.stringify({ version: "${PINNED}", args, input, dispatchedVersion: process.env.BOUNDED_DISPATCHED_VERSION ?? null }) + "\\n"); process.stderr.write("pinned stderr\\n"); process.exitCode = 37; }\n`);
+  const pinnedAction = options.pinnedStopsWithSignal
+    ? 'process.kill(process.pid, "SIGTERM");'
+    : `const input = await Bun.stdin.text(); process.stdout.write(JSON.stringify({ version: "${PINNED}", args, input, dispatchedVersion: process.env.BOUNDED_DISPATCHED_VERSION ?? null }) + "\\n"); process.stderr.write("pinned stderr\\n"); process.exitCode = 37;`;
+  writeFileSync(fixtureSource, `const args = process.argv.slice(2); if (args.length === 1 && args[0] === "--version") { console.log("${PINNED}"); } else { ${pinnedAction} }\n`);
   compile(fixtureSource, pinned);
   for (const file of requiredFiles) {
     const path = join(payload, file);
@@ -181,6 +184,37 @@ test("generated installer records immutable manifest and compiled entry dispatch
     }
     expect(runCurrent(f, ["--version"]).stdout.trim()).toBe(CURRENT);
     expect(runCurrent(f, ["update", "--no-upgrade"]).exitCode).not.toBe(37);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test("a validated one-hop marker is consumed before normal handlers run", async () => {
+  const prior = process.env.BOUNDED_DISPATCHED_VERSION;
+  try {
+    process.env.BOUNDED_DISPATCHED_VERSION = CURRENT;
+    const { dispatchStandalone } = await import("../../standalone-dispatch.ts");
+    const result = await dispatchStandalone(["--version"], CURRENT);
+    expect(result.answered).toBe(false);
+    expect(process.env.BOUNDED_DISPATCHED_VERSION).toBeUndefined();
+  } finally {
+    if (prior === undefined) delete process.env.BOUNDED_DISPATCHED_VERSION;
+    else process.env.BOUNDED_DISPATCHED_VERSION = prior;
+  }
+});
+
+test("a signalled pinned executable fails closed with an explicit signal diagnostic", async () => {
+  const f = await fixture({ pinnedStopsWithSignal: true });
+  try {
+    if (process.platform === "win32") {
+      expect(readFileSync(f.script, "utf8")).toContain("receipt-v1.json");
+      return;
+    }
+    expect(runInstaller(f).exitCode).toBe(0);
+    const stopped = runCurrent(f, ["check"]);
+    expect(stopped.exitCode).toBe(2);
+    expect(stopped.stderr).toMatch(/SIGTERM|signal|terminated/i);
+    expect(stopped.stdout).toBe("");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
