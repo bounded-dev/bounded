@@ -6159,6 +6159,15 @@
     "reason": "a range the reader cannot spell out keeps its word as written beside the unresolved report, never a bare unresolved report, so cat {1..100000} reads the word {1..100000} (ADR 2026-020, amended by shell-every-reading; final review, M1)"
   },
   {
+    "file": "src/cli/managed-pack-artifact.test.ts",
+    "case": "managed published pack artifact, lock and store contract > pins a complete closure and resolves each imported dependency from its own declaring node",
+    "successor": {
+      "file": "src/cli/managed-pack-artifact.test.ts",
+      "case": "managed published pack artifact, lock and store contract > pins a complete dependency closure"
+    },
+    "reason": "the closure case now names the dependency closure it asserts; a separate red case covers two parents resolving different versions of the same dependency"
+  },
+  {
     "file": "src/test/architecture.test.ts",
     "case": "architecture > R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/",
     "successor": {

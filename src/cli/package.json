@@ -8,6 +8,7 @@
     "bounded": "./main.ts"
   },
   "dependencies": {
+    "acorn": "8.15.0",
     "bounded": "workspace:*",
     "bounded-shell-command-reader": "workspace:*",
     "tar-stream": "^3.2.2",

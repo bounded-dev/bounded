@@ -146,6 +146,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded/prereqs` and `bounded/protected-paths`; the catalogue is
   generated, never committed. The README test runs the build's own rules
   (`MarkedMarkdownSections`, `PackReadme`).
+- **A managed published-pack artifact installer contract**
+  ([ADR 2026-034](adr/2026-034-managed-pack-artifacts.md)) in the CLI source
+  verifies exact registry versions, HTTPS redirects, tarball integrity,
+  package files, Node import exports, the versioned catalogue and the
+  dependency graph. It publishes a verified content-addressed store before
+  replacing the project lock. This is an internal installer: no command
+  invokes it yet, and hooks do not load its store.
 - **Host adapters** in `src/hosts/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
 - **One package, `bounded` 3.3.0, ready to publish; 3.2.0 is published**
