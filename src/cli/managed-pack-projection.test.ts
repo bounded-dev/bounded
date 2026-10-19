@@ -239,6 +239,16 @@ describe("managed pack type-only projection and publication", () => {
     }
   });
 
+  test("a pinned dependency's unexported typed subpath is refused before publication", async () => {
+    const published = pack("bounded-example", "1.0.0", { "plain-helper": "1.0.0" });
+    const entries = (published.entries ?? []).map((entry) => entry.name === "package/dist/index.d.ts"
+      ? { ...entry, body: `${entry.body ?? ""}import { missing } from "plain-helper/missing";\nexport declare const missingType: typeof missing;\n` } : entry);
+    const given = fixture([{ ...published, entries }, library("plain-helper", "1.0.0")]);
+    await refused(() => given.run(), "declaration");
+    expect(existsSync(given.lockPath)).toBe(false);
+    expect(existsSync(given.projected("bounded-example"))).toBe(false);
+  });
+
   test("release declarations must match the verified installed-release manifest before any active write", async () => {
     for (const mutation of ["missing", "tampered"] as const) {
       const given = fixture();
