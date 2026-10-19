@@ -139,8 +139,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   reader). It fails closed and writes nothing on a refusal. It runs under
   bun only ([ADR 2026-032](adr/2026-032-catalogue-build-on-bun.md)),
   resolves each export exactly as a host's `import()` does under Node
-  (`resolve.exports`, with Node's target rules) and refuses a target never
-  built.
+  (Node's ESM algorithm for `exports`, step for step) and refuses a target
+  never built. It does not check what pi loads: pi reads configurations
+  through jiti, which may take a dual entry's `require` target.
   bounded's prepack runs it, so its tarball carries the catalogue of
   `bounded/prereqs` and `bounded/protected-paths`; the catalogue is
   generated, never committed. The README test runs the build's own rules

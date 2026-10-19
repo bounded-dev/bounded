@@ -182,9 +182,8 @@ CLI prints `bounded: <refusal>` and exits 1.
   and hosts load packs under Node. `BunPackModules`
   reads the export path's entry from the package's own package.json, and
   resolves it exactly as a host's `import()` does under Node
-  (`resolve.exports` with the conditions `node`, `import` and `default`,
-  and Node's target rules: a leading `./`, no `.`, `..` or `node_modules`
-  segment, `null` not exported, a list's invalid entries skipped). An entry
+  (Node's ESM resolution algorithm for `exports`, step for step, with the
+  conditions `node`, `import`, `module-sync` and `default`; ADR 2026-032). An entry
   that gives no target is refused before anything else is read, naming the
   export path and the fix: add a `default` condition. The package root, `.`, is
   read from a `.` entry, or from `exports` itself when it is a path or the

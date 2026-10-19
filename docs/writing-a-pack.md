@@ -241,8 +241,8 @@ does, TypeScript anywhere, under `node_modules` too.
   export path exports exactly one pack, whose id is rooted at
   the package's name (`packIdsFor("<package name>")`).
 - **The export-entry rule.** The build resolves each export exactly as a
-  host's `import()` does under Node (conditions `node`, `import` and
-  `default`), never to a `bun` source, and loads that JavaScript. Its entry
+  host's `import()` does under Node (conditions `node`, `import`,
+  `module-sync` and `default`, in your entry's key order), never to a `bun` source, and loads that JavaScript. Its entry
   must give a target there (`{ "./my-pack": { "types": "…", "default": "./dist/my-pack/index.js" } }`),
   starting with `./`, with no `.`, `..` or `node_modules` segment; an entry
   with only `require` is refused, asking for a `default` condition. A package with no `exports` may list its root, `.`, which

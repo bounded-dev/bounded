@@ -56,13 +56,24 @@ package whose `default` target was never built.
   Node, where hosts run the core.
 - **It resolves each export exactly as a host's `import()` does under
   Node, never to a `bun` source** (final review). Hosts load packs with
-  `import()`, so the conditions are `node`, `import` and `default`, never
-  `require` or `bun`. The resolution is a well-maintained library's,
-  `resolve.exports` (pinned, a dependency of bounded), not hand-rolled, and
-  Node's own rules for a target apply on top of it: a target starts with
-  `./` and has no empty, `.`, `..` or `node_modules` segment after it (Node's
-  own pattern), `null` means not exported, and within a list the invalid
-  entries are skipped. It joins the target to the package's directory,
+  `import()`, so the conditions are those of `import()` on Node at or
+  above the engines floor (22.18): `node`, `import`, `module-sync` and
+  `default`, taken in the entry's own key order, never `require` or `bun`.
+  The adapter implements Node's documented ESM resolution algorithm for
+  `exports` step for step (PACKAGE_EXPORTS_RESOLVE,
+  PACKAGE_IMPORTS_EXPORTS_RESOLVE, PATTERN_KEY_COMPARE and
+  PACKAGE_TARGET_RESOLVE in
+  https://nodejs.org/api/esm.html#resolution-algorithm-specification), and
+  follows Node's implementation where it is narrower than the text: a key
+  ending in `/`, a folder mapping Node removed, is never matched. A library
+  was tried first (`resolve.exports`) and dropped on re-review: it stops at
+  a matched condition whose nested entry gives no target, where Node goes on
+  to the next key, and it resolves folder mappings. So a matched condition
+  that gives no target goes on to the next key; `null` means not exported;
+  a target starts with `./` and has no `.`, `..` or `node_modules` segment
+  after it (Node's throwing pattern; an empty segment, which Node only warns
+  about, loads); within a list the invalid entries are skipped; `exports` of
+  `null` is no `exports`. It joins the target to the package's directory,
   refuses a target outside the package, refuses one that does not exist
   with "build the package first", and imports that file. The export path is
   no longer resolved by self-reference, whose `bun` condition would load
@@ -76,18 +87,21 @@ package whose `default` target was never built.
   a symlink inside the package is followed, just as Node follows it.
 - **The export-entry rule (B1) stays**, refused before anything beyond
   package.json is read, reworded:
-  `<name>'s export path <path> gives a host's import() under Node no
-  target: none of its node, import or default conditions names one, or the
-  one it names is null: add a \`default\` condition naming its JavaScript,
-  which hosts load under Node and the catalogue build loads too`. An entry
-  whose every target breaks Node's rules is refused naming them:
-  `… names <targets>, which Node refuses as a package target: a target
-  starts with ./ and has no empty, ., .. or node_modules segment after it`.
+  `<name>'s export path <path> is not exported to a host's import() under
+  Node: it is null, or none of its node, import, module-sync or default
+  conditions gives a target: add a \`default\` condition naming its
+  JavaScript, which hosts load under Node and the catalogue build loads
+  too`. An export path `exports` does not list (a folder mapping included)
+  is refused as `<name> has no export path <path>: …`. A target Node throws
+  on is refused naming it: `… names <target>, which Node refuses as a
+  package target: a target starts with ./ and has no ., .. or node_modules
+  segment after it`; Node's other errors (a pattern's invalid match, mixed
+  or numeric keys) are refused in its terms.
 - **Scenarios load as bun loads TypeScript**, `node_modules` included, so
   ADR 2026-031's limit under `node_modules` is gone.
 - **The application port names no runtime.** `PackModules` loads "the
   JavaScript each export path resolves to under the conditions `node`,
-  `import` and `default`, loaded by the runtime the build runs in"; the condition names are
+  `import`, `module-sync` and `default`, loaded by the runtime the build runs in"; the condition names are
   package.json's vocabulary, bounded's transport format, not a runtime.
 - **`engines` gains no `bun`.** engines govern a consumer's install, and
   only someone building bounded or a package's catalogue needs bun. ADR
@@ -127,6 +141,12 @@ That is a later change to this adapter or a sibling, not this decision's.
 - A package whose `default` target was never built is refused with "build
   the package first", rather than catalogued from source that hosts could
   not load.
+- **A known limit of its fidelity to pi.** pi loads a project's
+  configuration, and so its packs, through jiti, which may take the
+  `require` target of a dual `{ import, require }` entry where `import()`
+  takes `import`. The build checks what a host's `import()` loads under
+  Node, which is what Claude Code's hook loads; it does not check what pi
+  loads when the two targets differ.
 - Under bun, `dist/cli.js`'s external `bounded/*` imports and a built
   pack's `bounded/domain` resolve through bounded's export paths to one
   copy, so `parsePack`'s same-copy check holds: bounded's own catalogue and
