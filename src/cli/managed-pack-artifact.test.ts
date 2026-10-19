@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installManagedPack } from "./managed-pack-installer.ts";
 import { catalogue, manifest, packageArchive, packageEntries, sha256, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
 type Reply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
@@ -18,12 +19,7 @@ type Install = (input: {
   readonly publishLock?: (path: string, contents: string) => Promise<void>;
 }) => Promise<InstallResult>;
 
-// This module is supplied by the green implementation. Keep the red tests typecheckable.
-const installerModule = "./managed-pack-installer.ts";
-const install: Install = async (input) => {
-  const module = await import(installerModule) as { installManagedPack: Install };
-  return module.installManagedPack(input);
-};
+const install: Install = installManagedPack;
 
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 const JSON_REPLY = { "content-type": "application/json" };
