@@ -9,6 +9,7 @@ type InstallResult = { readonly ok: true; readonly value: { readonly lockPath: s
 type Install = (input: {
   readonly request: string;
   readonly boundedVersion: string;
+  readonly registryUrl: string;
   readonly projectRoot: string;
   readonly storeRoot: string;
   readonly get: (url: string) => Promise<Reply>;
@@ -72,7 +73,7 @@ function fixture(published: readonly PublishedPackage[] = [{ name: "bounded-exam
     calls.push(url);
     return replies.get(url) ?? { status: 404, headers: JSON_REPLY, body: utf8("missing") };
   };
-  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
+  const run = (request = "bounded-example@1.0.0", publishLock?: (path: string, contents: string) => Promise<void>) => install({ request, boundedVersion: "3.3.0", registryUrl: REGISTRY, projectRoot, storeRoot, get, ...(publishLock === undefined ? {} : { publishLock }) });
   const lockPath = join(projectRoot, ".bounded", "packs.lock.json");
   return { root, projectRoot, storeRoot, replies, calls, get, run, lockPath };
 }
