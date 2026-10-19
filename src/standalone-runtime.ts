@@ -212,33 +212,18 @@ async function addStandalone(args: readonly string[], version: string): Promise<
   if (!parsed.ok) { refusal(parsed.error); return; }
   const added = await runStandaloneAddInternal(args, { projectRoot: process.cwd(), boundedVersion: version });
   if (!added.ok) { refusal(added.error); return; }
-  const located = locateInstalledRelease(version);
-  if (!located.ok) { refusal(located.error); return; }
-  const releaseTypeFilesFromVerifiedManifest = Object.fromEntries(located.verifiedFiles
-    .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
-    .map((file) => [file.path.slice("share/types/".length), file.sha256]));
-  let storeRoot: string;
-  try { storeRoot = join(userDataRoot(), "packs", "store"); }
-  catch (error) { refusal(error instanceof Error ? error.message : String(error)); return; }
-  const graph = await captureManagedPackRuntimeGraph({ projectRoot: process.cwd(), boundedVersion: version,
-    boundedExportPaths: Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`),
-    storeRoot, releaseTypesRoot: join(located.releaseRoot, "share", "types"), releaseTypeFilesFromVerifiedManifest });
-  if (!graph.ok) { refusal(graph.error); return; }
-  const requestAt = parsed.value.request.lastIndexOf("@");
-  const packageName = parsed.value.request.slice(0, requestAt);
-  const rootId = graph.value.roots[packageName];
-  const selected = rootId === undefined ? undefined : graph.value.nodes[rootId];
-  if (selected?.catalogue === null || selected === undefined) {
-    refusal(`Added ${parsed.value.request}, but its locked catalogue is missing; re-add ${packageName}`);
-    return;
-  }
-  const imports = [...new Set(selected.catalogue.packs.map((pack) =>
+  const imports = [...new Set(added.value.catalogueImports.map((pack) =>
     pack.exportName === "default" ? `import selectedPack from ${JSON.stringify(pack.importPath)};`
       : `import { ${pack.exportName} } from ${JSON.stringify(pack.importPath)};`))];
   process.stdout.write(`Added ${parsed.value.request}\n${imports.length === 0 ? "" : `Select a pack in bounded.config.ts:\n${imports.map((line) => `  ${line}`).join("\n")}\n`}`);
 }
 
 type AddResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+interface CompletedPackAddition {
+  readonly lockPath: string;
+  readonly receiptPath: string;
+  readonly catalogueImports: readonly { readonly importPath: string; readonly exportName: string }[];
+}
 type PackReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
 type AddRequest = { readonly request: string; readonly registryUrl: string };
 const defaultRegistryUrl = "https://registry.npmjs.org";
@@ -306,11 +291,11 @@ interface InternalAddContext {
   readonly env?: NodeJS.ProcessEnv;
   readonly get?: (url: string) => Promise<PackReply>;
   /** Test seam; a production call uses the verified installed-release wrapper. */
-  readonly publish?: (input: { readonly request: string; readonly registryUrl: string; readonly projectRoot: string; readonly boundedVersion: string; readonly get: (url: string) => Promise<PackReply> }) => Promise<AddResult<unknown>>;
+  readonly publish?: (input: { readonly request: string; readonly registryUrl: string; readonly projectRoot: string; readonly boundedVersion: string; readonly get: (url: string) => Promise<PackReply> }) => Promise<AddResult<CompletedPackAddition>>;
 }
 
-/** Internal preparation path. The public add route remains a refusal until runtime loading lands. */
-export async function runStandaloneAddInternal(args: readonly string[], context: InternalAddContext): Promise<AddResult<unknown>> {
+/** Run the verified managed add transaction for the standalone command. */
+export async function runStandaloneAddInternal(args: readonly string[], context: InternalAddContext): Promise<AddResult<CompletedPackAddition>> {
   const parsed = parseStandaloneAddArguments(args);
   if (!parsed.ok) return parsed;
   if (!isAbsolute(context.projectRoot))

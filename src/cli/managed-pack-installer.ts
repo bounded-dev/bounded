@@ -48,6 +48,7 @@ interface LockNode {
   readonly inventorySha256: string;
   readonly dependencies: Readonly<Record<string, string>>;
 }
+interface CatalogueImport { readonly importPath: string; readonly exportName: string }
 interface PackLock {
   readonly schema: "bounded-packs-lock/2";
   readonly boundedVersion: string;
@@ -322,6 +323,41 @@ const digestPattern = /^[a-f0-9]{64}$/;
 const packageNamePattern = /^(?:@[a-z0-9._-]+\/[a-z0-9._-]+|[a-z0-9._-]+)$/;
 const runtimeGraphLimits = { nodes: 128, files: 20_000, bytes: 256 * 1024 * 1024,
   lockBytes: 16 * 1024 * 1024, inventoryBytes: 16 * 1024 * 1024 } as const;
+
+/** Bound a proposed lock before any project lock, receipt or projection is published. */
+async function checkProposedRuntimeGraphBounds(lock: PackLock, contents: string, storeRoot: string): Promise<Result<void>> {
+  if (Object.keys(lock.nodes).length > runtimeGraphLimits.nodes)
+    return refusal(`Managed pack graph exceeds ${runtimeGraphLimits.nodes} pinned nodes; reduce the dependency closure`);
+  if (utf8(contents).byteLength > runtimeGraphLimits.lockBytes)
+    return refusal(`Managed pack lock byte bound exceeds ${runtimeGraphLimits.lockBytes}; reduce the dependency closure`);
+  let fileCount = 0;
+  let fileBytes = 0;
+  for (const [id, node] of Object.entries(lock.nodes)) {
+    const inventoryPath = join(storeRoot, node.sha256, "inventory.json");
+    const safePath = await noLinkedComponents(inventoryPath);
+    if (!safePath.ok) return refusal(`${id}: ${safePath.error}; re-add ${node.name}`);
+    try {
+      const info = await lstat(inventoryPath);
+      if (!info.isFile()) return refusal(`${id} inventory is not a regular file; re-add ${node.name}`);
+      if (info.size > runtimeGraphLimits.inventoryBytes)
+        return refusal(`${id} inventory metadata exceeds the runtime graph byte bound; reduce the dependency closure`);
+      const bytes = await readFile(inventoryPath);
+      if (sha256(bytes) !== node.inventorySha256) return refusal(`${id} inventory differs from its proposed lock; re-add ${node.name}`);
+      const parsed = json(bytes, `${id} inventory`);
+      if (!parsed.ok || !record(parsed.value) || parsed.value.schema !== "bounded-pack-inventory/1" || !record(parsed.value.files))
+        return refusal(`${id} inventory is malformed; re-add ${node.name}`);
+      for (const details of Object.values(parsed.value.files)) {
+        if (!record(details) || !Number.isSafeInteger(details.size) || (details.size as number) < 0)
+          return refusal(`${id} inventory size is malformed; re-add ${node.name}`);
+        fileCount++;
+        fileBytes += details.size as number;
+        if (fileCount > runtimeGraphLimits.files || fileBytes > runtimeGraphLimits.bytes)
+          return refusal("Managed pack graph exceeds the total file or byte bound; reduce the dependency closure");
+      }
+    } catch (error) { return refusal(`${id} inventory cannot be bounded: ${errorText(error)}; re-add ${node.name}`); }
+  }
+  return { ok: true, value: undefined };
+}
 
 /** Reads a complete pinned graph without network access or running package code. */
 async function verifyManagedPackLockDetailed(input: VerifyInput, limits?: typeof runtimeGraphLimits): Promise<Result<{ readonly lock: PackLock; readonly lockBytes: Uint8Array; readonly stored: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>>; readonly manifest: ArchiveManifest }> }>> {
@@ -619,7 +655,7 @@ async function acquireProjectWriter(lockPath: string): Promise<Result<() => Prom
   return refusal(`Project pack writer is busy at ${writerPath}; retry the add or repair the stale writer directory`);
 }
 
-async function prepareAdditionUnderWriter(input: InstallInput, publish: boolean, writerHeld: boolean): Promise<Result<{ readonly lockPath: string; readonly lock: PackLock; readonly contents: string }>> {
+async function prepareAdditionUnderWriter(input: InstallInput, publish: boolean, writerHeld: boolean): Promise<Result<{ readonly lockPath: string; readonly lock: PackLock; readonly contents: string; readonly catalogueImports: readonly CatalogueImport[] }>> {
   const request = exactRequest(input.request);
   if (!request.ok) return request;
   const nodes: Record<string, LockNode> = {};
@@ -715,6 +751,20 @@ async function prepareAdditionUnderWriter(input: InstallInput, publish: boolean,
   try {
     const root = await add(request.value.name, request.value.version, true, { bounded: input.boundedVersion });
     if (!root.ok) return root;
+    const rootFiles = installedExports.get(root.value)?.files;
+    const rootManifestBytes = rootFiles?.["package.json"];
+    if (rootFiles === undefined || rootManifestBytes === undefined) return refusal(`${request.value.name} has no verified catalogue source`);
+    const rootManifestJson = json(rootManifestBytes, `${request.value.name} package.json`);
+    if (!rootManifestJson.ok) return rootManifestJson;
+    const rootManifest = PackageManifest.parse(rootManifestJson.value);
+    if (!rootManifest.ok) return rootManifest;
+    const rootCatalogueBytes = rootFiles[rootManifest.value.catalogPath];
+    if (rootCatalogueBytes === undefined) return refusal(`${request.value.name} has no verified catalogue`);
+    const rootCatalogueJson = json(rootCatalogueBytes, `${request.value.name} catalogue`);
+    if (!rootCatalogueJson.ok) return rootCatalogueJson;
+    const rootCatalogue = PackageCatalog.parse(rootCatalogueJson.value);
+    if (!rootCatalogue.ok) return rootCatalogue;
+    const catalogueImports: readonly CatalogueImport[] = rootCatalogue.value.packs.map(({ importPath, exportName }) => ({ importPath, exportName }));
     const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
     const safeLock = await noLinkedComponents(lockPath);
     if (!safeLock.ok) return safeLock;
@@ -745,7 +795,7 @@ async function prepareAdditionUnderWriter(input: InstallInput, publish: boolean,
         try { await (input.publishLock ?? atomicLock)(lockPath, contents); }
         catch (error) { return refusal(`Cannot publish project lock: ${errorText(error)}`); }
       }
-      return { ok: true, value: { lockPath, lock: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes: kept }, contents } };
+      return { ok: true, value: { lockPath, lock: { schema: "bounded-packs-lock/2", boundedVersion: input.boundedVersion, roots, nodes: kept }, contents, catalogueImports } };
     } finally { await writer.value(); }
   } catch (error) { return refusal(`Cannot install ${input.request}: ${errorText(error)}`); }
 }
@@ -1318,8 +1368,8 @@ export async function recoverManagedPackProjection(input: ProjectionVerifyInput 
   finally { await writer.value(); }
 }
 
-/** Internal transaction; the public add route remains unavailable until pack execution is implemented. */
-export async function addManagedPackWithProjection(input: ProjectionInput): Promise<Result<{ readonly lockPath: string; readonly receiptPath: string }>> {
+/** Prepare and validate under one writer, then publish the projection, receipt and lock. */
+export async function addManagedPackWithProjection(input: ProjectionInput): Promise<Result<{ readonly lockPath: string; readonly receiptPath: string; readonly catalogueImports: readonly CatalogueImport[] }>> {
   const paths = projectionPaths(input.projectRoot);
   const writer = await acquireProjectWriter(paths.lock);
   if (!writer.ok) return writer;
@@ -1336,6 +1386,8 @@ export async function addManagedPackWithProjection(input: ProjectionInput): Prom
     await input.afterExistingStateVerified?.(oldLockBytes === null ? null : sha256(oldLockBytes));
     const prepared = await prepareAdditionUnderWriter(input, false, true);
     if (!prepared.ok) return prepared;
+    const bounded = await checkProposedRuntimeGraphBounds(prepared.value.lock, prepared.value.contents, input.storeRoot);
+    if (!bounded.ok) return bounded;
     const desired = desiredProjection(input, prepared.value.lock);
     if (!desired.ok) return desired;
     const newReceipt = receiptFor(prepared.value.contents, desired.value);
@@ -1412,7 +1464,7 @@ export async function addManagedPackWithProjection(input: ProjectionInput): Prom
     rmSync(stage, { recursive: true, force: true });
     for (const backup of [backupLock, backupReceipt, ...Object.values(oldBackups)]) if (backup !== null) rmSync(join(paths.bounded, backup), { recursive: true, force: true });
     if (input.faultAfter === "backup-cleanup") return refusal("Injected fault after backup cleanup");
-    return { ok: true, value: { lockPath: paths.lock, receiptPath: paths.receipt } };
+    return { ok: true, value: { lockPath: paths.lock, receiptPath: paths.receipt, catalogueImports: prepared.value.catalogueImports } };
   } catch (error) {
     if (existsSync(paths.journal)) {
       try { restoreJournal(input.projectRoot); }
