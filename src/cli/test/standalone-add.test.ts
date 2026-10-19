@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import * as standaloneRuntime from "../standalone-runtime.ts";
-import { nativeReleaseTarget } from "../standalone-installed-release.ts";
-import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity } from "./managed-pack-artifact.test-support.ts";
+import * as standaloneRuntime from "../../standalone-runtime.ts";
+import { nativeReleaseTarget } from "../../standalone-installed-release.ts";
+import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity } from "../managed-pack-artifact.test-support.ts";
 
 type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 type Parsed = { readonly request: string; readonly registryUrl: string };
@@ -155,7 +155,7 @@ test("internal add uses the verified release and real managed transaction", asyn
 test("compiled public add still refuses before network access or project mutation", () => {
   const root = mkdtempSync(join(tmpdir(), "bounded-add-public-gate-")); roots.push(root);
   const executable = join(root, process.platform === "win32" ? "bounded.exe" : "bounded");
-  const repo = resolve(import.meta.dir, "../..");
+  const repo = resolve(import.meta.dir, "../../..");
   const built = Bun.spawnSync([process.execPath, "build", join(repo, "src", "standalone-main.ts"), "--compile",
     "--asset", join(repo, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter.wasm"),
     "--asset", join(repo, "node_modules", "@vscode", "tree-sitter-wasm", "wasm", "tree-sitter-bash.wasm"),
