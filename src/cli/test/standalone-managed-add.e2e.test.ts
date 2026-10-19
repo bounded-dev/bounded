@@ -3,9 +3,11 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import { expect, test } from "bun:test";
+import tar from "tar-stream";
 import { verifyReleaseArchive } from "../release-manifest.ts";
-import { packageArchive, sha512Integrity, type TarEntry } from "../managed-pack-artifact.test-support.ts";
+import { sha512Integrity, type TarEntry } from "../managed-pack-artifact.test-support.ts";
 
 const REPO = resolve(import.meta.dir, "../../..");
 const VERSION = (JSON.parse(readFileSync(join(REPO, "src", "package.json"), "utf8")) as { version: string }).version;
@@ -35,6 +37,21 @@ function entries(root: string, path = ""): TarEntry[] {
     return [{ name: `package/${name}`, body: readFileSync(join(root, name)) }];
   });
 }
+async function packedArtifact(files: readonly TarEntry[]): Promise<Uint8Array> {
+  return new Promise((resolveArchive, reject) => {
+    const pack = tar.pack();
+    const chunks: Buffer[] = [];
+    pack.on("data", (chunk: Buffer) => chunks.push(chunk));
+    pack.on("error", reject);
+    pack.on("end", () => resolveArchive(gzipSync(Buffer.concat(chunks))));
+    for (const entry of files) {
+      const content = typeof entry.body === "string" ? Buffer.from(entry.body) : Buffer.from(entry.body ?? new Uint8Array());
+      pack.entry({ name: entry.name, size: content.byteLength, mode: 0o644, type: "file", mtime: new Date(0),
+        uid: 0, gid: 0, uname: "", gname: "" } as Parameters<typeof pack.entry>[0], content);
+    }
+    pack.finalize();
+  });
+}
 function hookPayload(project: string, tool: string): Uint8Array {
   return new TextEncoder().encode(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: {},
     cwd: project, session_id: "managed-add-test", tool_use_id: `call-${tool}` }));
@@ -55,7 +72,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     successful([process.execPath, join(source, "src", "build-published-pack.ts")], join(source, "src", "published-packs", "example"));
     successful([process.execPath, join(source, "src", "dist", "cli.js"), "catalog", "build"], join(source, "src", "published-packs", "example"));
     const packageRoot = join(source, "src", "published-packs", "example");
-    const artifact = packageArchive(entries(packageRoot).filter((entry) => !entry.name.includes("/test/")));
+    const artifact = await packedArtifact(entries(packageRoot).filter((entry) => !entry.name.includes("/test/")));
     const manifestBytes = readFileSync(join(releaseOutput, `bounded-v${VERSION}-manifest-v1.json`));
     const smokeManifest = JSON.parse(manifestBytes.toString()) as Parameters<typeof verifyReleaseArchive>[0];
     const target = smokeManifest.targets[targetId];
@@ -113,7 +130,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     const addOutput = await new Response(added.stdout).text();
     const addError = await new Response(added.stderr).text();
-    expect(await added.exited).toBe(0);
+    expect({ exitCode: await added.exited, stderr: addError }).toEqual({ exitCode: 0, stderr: "" });
     expect(addError).toBe("");
     expect(addOutput).toContain("bounded-example@0.1.0");
     expect(addOutput).toContain('import { refusedToolsPack } from "bounded-example"');
