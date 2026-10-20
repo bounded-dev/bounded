@@ -258,14 +258,23 @@ test("installed standalone Claude Code command applies the generated rule, launc
       expect(answered.stderr.toString()).not.toContain("bounded hook failed");
     }
     const installedReceipt = readFileSync(f.releaseReceipt);
+    const configPath = join(f.project, "bounded.config.ts");
+    const installedConfig = readFileSync(configPath);
+    const executionSentinel = join(f.project, "config-executed-after-receipt-tamper");
+    writeFileSync(configPath, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(executionSentinel)}, "ran");\n${installedConfig.toString()}`);
     writeFileSync(f.releaseReceipt, "{ malformed\n");
     const invalidRelease = invoke();
     expect(invalidRelease.exitCode).toBe(0);
     const invalidDecision = JSON.parse(invalidRelease.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
     expect(invalidDecision.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(invalidDecision.hookSpecificOutput.permissionDecisionReason).toMatch(/receipt|reinstall/i);
-    expect(readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")).toHaveLength(log.length);
+    expect(existsSync(executionSentinel)).toBe(false);
+    const afterInvalid = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
+      .map((line) => JSON.parse(line) as { verdict: { kind: string } });
+    expect(afterInvalid).toHaveLength(log.length + 1);
+    expect(afterInvalid.at(-1)?.verdict.kind).toBe("refuse");
     writeFileSync(f.releaseReceipt, installedReceipt);
+    writeFileSync(configPath, installedConfig);
     renameSync(f.binary, `${f.binary}.missing`);
     const missing = invoke();
     expect(missing.exitCode).not.toBe(0);
