@@ -98,7 +98,7 @@ function piRuntime(): string {
   return root;
 }
 
-function invokeUnderPi(root: string, body: string): { readonly code: number; readonly stdout: string; readonly stderr: string } {
+function invokeUnderPi(root: string, body: string, options: { readonly failBusOn?: boolean } = {}): { readonly code: number; readonly stdout: string; readonly stderr: string } {
   const pi = piRuntime(); // Required CI fixture, never a skip-if-installed gate.
   const nodeBinary = process.env.PI_NODE_BINARY ?? Bun.which("node");
   if (nodeBinary === null) throw new Error("The pinned Pi CI runtime requires Node for Pi itself");
@@ -108,7 +108,7 @@ const piLoader = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "c
 const piBus = await import(pathToFileURL(${JSON.stringify(join(pi, "dist", "core", "event-bus.js"))}).href);
 const actualBus = piBus.createEventBus();
 const channels = [];
-const bus = { ...actualBus, on(name, handler) { channels.push(name); return actualBus.on(name, handler); } };
+const bus = { ...actualBus, on(name, handler) { channels.push(name); ${options.failBusOn === true ? 'throw new Error("Pi event bus registration failed");' : 'return actualBus.on(name, handler);'} } };
 const loaded = await piLoader.loadExtensions([${JSON.stringify(join(root, ".pi", "extensions", "bounded", "index.ts"))}], process.cwd(), bus);
 if (loaded.errors.length !== 0 || loaded.extensions.length !== 1) throw new Error(JSON.stringify(loaded.errors));
 const handlers = new Map([...loaded.extensions[0].handlers].map(([name, values]) => [name, values[0]]));
@@ -329,6 +329,54 @@ console.log(JSON.stringify({ answer }));`);
   expect(answer.answer?.block).toBe(true);
   expect(answer.answer?.reason).toMatch(/protocol|response|worker|malformed/i);
   expect(existsSync(archive.managerLog)).toBe(false);
+}, 240_000);
+
+test("Pi bridge rejects a structurally invalid worker allow response", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const faulty = join(root, process.platform === "win32" ? "invalid-answer.cmd" : "invalid-answer");
+  writeFileSync(faulty, process.platform === "win32"
+    ? '@echo off\r\nset /p first=\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\nset /p second=\r\necho {"protocol":1,"id":2,"event":"tool_call","result":{}}\r\n'
+    : '#!/bin/sh\nIFS= read -r first\nprintf \'%s\\n\' \'{"protocol":1,"id":1,"event":"session_start","result":null}\'\nIFS= read -r second\nprintf \'%s\\n\' \'{"protocol":1,"id":2,"event":"tool_call","result":{}}\'\n');
+  if (process.platform !== "win32") chmodSync(faulty, 0o755);
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "invalid-answer", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/response|protocol|invalid|malformed/i);
+}, 240_000);
+
+test("Pi bridge forwards only the needed context fields when Pi gives a cyclic host context", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+const context = { cwd: process.cwd() };
+context.self = context;
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, context);
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "cyclic-context", toolName: "read", input: { path: "main.py" } }, context);
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean } };
+  expect(answer.answer?.block).not.toBe(true);
+}, 240_000);
+
+test("Pi bridge blocks calls if Pi cannot register the async completion listener", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "no-bus", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer, channels }));`, { failBusOn: true });
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string }; channels: string[] };
+  expect(answer.channels).toContain("subagent:async-complete");
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/event bus|completion|registration/i);
 }, 240_000);
 
 function packageEntries(root: string, path = ""): TarEntry[] {
