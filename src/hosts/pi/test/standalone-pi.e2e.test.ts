@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -8,6 +8,7 @@ import tar from "tar-stream";
 import { verifyReleaseArchive } from "../../../cli/release-manifest.ts";
 import { sha512Integrity, type TarEntry } from "../../../cli/managed-pack-artifact.test-support.ts";
 import { runStandaloneAddInternal } from "../../../standalone-runtime.ts";
+import { piLoader } from "../install.ts";
 
 const REPO = resolve(import.meta.dir, "../../../..");
 const PI_VERSION = "0.87.1";
@@ -161,6 +162,34 @@ test("verified archive initializes Pi alone and both hosts without a project pac
   expect(existsSync(join(both, ".pi", "extensions", "bounded", "index.ts"))).toBe(true);
   expect(readFileSync(join(both, ".claude", "settings.json"), "utf8")).toContain("hook claude-code");
   expect(existsSync(archive.managerLog)).toBe(false);
+}, 240_000);
+
+test("standalone Pi init replaces only the exact generated npm loader and publishes the version pin last", () => {
+  const root = project();
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  mkdirSync(dirname(loaderPath), { recursive: true });
+  writeFileSync(loaderPath, piLoader().content);
+  if (process.platform !== "win32") chmodSync(loaderPath, 0o600);
+  const installed = bounded(root, ["init", "--host", "pi"]);
+  expect(installed.code).toBe(0);
+  expect(readFileSync(loaderPath, "utf8")).toContain(archive.executable);
+  expect(readFileSync(loaderPath, "utf8")).not.toBe(piLoader().content);
+  if (process.platform !== "win32") expect((statSync(loaderPath).mode & 0o777)).toBe(0o600);
+  expect(JSON.parse(readFileSync(join(root, ".bounded", "version.json"), "utf8"))).toEqual({ schema: "bounded-project-version/1", version: archive.version });
+  expect(existsSync(archive.managerLog)).toBe(false);
+
+  const edited = project(["claude-code", "pi"]);
+  const editedPath = join(edited, ".pi", "extensions", "bounded", "index.ts");
+  mkdirSync(dirname(editedPath), { recursive: true });
+  const userBytes = `${piLoader().content}\n// user edit\n`;
+  writeFileSync(editedPath, userBytes);
+  const refused = bounded(edited, ["init", "--host", "claude-code", "--host", "pi"]);
+  expect(refused.code).toBe(2);
+  expect(refused.stderr).toMatch(/user edits|unknown loader/i);
+  expect(readFileSync(editedPath, "utf8")).toBe(userBytes);
+  expect(existsSync(join(edited, ".claude", "settings.json"))).toBe(false);
+  expect(existsSync(join(edited, "bounded.config.ts"))).toBe(false);
+  expect(existsSync(join(edited, ".bounded", "version.json"))).toBe(false);
 }, 240_000);
 
 test("pinned real Pi loads the generated bridge and the compiled worker judges and records a rule", () => {
