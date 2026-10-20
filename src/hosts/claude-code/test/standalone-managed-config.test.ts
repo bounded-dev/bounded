@@ -23,6 +23,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, "__boundedStandaloneRuntimeExports");
   Reflect.deleteProperty(globalThis, "__boundedManagedUnselectedExecuted");
   Reflect.deleteProperty(globalThis, "__boundedManagedSelectedExecuted");
+  Reflect.deleteProperty(globalThis, "__boundedWrongExportsExecuted");
 });
 function project(source: string): { root: string; config: string } {
   const root = mkdtempSync(join(tmpdir(), "bounded-managed-loader-"));
@@ -63,6 +64,36 @@ async function load(root: string, selected: Graph) {
 }
 
 describe("standalone managed config from a verified snapshot", () => {
+  test("snapshot identity frames root names and identities without concatenation collisions", async () => {
+    const { root, config } = project('import { defineConfig } from "bounded/domain"; export default defineConfig({ packs: [] });\n');
+    type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph; readonly verifiedReleaseManifestSha256: string;
+      readonly boundedRuntimeExports: Readonly<Record<string, Readonly<Record<string, unknown>>>> }) => Promise<{ readonly digest: string }>;
+    const prepare = Reflect.get(adapters, "prepareStandaloneProjectSnapshot") as Prepare | undefined;
+    expect(prepare).toBeFunction();
+    if (prepare === undefined) return;
+    const options = { verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain } };
+    const first = await prepare(config, root, { ...options, managedGraph: graph([], { a: "bc" }) });
+    const second = await prepare(config, root, { ...options, managedGraph: graph([], { ab: "c" }) });
+    expect(first.digest).not.toBe(second.digest);
+  });
+
+  test("an injected Bounded export map cannot switch to ambient global modules after snapshot selection", async () => {
+    const { root, config } = project('import { defineConfig } from "bounded/domain"; export default defineConfig({ packs: [] });\n');
+    type Snapshot = { readonly modulePath: string };
+    type Prepare = (file: string, root: string, options: { readonly verifiedReleaseManifestSha256: string;
+      readonly boundedRuntimeExports: Readonly<Record<string, Readonly<Record<string, unknown>>>> }) => Promise<Snapshot>;
+    const prepare = Reflect.get(adapters, "prepareStandaloneProjectSnapshot") as Prepare | undefined;
+    expect(prepare).toBeFunction();
+    if (prepare === undefined) return;
+    const snapshot = await prepare(config, root, { verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain } });
+    Reflect.set(globalThis, "__boundedStandaloneRuntimeExports", { "bounded/domain": {
+      defineConfig: () => { Reflect.set(globalThis, "__boundedWrongExportsExecuted", true); throw new Error("ambient map executed"); },
+    } });
+    const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(root);
+    expect(Reflect.get(globalThis, "__boundedWrongExportsExecuted")).toBeUndefined();
+    expect(loaded.ok || (!loaded.ok && /runtime export|snapshot|identity|mismatch/i.test(loaded.error))).toBe(true);
+    Reflect.deleteProperty(globalThis, "__boundedWrongExportsExecuted");
+  });
   test("one captured project graph drives both typechecking and runtime, with importer-local helper versions", async () => {
     const first = node("bounded-first", "1.0.0", 'import { version } from "plain-helper"; export const firstVersion = version;\n',
       { "plain-helper": "plain-helper@1.0.0" });
