@@ -192,6 +192,18 @@ test("standalone Pi init migrates only the exact generated npm loader and preser
   expect(existsSync(join(edited, ".bounded", "version.json"))).toBe(false);
 }, 240_000);
 
+test("compiled bounded check validates Pi-only and combined host projects", () => {
+  for (const hosts of [["pi"], ["pi", "claude-code"]] as const) {
+    const root = project(hosts);
+    const init = bounded(root, ["init", ...hosts.flatMap((host) => ["--host", host])]);
+    expect(init.code).toBe(0);
+    const checked = bounded(root, ["check"]);
+    expect(checked.code).toBe(0);
+    expect(checked.stderr).toBe("");
+    expect(existsSync(archive.managerLog)).toBe(false);
+  }
+}, 240_000);
+
 test("pinned real Pi loads the generated bridge and the compiled worker judges and records a rule", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
