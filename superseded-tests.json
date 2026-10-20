@@ -6817,5 +6817,14 @@
       "case": "bounded, the one published package > packed, its manifest names the version, the bin and four runtime dependencies including TypeScript"
     },
     "reason": "the carried Node host now declares the pinned TypeScript parser as a fourth runtime dependency"
+  },
+  {
+    "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+    "case": "standalone Pi init replaces only the exact generated npm loader and publishes the version pin last",
+    "successor": {
+      "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+      "case": "standalone Pi init migrates only the exact generated npm loader and preserves user edits"
+    },
+    "reason": "the same migration and user-edit assertions remain; the new title no longer claims pin-write ordering that this case does not observe"
   }
 ]

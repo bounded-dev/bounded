@@ -164,7 +164,7 @@ test("verified archive initializes Pi alone and both hosts without a project pac
   expect(existsSync(archive.managerLog)).toBe(false);
 }, 240_000);
 
-test("standalone Pi init replaces only the exact generated npm loader and publishes the version pin last", () => {
+test("standalone Pi init migrates only the exact generated npm loader and preserves user edits", () => {
   const root = project();
   const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
   mkdirSync(dirname(loaderPath), { recursive: true });
