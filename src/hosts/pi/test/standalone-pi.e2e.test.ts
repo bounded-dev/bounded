@@ -121,6 +121,28 @@ ${body}\n`);
   return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
 }
 
+function compiledFaultWorker(root: string, kind: "malformed" | "invalid-result" | "stalled" | "echo"): string {
+  const source = join(root, `fault-worker-${kind}.ts`);
+  const executable = join(root, process.platform === "win32" ? `fault-worker-${kind}.exe` : `fault-worker-${kind}`);
+  writeFileSync(source, `import { appendFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+const kind = ${JSON.stringify(kind)};
+appendFileSync(${JSON.stringify(join(root, `fault-worker-${kind}.starts`))}, String(process.pid) + "\\n");
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  appendFileSync(${JSON.stringify(join(root, `fault-worker-${kind}.frames`))}, line + "\\n");
+  const frame = JSON.parse(line);
+  if (kind === "malformed") { process.stdout.write("not-json\\n"); continue; }
+  if (kind === "stalled" && frame.event !== "session_start") continue;
+  const result = kind === "invalid-result" && frame.event === "tool_call" ? {} : null;
+  process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
+}
+`);
+  const built = Bun.spawnSync([process.execPath, "build", "--compile", source, "--outfile", executable],
+    { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (built.exitCode !== 0) throw new Error(`Native Pi fault worker fixture failed: ${built.stderr.toString()}`);
+  return executable;
+}
+
 test("verified archive initializes Pi alone and both hosts without a project package manager", () => {
   const pi = project();
   const installed = bounded(pi, ["init", "--host", "pi"]);
@@ -437,13 +459,32 @@ console.log(JSON.stringify({ before, stale, after }));`);
   expect(answer.after?.block).not.toBe(true);
 }, 240_000);
 
+test("a second Pi session replaces the prior compiled worker process", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const worker = compiledFaultWorker(root, "echo");
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, worker));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "session-one", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+await handlers.get("session_start")({ type: "session_start", reason: "new-session" }, { cwd: process.cwd() });
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "session-two", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));
+process.exit(0);`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).not.toBe(true);
+  const starts = readFileSync(join(root, "fault-worker-echo.starts"), "utf8").trim().split("\n");
+  expect(starts).toHaveLength(2);
+  expect(new Set(starts).size).toBe(2);
+}, 240_000);
+
 test("Pi bridge blocks a tool call when its child writes malformed protocol output", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
-  const faulty = join(root, process.platform === "win32" ? "faulty-bounded.cmd" : "faulty-bounded");
-  writeFileSync(faulty, process.platform === "win32" ? "@echo off\r\necho not-json\r\nexit /b 0\r\n"
-    : "#!/bin/sh\nprintf 'not-json\\n'\n");
-  if (process.platform !== "win32") chmodSync(faulty, 0o755);
+  const faulty = compiledFaultWorker(root, "malformed");
   const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
   const original = readFileSync(loaderPath, "utf8");
   expect(original).toContain(archive.executable);
@@ -462,12 +503,8 @@ console.log(JSON.stringify({ answer }));`);
 test("Pi bridge rejects a structurally invalid worker allow response", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
-  const faulty = join(root, process.platform === "win32" ? "invalid-answer.cmd" : "invalid-answer");
-  const received = join(root, "faulty-worker-frames.txt");
-  writeFileSync(faulty, process.platform === "win32"
-    ? `@echo off\r\nset /p first=\r\necho %first%>>"${received}"\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\nset /p second=\r\necho %second%>>"${received}"\r\necho {"protocol":1,"id":2,"event":"tool_call","result":{}}\r\n`
-    : `#!/bin/sh\nIFS= read -r first\nprintf '%s\\n' "$first" >> '${received.replaceAll("'", "'\\''")}'\nprintf '%s\\n' '{"protocol":1,"id":1,"event":"session_start","result":null}'\nIFS= read -r second\nprintf '%s\\n' "$second" >> '${received.replaceAll("'", "'\\''")}'\nprintf '%s\\n' '{"protocol":1,"id":2,"event":"tool_call","result":{}}'\n`);
-  if (process.platform !== "win32") chmodSync(faulty, 0o755);
+  const faulty = compiledFaultWorker(root, "invalid-result");
+  const received = join(root, "fault-worker-invalid-result.frames");
   const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
   writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
   const result = invokeUnderPi(root, `
@@ -484,11 +521,7 @@ console.log(JSON.stringify({ answer }));`);
 test("Pi bridge refuses aggregate queued bytes before the stalled worker consumes them", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
-  const faulty = join(root, process.platform === "win32" ? "stalled-worker.cmd" : "stalled-worker");
-  writeFileSync(faulty, process.platform === "win32"
-    ? '@echo off\r\nset /p first=\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\n:wait\r\nset /p frame=\r\ngoto wait\r\n'
-    : '#!/bin/sh\nIFS= read -r first\nprintf \'%s\\n\' \'{"protocol":1,"id":1,"event":"session_start","result":null}\'\nwhile IFS= read -r frame; do :; done\n');
-  if (process.platform !== "win32") chmodSync(faulty, 0o755);
+  const faulty = compiledFaultWorker(root, "stalled");
   const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
   writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
   const result = invokeUnderPi(root, `
