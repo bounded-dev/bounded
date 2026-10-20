@@ -64,6 +64,18 @@ async function load(root: string, selected: Graph) {
 }
 
 describe("standalone managed config from a verified snapshot", () => {
+  test("an unselected snapshot releases its private compiled module", async () => {
+    const { root, config } = project('import { defineConfig } from "bounded/domain"; export default defineConfig({ packs: [] });\n');
+    const snapshot = await adapters.prepareStandaloneProjectSnapshot(config, root, {
+      verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain },
+    });
+    expect(readFileSync(snapshot.modulePath).byteLength).toBeGreaterThan(0);
+    const dispose = Reflect.get(adapters, "disposeStandaloneProjectSnapshot") as ((snapshot: typeof snapshot) => void) | undefined;
+    expect(dispose).toBeFunction();
+    dispose?.(snapshot);
+    expect(() => readFileSync(snapshot.modulePath)).toThrow();
+    dispose?.(snapshot);
+  });
   test("TypeScript follows import condition before later types condition", async () => {
     const selected = node("bounded-ordered", "1.0.0", 'export const value = "import-branch";\n');
     selected.exports = { ".": { import: "./dist/index.js", types: "./types/custom.d.ts" } };
