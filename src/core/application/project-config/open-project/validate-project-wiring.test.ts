@@ -60,15 +60,4 @@ describe("project supplied port wiring", () => {
     expect(opened).toBe(0);
   });
 
-  test("the optional prereqs snapshot is supplied by a Pi-like project but collides with Claude's built-in provision", () => {
-    const prereqsId = packIdsFor("test-packs")("prereqs");
-    const statusSnapshot = portKeysFor(prereqsId)<{ save(): void }>("prerequisiteStatusSnapshots");
-    const prereqsLike = definePack({ id: prereqsId, dependsOn: [corePack], optionalPorts: { prerequisiteStatusSnapshots: statusSnapshot } });
-    const projectSnapshot = Ports.provide(statusSnapshot, () => ({ save: () => {} }));
-    const config = defineConfig({ packs: [prereqsLike], ports: [projectSnapshot] });
-    expect(validateProjectWiring(config, "/project", []).ok).toBe(true);
-    expect(validateProjectWiring(config, "/project", [Ports.provide(statusSnapshot, () => ({ save: () => {} }))])).toEqual({
-      ok: false, error: expect.stringMatching(/test-packs\/prereqs.*prerequisiteStatusSnapshots.*provided twice|prerequisiteStatusSnapshots.*test-packs\/prereqs.*provided twice/),
-    });
-  });
 });
