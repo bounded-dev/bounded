@@ -230,20 +230,27 @@ console.log(JSON.stringify({ denied, allowed }));`);
 test("Pi tool_result restores a protected file changed after an accepted Bash call", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
-  mkdirSync(join(root, ".git", "hooks"), { recursive: true });
+  writeFileSync(join(root, "guarded.txt"), "original guarded bytes\n");
+  writeFileSync(join(root, "bounded.config.ts"), `import { contribution, defineConfig } from "bounded/domain";
+import { protectedPathsPack } from "bounded/protected-paths";
+export default defineConfig({ packs: [protectedPathsPack], contributes: [
+  contribution(protectedPathsPack.points.protectedPaths, [
+    { match: "guarded.txt", deny: ["modify"], why: "protected", redirect: "Ask a person" }
+  ])
+] });\n`);
   const result = invokeUnderPi(root, `
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const call = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "restore-1", toolName: "bash", input: { command: "echo x > notes.txt" } }, { cwd: process.cwd() });
 const fs = await import("node:fs");
-fs.writeFileSync(".git/hooks/pre-commit", "unsafe hook\\n");
+fs.writeFileSync("guarded.txt", "changed by tool\\n");
 const patch = await handlers.get("tool_result")({ type: "tool_result", toolCallId: "restore-1", toolName: "bash", input: { command: "echo x > notes.txt" }, content: [{ type: "text", text: "done" }], isError: false }, { cwd: process.cwd() });
-console.log(JSON.stringify({ call, patch, hookExists: fs.existsSync(".git/hooks/pre-commit") }));`);
+console.log(JSON.stringify({ call, patch, guardedBytes: fs.readFileSync("guarded.txt", "utf8") }));`);
   expect(result.code).toBe(0);
-  const answer = JSON.parse(result.stdout.trim()) as { call?: { block?: boolean }; patch?: { isError?: boolean; content?: { text?: string }[] }; hookExists: boolean };
+  const answer = JSON.parse(result.stdout.trim()) as { call?: { block?: boolean }; patch?: { isError?: boolean; content?: { text?: string }[] }; guardedBytes: string };
   expect(answer.call?.block).not.toBe(true);
   expect(answer.patch?.isError).toBe(true);
   expect(JSON.stringify(answer.patch?.content)).toMatch(/restored|protected/i);
-  expect(answer.hookExists).toBe(false);
+  expect(answer.guardedBytes).toBe("original guarded bytes\n");
 }, 240_000);
 
 test("long-lived Pi bridge refuses a changed project source before reusing its session composition", () => {
@@ -261,6 +268,43 @@ console.log(JSON.stringify({ first, second }));`);
   expect(answer.first?.block).not.toBe(true);
   expect(answer.second?.block).toBe(true);
   expect(answer.second?.reason).toMatch(/changed|restart|snapshot/i);
+}, 240_000);
+
+test("Pi worker revalidates its installed release receipt before another call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const receipt = join(archive.dataHome, "bounded", "receipts", `v${archive.version}`, nativeTarget(), "receipt-v1.json");
+  const original = readFileSync(receipt);
+  try {
+    const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "release-before", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.writeFileSync(${JSON.stringify(receipt)}, "{}");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "release-after", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+    expect(result.code).toBe(0);
+    const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+    expect(answer.first?.block).not.toBe(true);
+    expect(answer.second?.block).toBe(true);
+    expect(answer.second?.reason).toMatch(/release|receipt|manifest|reinstall|restart/i);
+  } finally { writeFileSync(receipt, original); }
+}, 240_000);
+
+test("Pi worker refuses a duplicate accepted tool call ID in one session", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const event = { type: "tool_call", toolCallId: "same-call", toolName: "read", input: { path: "main.py" } };
+const first = await handlers.get("tool_call")(event, { cwd: process.cwd() });
+const second = await handlers.get("tool_call")(event, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/duplicate|call id|already guarded/i);
 }, 240_000);
 
 test("Pi detects an edit to a transitive project-local config import during the same session", () => {
