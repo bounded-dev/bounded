@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as domain from "bounded/domain";
@@ -81,7 +81,7 @@ describe("standalone managed config from a verified snapshot", () => {
     const unused = node("bounded-unused", "1.0.0", 'globalThis.__boundedManagedUnselectedExecuted = true;\n');
     const chosen = graph([first, second, helperOne, helperTwo, unused],
       { "bounded-first": first.id, "bounded-second": second.id, "bounded-unused": unused.id });
-    const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nimport { localName } from "./local-name.ts";\nconst first: "one" = firstVersion; const second: "two" = secondVersion;\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(localName + first + second) })] });\n');
+    const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nimport { localName } from "./local-name.ts";\nconst first: "one" = firstVersion; const second: "two" = secondVersion;\nif (localName !== "initial-" || first !== "one" || second !== "two") throw new Error("wrong snapshot bytes executed");\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")("selected") })] });\n');
     const localName = join(root, "local-name.ts");
     writeFileSync(localName, 'export const localName = "initial-";\n');
     type Snapshot = { readonly modulePath: string; readonly digest: string; readonly sourceFiles: Readonly<Record<string, Uint8Array>> };
@@ -97,7 +97,7 @@ describe("standalone managed config from a verified snapshot", () => {
     const options = { managedGraph: chosen, verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain } };
     const snapshot = await prepare(config, root, options);
     expect(snapshot.digest).toMatch(/^[a-f0-9]{64}$/);
-    expect(new TextDecoder().decode(snapshot.sourceFiles[localName])).toContain("initial-");
+    expect(new TextDecoder().decode(snapshot.sourceFiles[realpathSync(localName)])).toContain("initial-");
     const same = await prepare(config, root, options);
     expect(same.digest).toBe(snapshot.digest);
     const changedRelease = await prepare(config, root, { ...options, verifiedReleaseManifestSha256: "b".repeat(64) });
@@ -106,7 +106,7 @@ describe("standalone managed config from a verified snapshot", () => {
     const changedGraph = graph([first, second, helperOne, changedHelper, unused], chosen.roots);
     const changedManagedBytes = await prepare(config, root, { ...options, managedGraph: changedGraph });
     expect(changedManagedBytes.digest).not.toBe(snapshot.digest);
-    writeFileSync(localName, 'const changed: number = "wrong"; throw new Error("mutated project source executed");\n');
+    writeFileSync(localName, 'export const localName: number = "wrong"; throw new Error("mutated project source executed");\n');
     const changed = await prepare(config, root, options);
     expect(changed.digest).not.toBe(snapshot.digest);
     const checked = await check(snapshot, { boundedDeclarations: declarations(join(import.meta.dir, "../../../dist/types")),
@@ -117,7 +117,7 @@ describe("standalone managed config from a verified snapshot", () => {
     if (loaded.ok) {
       const [selectedPack] = loaded.value.listedPacks;
       if (selectedPack === undefined) throw new Error("snapshot selected no local pack");
-      expect(domain.PackDescription.of(selectedPack).id).toBe("local/initial-onetwo");
+      expect(domain.PackDescription.of(selectedPack).id).toBe("local/selected");
     }
     expect(Reflect.get(globalThis, "__boundedManagedUnselectedExecuted")).toBeUndefined();
   });
