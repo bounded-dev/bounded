@@ -90,6 +90,29 @@ guards to the core's points). The list must be a tuple of distinct packs,
 not a widened list. Two different copies of one pack in the selection (two
 copies of a package, say) are refused, naming where each comes from.
 
+## Providing a pack's port
+
+A published pack can require an adapter without choosing how your project
+implements it. Import the pack and an adapter from the package's declared
+exports, then provide the adapter in `bounded.config.ts`:
+
+```ts
+import { defineConfig, Ports } from "bounded/domain";
+import { notesPack } from "acme-bounded-pack";
+import { ProjectNotes } from "acme-bounded-pack/adapter";
+
+export default defineConfig({
+  packs: [notesPack],
+  ports: [Ports.provide(notesPack.ports.notes, root => new ProjectNotes(root))],
+});
+```
+
+The adapter is opened for the project root only when the selected pack uses
+that port. The same `ports` list works with each installed host. Bounded
+checks that the selected pack declares the port, that every required port is
+provided, and that a host and project do not both provide the same port.
+`bounded check` validates this wiring without opening adapter factories.
+
 ## Opening a project
 
 A host adapter's composition root opens the project once and asks its judge
@@ -109,9 +132,9 @@ const verdict = await project.judge(eventFromTheHost);
 
 Before judging anything, `openProject` runs what each selected pack
 contributes to the core's `onProjectOpen` point, given the project's root,
-its composition and the ports the host provides. A pack whose work on
+its composition and the ports the host and project provide. A pack whose work on
 opening fails does not stop the project opening: its own guards refuse what
-they cannot check. Every port a selected pack declares must be provided, or
+they cannot check. Every required port a selected pack declares must be provided, or
 every event is refused, naming the pack, the port and the fix.
 
 A pack may also declare `optionalPorts`, after `ports` (ADR 2026-026):

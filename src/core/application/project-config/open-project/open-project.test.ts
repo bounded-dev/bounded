@@ -150,7 +150,7 @@ describe("OpenProjectHandler", () => {
     const gate = definePack({ id: gateId, dependsOn: [corePack], ports: { files: portKeysFor(gateId)<{ read(): string }>("files") } });
     const logs = new Logs();
     const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, gate] }) })), logs, clock).execute(command);
-    expect(project.problem).toBe("test-packs/gate needs the port 'files', which this host does not provide: pass it to openProject({ ports })");
+    expect(project.problem).toBe("test-packs/gate needs the port 'files', which this host and project do not provide: add Ports.provide(...) to defineConfig({ ports: [...] }) or pass it to openProject({ ports })");
     expect((await project.judge(write("src/a.ts"))).kind).toBe("refuse");
     expect(logs.decisions.length).toBe(1);
   });
