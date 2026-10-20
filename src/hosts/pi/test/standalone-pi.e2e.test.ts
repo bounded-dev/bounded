@@ -162,6 +162,22 @@ console.log(JSON.stringify({ denied, allowed, events: [...handlers.keys()], chan
   expect(existsSync(archive.managerLog)).toBe(false);
 }, 240_000);
 
+test("generated Pi bridge passes its own initialized project root to the worker beside another project", () => {
+  const root = project();
+  const sibling = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  expect(bounded(sibling, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "exact-root", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean } };
+  expect(answer.answer?.block).not.toBe(true);
+  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain("exact-root");
+  expect(existsSync(join(sibling, ".bounded", "log.jsonl"))).toBe(false);
+}, 240_000);
+
 test("long-lived Pi bridge refuses a changed project source before reusing its session composition", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
@@ -335,9 +351,10 @@ test("Pi bridge rejects a structurally invalid worker allow response", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
   const faulty = join(root, process.platform === "win32" ? "invalid-answer.cmd" : "invalid-answer");
+  const received = join(root, "faulty-worker-frames.txt");
   writeFileSync(faulty, process.platform === "win32"
-    ? '@echo off\r\nset /p first=\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\nset /p second=\r\necho {"protocol":1,"id":2,"event":"tool_call","result":{}}\r\n'
-    : '#!/bin/sh\nIFS= read -r first\nprintf \'%s\\n\' \'{"protocol":1,"id":1,"event":"session_start","result":null}\'\nIFS= read -r second\nprintf \'%s\\n\' \'{"protocol":1,"id":2,"event":"tool_call","result":{}}\'\n');
+    ? `@echo off\r\nset /p first=\r\necho %first%>>"${received}"\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\nset /p second=\r\necho %second%>>"${received}"\r\necho {"protocol":1,"id":2,"event":"tool_call","result":{}}\r\n`
+    : `#!/bin/sh\nIFS= read -r first\nprintf '%s\\n' "$first" >> '${received.replaceAll("'", "'\\''")}'\nprintf '%s\\n' '{"protocol":1,"id":1,"event":"session_start","result":null}'\nIFS= read -r second\nprintf '%s\\n' "$second" >> '${received.replaceAll("'", "'\\''")}'\nprintf '%s\\n' '{"protocol":1,"id":2,"event":"tool_call","result":{}}'\n`);
   if (process.platform !== "win32") chmodSync(faulty, 0o755);
   const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
   writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
@@ -347,8 +364,9 @@ const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: 
 console.log(JSON.stringify({ answer }));`);
   expect(result.code).toBe(0);
   const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+  expect(readFileSync(received, "utf8").trim().split("\n")).toHaveLength(2);
   expect(answer.answer?.block).toBe(true);
-  expect(answer.answer?.reason).toMatch(/response|protocol|invalid|malformed/i);
+  expect(answer.answer?.reason).toMatch(/worker response|worker result|protocol response/i);
 }, 240_000);
 
 test("Pi bridge forwards only the needed context fields when Pi gives a cyclic host context", () => {
