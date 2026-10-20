@@ -70,7 +70,7 @@ describe("standalone managed config from a verified snapshot", () => {
       verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain },
     });
     expect(readFileSync(snapshot.modulePath).byteLength).toBeGreaterThan(0);
-    const dispose = Reflect.get(adapters, "disposeStandaloneProjectSnapshot") as ((snapshot: typeof snapshot) => void) | undefined;
+    const dispose = Reflect.get(adapters, "disposeStandaloneProjectSnapshot") as ((prepared: typeof snapshot) => void) | undefined;
     expect(dispose).toBeFunction();
     dispose?.(snapshot);
     expect(() => readFileSync(snapshot.modulePath)).toThrow();
