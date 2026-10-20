@@ -561,6 +561,26 @@ test("compiled Pi worker rejects an incomplete tool-call frame before host adapt
   expect(existsSync(archive.managerLog)).toBe(false);
 }, 240_000);
 
+test("compiled Pi worker refuses a second session on the same child", async () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const frames = [
+    { protocol: 1, id: 1, event: "session_start", payload: { type: "session_start", reason: "startup" }, context: { cwd: root } },
+    { protocol: 1, id: 2, event: "session_start", payload: { type: "session_start", reason: "new-session" }, context: { cwd: root } },
+  ];
+  const run = Bun.spawn([archive.executable, "hook", "pi", "--project", root], {
+    cwd: root, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, PATH: archive.fakeBin, MANAGER_LOG: archive.managerLog, XDG_DATA_HOME: archive.dataHome,
+      LOCALAPPDATA: archive.dataHome },
+  });
+  run.stdin.write(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
+  run.stdin.end();
+  const [exitCode, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()]);
+  expect(exitCode).toBe(2);
+  expect(stderr).toMatch(/Pi worker protocol failed:.*second session/i);
+  expect(stdout.trim().split("\n")).toHaveLength(1);
+}, 240_000);
+
 test("Pi bridge blocks a tool call when its child writes malformed protocol output", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
