@@ -178,6 +178,74 @@ console.log(JSON.stringify({ answer }));`);
   expect(existsSync(join(sibling, ".bounded", "log.jsonl"))).toBe(false);
 }, 240_000);
 
+test("the registered Pi guard blocks calls made before session_start", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "too-early", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/before session|session start|start a new/i);
+  expect(existsSync(join(root, ".bounded", "log.jsonl"))).toBe(false);
+}, 240_000);
+
+test("Pi freezes original nested input before another extension can change the judged call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const input = { path: "main.py", extra: { marker: "original" } };
+const checking = handlers.get("tool_call")({ type: "tool_call", toolCallId: "frozen-input", toolName: "read", input }, { cwd: process.cwd() });
+try { input.path = "bounded.config.ts"; } catch {}
+try { input.extra.marker = "changed"; } catch {}
+const answer = await checking;
+console.log(JSON.stringify({ answer, input, frozen: Object.isFrozen(input) && Object.isFrozen(input.extra) }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean }; input: { path: string; extra: { marker: string } }; frozen: boolean };
+  expect(answer.frozen).toBe(true);
+  expect(answer.input).toEqual({ path: "main.py", extra: { marker: "original" } });
+  expect(answer.answer?.block).not.toBe(true);
+  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain("frozen-input");
+}, 240_000);
+
+test("compiled Pi worker reads Bash with its embedded grammar and refuses a protected hook write", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  mkdirSync(join(root, ".git", "hooks"), { recursive: true });
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const denied = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "bash-hook", toolName: "bash", input: { command: "echo x > .git/hooks/pre-commit" } }, { cwd: process.cwd() });
+const allowed = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "bash-notes", toolName: "bash", input: { command: "echo x > notes.txt" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ denied, allowed }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { denied?: { block?: boolean; reason?: string }; allowed?: { block?: boolean } };
+  expect(answer.denied?.block).toBe(true);
+  expect(answer.denied?.reason).toContain("the rule '.git/hooks/**' from bounded/project denies create of '.git/hooks/pre-commit'");
+  expect(answer.allowed?.block).not.toBe(true);
+  expect(existsSync(archive.managerLog)).toBe(false);
+}, 240_000);
+
+test("Pi tool_result restores a protected file changed after an accepted Bash call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  mkdirSync(join(root, ".git", "hooks"), { recursive: true });
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const call = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "restore-1", toolName: "bash", input: { command: "echo x > notes.txt" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.writeFileSync(".git/hooks/pre-commit", "unsafe hook\\n");
+const patch = await handlers.get("tool_result")({ type: "tool_result", toolCallId: "restore-1", toolName: "bash", input: { command: "echo x > notes.txt" }, content: [{ type: "text", text: "done" }], isError: false }, { cwd: process.cwd() });
+console.log(JSON.stringify({ call, patch, hookExists: fs.existsSync(".git/hooks/pre-commit") }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { call?: { block?: boolean }; patch?: { isError?: boolean; content?: { text?: string }[] }; hookExists: boolean };
+  expect(answer.call?.block).not.toBe(true);
+  expect(answer.patch?.isError).toBe(true);
+  expect(JSON.stringify(answer.patch?.content)).toMatch(/restored|protected/i);
+  expect(answer.hookExists).toBe(false);
+}, 240_000);
+
 test("long-lived Pi bridge refuses a changed project source before reusing its session composition", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
