@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as domain from "bounded/domain";
+import * as adapters from "bounded/adapters";
 import { openProject } from "bounded/open-project";
 import { buildStandaloneConfigModule, standaloneManagedConfigSource } from "../standalone-config-as-module.ts";
 
@@ -45,11 +46,75 @@ function cataloguePack(pack: domain.BasePack, importPath: string, exportName: st
     contributesTo: description.contributesTo, points: description.points, ports: description.ports,
     optionalPorts: description.optionalPorts };
 }
+function declarations(root: string): Record<string, Uint8Array> {
+  const result: Record<string, Uint8Array> = {};
+  const visit = (directory: string, prefix = ""): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const name = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) visit(join(directory, entry.name), name);
+      else if (entry.isFile() && name.endsWith(".d.ts")) result[name] = readFileSync(join(directory, entry.name));
+    }
+  };
+  visit(root);
+  return result;
+}
 async function load(root: string, selected: Graph) {
   return standaloneManagedConfigSource((file, projectRoot) => buildStandaloneConfigModule(file, projectRoot, selected)).load(root);
 }
 
 describe("standalone managed config from a verified snapshot", () => {
+  test("one captured project graph drives both typechecking and runtime, with importer-local helper versions", async () => {
+    const first = node("bounded-first", "1.0.0", 'import { version } from "plain-helper"; export const firstVersion = version;\n',
+      { "plain-helper": "plain-helper@1.0.0" });
+    const second = node("bounded-second", "1.0.0", 'import { version } from "plain-helper"; export const secondVersion = version;\n',
+      { "plain-helper": "plain-helper@2.0.0" });
+    const helperOne = node("plain-helper", "1.0.0", 'export const version = "one";\n');
+    const helperTwo = node("plain-helper", "2.0.0", 'export const version = "two";\n');
+    first.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+    second.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+    helperOne.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+    helperTwo.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+    first.files["dist/index.d.ts"] = bytes('import type { Version } from "plain-helper"; export declare const firstVersion: Version;\n');
+    second.files["dist/index.d.ts"] = bytes('import type { Version } from "plain-helper"; export declare const secondVersion: Version;\n');
+    helperOne.files["dist/index.d.ts"] = bytes('export type Version = "one";\n');
+    helperTwo.files["dist/index.d.ts"] = bytes('export type Version = "two";\n');
+    const unused = node("bounded-unused", "1.0.0", 'globalThis.__boundedManagedUnselectedExecuted = true;\n');
+    const chosen = graph([first, second, helperOne, helperTwo, unused],
+      { "bounded-first": first.id, "bounded-second": second.id, "bounded-unused": unused.id });
+    const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nimport { localName } from "./local-name.ts";\nconst first: "one" = firstVersion; const second: "two" = secondVersion;\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")(localName + first + second) })] });\n');
+    const localName = join(root, "local-name.ts");
+    writeFileSync(localName, 'export const localName = "initial-";\n');
+    type Snapshot = { readonly modulePath: string; readonly digest: string; readonly sourceFiles: Readonly<Record<string, Uint8Array>> };
+    type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph;
+      readonly boundedRuntimeExports: Readonly<Record<string, Readonly<Record<string, unknown>>>> }) => Promise<Snapshot>;
+    type Check = (snapshot: Snapshot, types: { readonly boundedDeclarations: Readonly<Record<string, Uint8Array>>;
+      readonly standardLibraries: Readonly<Record<string, Uint8Array>> }) => Promise<{ readonly ok: boolean; readonly diagnostics: readonly string[] }>;
+    const prepare = Reflect.get(adapters, "prepareStandaloneProjectSnapshot") as Prepare | undefined;
+    const check = Reflect.get(adapters, "checkStandaloneProjectSnapshot") as Check | undefined;
+    expect(prepare).toBeFunction();
+    expect(check).toBeFunction();
+    if (prepare === undefined || check === undefined) return;
+    const options = { managedGraph: chosen, boundedRuntimeExports: { "bounded/domain": domain } };
+    const snapshot = await prepare(config, root, options);
+    expect(snapshot.digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(new TextDecoder().decode(snapshot.sourceFiles[localName])).toContain("initial-");
+    const same = await prepare(config, root, options);
+    expect(same.digest).toBe(snapshot.digest);
+    writeFileSync(localName, 'const changed: number = "wrong"; throw new Error("mutated project source executed");\n');
+    const changed = await prepare(config, root, options);
+    expect(changed.digest).not.toBe(snapshot.digest);
+    const checked = await check(snapshot, { boundedDeclarations: declarations(join(import.meta.dir, "../../../dist/types")),
+      standardLibraries: declarations(join(import.meta.dir, "../../../../node_modules/typescript/lib")) });
+    expect(checked).toEqual({ ok: true, diagnostics: [] });
+    const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(root);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) {
+      const [selectedPack] = loaded.value.listedPacks;
+      if (selectedPack === undefined) throw new Error("snapshot selected no local pack");
+      expect(domain.PackDescription.of(selectedPack).id).toBe("local/initial-onetwo");
+    }
+    expect(Reflect.get(globalThis, "__boundedManagedUnselectedExecuted")).toBeUndefined();
+  });
   test("a selected pack with an exact locked descriptor and export opens", async () => {
     const published = domain.definePack({ id: domain.packIdsFor("bounded-example")("selected"), dependsOn: [domain.corePack],
       points: { selectedRules: domain.point({ description: "Selected rules", check: (raw: unknown) => ({ ok: true, value: raw }) }) } });
