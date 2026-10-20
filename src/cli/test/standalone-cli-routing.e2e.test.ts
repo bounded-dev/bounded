@@ -238,7 +238,7 @@ test("installed standalone Claude Code command applies the generated rule, launc
     const command = settings.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "";
     const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: join(f.project, "bounded.config.ts"), old_string: "x", new_string: "y" }, cwd: f.project, session_id: "session", tool_use_id: "tool" });
     const shell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command] : ["/bin/sh", "-c", command];
-    const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
+    const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
     const judged = invoke();
     expect(judged.exitCode).toBe(0);
     const decision = JSON.parse(judged.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
@@ -253,10 +253,17 @@ test("installed standalone Claude Code command applies the generated rule, launc
       const eventCommand = settings.hooks[event]?.[0]?.hooks[0]?.command ?? "";
       const eventShell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", eventCommand] : ["/bin/sh", "-c", eventCommand];
       const eventPayload = JSON.stringify({ hook_event_name: event, tool_name: "Edit", tool_input: { file_path: join(f.project, "main.py"), old_string: "hello", new_string: "hi" }, tool_response: {}, cwd: f.project, session_id: "session", tool_use_id: "tool", agent_id: "agent" });
-      const answered = Bun.spawnSync(eventShell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(eventPayload), stdout: "pipe", stderr: "pipe" });
+      const answered = Bun.spawnSync(eventShell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(eventPayload), stdout: "pipe", stderr: "pipe" });
       expect(answered.exitCode).toBe(0);
       expect(answered.stderr.toString()).not.toContain("bounded hook failed");
     }
+    const installedReceipt = readFileSync(f.releaseReceipt);
+    writeFileSync(f.releaseReceipt, "{ malformed\n");
+    const invalidRelease = invoke();
+    expect(invalidRelease.exitCode).not.toBe(0);
+    expect(invalidRelease.stderr.toString()).toMatch(/receipt|reinstall|bounded hook failed/i);
+    expect(readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")).toHaveLength(log.length);
+    writeFileSync(f.releaseReceipt, installedReceipt);
     renameSync(f.binary, `${f.binary}.missing`);
     const missing = invoke();
     expect(missing.exitCode).not.toBe(0);
