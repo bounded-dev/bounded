@@ -200,6 +200,15 @@ test("compiled bounded check validates Pi-only and combined host projects", () =
     const checked = bounded(root, ["check"]);
     expect(checked.code).toBe(0);
     expect(checked.stderr).toBe("");
+    const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+    const originalLoader = readFileSync(loaderPath, "utf8");
+    writeFileSync(loaderPath, `${originalLoader}\n// user changed the installed Pi bridge\n`);
+    const changed = bounded(root, ["check"]);
+    expect(changed.code).toBe(2);
+    expect(changed.stderr).toMatch(/Pi|\.pi[/\\]extensions[/\\]bounded[/\\]index\.ts/i);
+    expect(changed.stderr).toMatch(/changed|modified|unknown|repair|reinstall/i);
+    writeFileSync(loaderPath, originalLoader);
+    expect(bounded(root, ["check"]).code).toBe(0);
     expect(existsSync(archive.managerLog)).toBe(false);
   }
 }, 240_000);
