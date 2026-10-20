@@ -167,6 +167,12 @@ test("archive-only init installs Claude Code hooks and pins its executable in a 
     expect(checked).toMatchObject({ exitCode: 0, stderr: "" });
     expect(checked.stdout).toMatch(/checked|valid|ready/i);
     expect(existsSync(f.managerLog)).toBe(false);
+    const installedSettings = readFileSync(join(f.project, ".claude", "settings.json"));
+    writeFileSync(join(f.project, ".claude", "settings.json"), '{"hooks":{}}\n');
+    const noHost = run(f, ["check"]);
+    expect(noHost.exitCode).not.toBe(0);
+    expect(noHost.stderr).toMatch(/host|Claude Code|init/i);
+    writeFileSync(join(f.project, ".claude", "settings.json"), installedSettings);
     const validReceipt = readFileSync(f.releaseReceipt);
     rmSync(f.releaseReceipt);
     const missingReceipt = run(f, ["check"]);

@@ -121,12 +121,12 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     stopRegistry = () => new Promise<void>((resolveStop, rejectStop) => server.close((error) => error ? rejectStop(error) : resolveStop()));
 
     const project = join(scratch, "python-project"); mkdirSync(project);
-    mkdirSync(join(project, ".bounded"));
-    writeFileSync(join(project, ".bounded", "version.json"), `${JSON.stringify({ schema: "bounded-project-version/1", version: VERSION })}\n`);
-    const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
-    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     const environment = { ...process.env, PATH: join(scratch, "empty-path"), XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome,
       NODE_EXTRA_CA_CERTS: certificate, SSL_CERT_FILE: certificate, CLAUDE_PROJECT_DIR: project, XDG_STATE_HOME: join(scratch, "state") };
+    const initialized = Bun.spawnSync([binary, "init", "--host", "claude-code"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: initialized.exitCode, stderr: initialized.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
+    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     const added = Bun.spawn([binary, "add", "bounded-example@0.1.0", "--registry", registryUrl], {
       cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     const addOutput = await new Response(added.stdout).text();
