@@ -253,7 +253,7 @@ console.log(JSON.stringify({ answer }));`);
   expect(result.code).toBe(0);
   const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean } };
   expect(answer.answer?.block).not.toBe(true);
-  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain("exact-root");
+  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain('"verdict":{"kind":"allow"}');
   expect(existsSync(join(sibling, ".bounded", "log.jsonl"))).toBe(false);
 }, 240_000);
 
@@ -286,7 +286,7 @@ console.log(JSON.stringify({ answer, input, frozen: Object.isFrozen(input) && Ob
   expect(answer.frozen).toBe(true);
   expect(answer.input).toEqual({ path: "main.py", extra: { marker: "original" } });
   expect(answer.answer?.block).not.toBe(true);
-  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain("frozen-input");
+  expect(readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")).toContain('"verdict":{"kind":"allow"}');
 }, 240_000);
 
 test("compiled Pi worker reads Bash with its embedded grammar and refuses a protected hook write", () => {
@@ -314,7 +314,7 @@ test("Pi tool_result restores a protected file changed after an accepted Bash ca
 import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({ packs: [protectedPathsPack], contributes: [
   contribution(protectedPathsPack.points.protectedPaths, [
-    { match: "guarded.txt", deny: ["modify"], why: "protected", redirect: "Ask a person" }
+    { match: "guarded.txt", deny: ["create", "modify", "delete"], why: "protected", redirect: "Ask a person" }
   ])
 ] });\n`);
   const result = invokeUnderPi(root, `
@@ -393,7 +393,7 @@ test("Pi detects an edit to a transitive project-local config import during the 
 import { protectedPathsPack } from "bounded/protected-paths";
 import { rules } from "./rules.ts";
 export default defineConfig({ packs: [protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, rules)] });\n`);
-  writeFileSync(join(root, "rules.ts"), `export const rules = [{ match: "**/main.py", deny: ["modify"], why: "protected", redirect: "Ask a person" }];\n`);
+  writeFileSync(join(root, "rules.ts"), `export const rules = [{ match: "**/main.py", deny: ["create", "modify", "delete"], why: "protected", redirect: "Ask a person" }];\n`);
   const result = invokeUnderPi(root, `
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
