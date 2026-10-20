@@ -142,7 +142,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   }
   const result = kind === "invalid-result" && frame.event === "tool_call" ? {} : null;
   process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
-  if (kind === "duplicate") process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
+  if (kind === "duplicate" && frame.event === "tool_call") process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
 }
 `);
   const built = Bun.spawnSync([process.execPath, "build", "--compile", source, "--outfile", executable],
@@ -627,7 +627,6 @@ console.log(JSON.stringify({ answer }));`);
 
 for (const [kind, diagnostic] of [
   ["oversized", /oversized worker response|response.*oversized/i],
-  ["duplicate", /out-of-order|malformed worker response/i],
   ["crash", /worker exited|worker.*exit/i],
 ] as const) {
   test(`Pi bridge blocks when its native worker sends ${kind} output`, () => {
@@ -646,6 +645,25 @@ console.log(JSON.stringify({ answer }));`);
     expect(answer.answer?.reason).toMatch(diagnostic);
   }, 240_000);
 }
+
+test("Pi bridge blocks when its native worker sends duplicate output", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const worker = compiledFaultWorker(root, "duplicate");
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, worker));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "first-duplicate", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "second-duplicate", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/out-of-order|malformed worker response/i);
+  expect(readFileSync(join(root, "fault-worker-duplicate.frames"), "utf8").trim().split("\n")).toHaveLength(2);
+}, 240_000);
 
 test("Pi bridge drains a native worker's stderr without delaying an allowed call", () => {
   const root = project();
