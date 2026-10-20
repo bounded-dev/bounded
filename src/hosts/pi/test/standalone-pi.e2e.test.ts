@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
+import tar from "tar-stream";
 import { verifyReleaseArchive } from "../../../cli/release-manifest.ts";
-import { packageArchive, sha512Integrity, type TarEntry } from "../../../cli/managed-pack-artifact.test-support.ts";
+import { sha512Integrity, type TarEntry } from "../../../cli/managed-pack-artifact.test-support.ts";
 import { runStandaloneAddInternal } from "../../../standalone-runtime.ts";
 
 const REPO = resolve(import.meta.dir, "../../../..");
@@ -177,6 +179,28 @@ console.log(JSON.stringify({ first, second }));`);
   expect(answer.second?.reason).toMatch(/changed|restart|snapshot/i);
 }, 240_000);
 
+test("Pi detects an edit to a transitive project-local config import during the same session", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  writeFileSync(join(root, "bounded.config.ts"), `import { contribution, defineConfig } from "bounded/domain";
+import { protectedPathsPack } from "bounded/protected-paths";
+import { rules } from "./rules.ts";
+export default defineConfig({ packs: [protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, rules)] });\n`);
+  writeFileSync(join(root, "rules.ts"), `export const rules = [{ match: "**/main.py", deny: ["modify"], why: "protected", redirect: "Ask a person" }];\n`);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.appendFileSync("rules.ts", "\\n// edited transitive source\\n");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "after", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/rules\.ts|changed|restart|snapshot/i);
+}, 240_000);
+
 test("Pi result is paired with its accepted call snapshot and warns when after-tool checking cannot run", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
@@ -317,18 +341,43 @@ function packageEntries(root: string, path = ""): TarEntry[] {
   });
 }
 
+async function packedArtifact(files: readonly TarEntry[]): Promise<Uint8Array> {
+  return new Promise((resolveArchive, reject) => {
+    const pack = tar.pack();
+    const chunks: Buffer[] = [];
+    pack.on("data", (chunk: Buffer) => chunks.push(chunk));
+    pack.on("error", reject);
+    pack.on("end", () => resolveArchive(gzipSync(Buffer.concat(chunks))));
+    for (const entry of files) {
+      const content = typeof entry.body === "string" ? Buffer.from(entry.body) : Buffer.from(entry.body ?? new Uint8Array());
+      pack.entry({ name: entry.name, size: content.byteLength, mode: 0o644, type: "file", mtime: new Date(0),
+        uid: 0, gid: 0, uname: "", gname: "" } as Parameters<typeof pack.entry>[0], content);
+    }
+    pack.finalize();
+  });
+}
+
 test("Pi executes a selected verified managed pack, then refuses changed pinned store bytes before cached code", async () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
-  const packageRoot = join(REPO, "src", "published-packs", "example");
+  const source = join(root, "source");
+  const clone = Bun.spawnSync(["git", "clone", "--quiet", "--no-hardlinks", REPO, source],
+    { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (clone.exitCode !== 0) throw new Error(`Published pack fixture clone failed: ${clone.stderr.toString()}`);
+  cpSync(join(REPO, "src"), join(source, "src"), { recursive: true, force: true });
+  cpSync(join(REPO, "bun.lock"), join(source, "bun.lock"), { force: true });
+  const dependencies = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile", "--offline"],
+    { cwd: source, stdout: "pipe", stderr: "pipe" });
+  if (dependencies.exitCode !== 0) throw new Error(`Published pack fixture install failed: ${dependencies.stderr.toString()}`);
+  const packageRoot = join(source, "src", "published-packs", "example");
   for (const [args, cwd] of [
-    [[process.execPath, join(REPO, "src", "build-published-pack.ts")], packageRoot],
-    [[process.execPath, join(REPO, "src", "dist", "cli.js"), "catalog", "build"], packageRoot],
+    [[process.execPath, join(source, "src", "build-published-pack.ts")], packageRoot],
+    [[process.execPath, join(source, "src", "dist", "cli.js"), "catalog", "build"], packageRoot],
   ] as const) {
     const built = Bun.spawnSync([...args], { cwd, stdout: "pipe", stderr: "pipe" });
     if (built.exitCode !== 0) throw new Error(`Published pack fixture build failed: ${built.stderr.toString()}`);
   }
-  const artifact = packageArchive(packageEntries(packageRoot));
+  const artifact = await packedArtifact(packageEntries(packageRoot));
   const registry = "https://registry.example.test";
   const tarballUrl = `${registry}/bounded-example/-/bounded-example-0.1.0.tgz`;
   const get = async (url: string) => {
@@ -350,8 +399,9 @@ export default defineConfig({ packs: [refusedToolsPack],
   const storeRoot = join(archive.dataHome, "bounded", "packs", "store");
   const stores = readdirSync(storeRoot);
   expect(stores).toHaveLength(1);
-  const storeFile = join(storeRoot, stores[0] ?? "missing", "dist", "packs", "refused-tools", "index.js");
+  const storeFile = join(storeRoot, stores[0] ?? "missing", "package", "dist", "packs", "refused-tools", "index.js");
   expect(existsSync(storeFile)).toBe(true);
+  const originalStoreBytes = readFileSync(storeFile);
   const result = invokeUnderPi(root, `
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
 const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "managed-1", toolName: "web_search", input: { query: "docs" } }, { cwd: process.cwd() });
@@ -366,4 +416,22 @@ console.log(JSON.stringify({ first, second }));`);
   expect(answer.second?.block).toBe(true);
   expect(answer.second?.reason).toMatch(/store|inventory|changed|restart|re.add/i);
   expect(answer.second?.reason).not.toContain("Use local docs");
+  writeFileSync(storeFile, originalStoreBytes);
+  const projected = join(root, "node_modules", "bounded-example");
+  const declaration = readdirSync(projected, { recursive: true }).map(String).find((name) => name.endsWith(".d.ts"));
+  expect(declaration).toBeDefined();
+  const typeFile = join(projected, declaration ?? "missing");
+  const projectedResult = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "types-1", toolName: "web_search", input: { query: "docs" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.appendFileSync(${JSON.stringify(typeFile)}, "\\n// changed projected declaration\\n");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "types-2", toolName: "web_search", input: { query: "docs" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(projectedResult.code).toBe(0);
+  const projectedAnswer = JSON.parse(projectedResult.stdout.trim()) as { first?: { reason?: string }; second?: { block?: boolean; reason?: string } };
+  expect(projectedAnswer.first?.reason).toContain("Use local docs");
+  expect(projectedAnswer.second?.block).toBe(true);
+  expect(projectedAnswer.second?.reason).toMatch(/projection|type|declaration|changed|restart/i);
+  expect(projectedAnswer.second?.reason).not.toContain("Use local docs");
 }, 240_000);
