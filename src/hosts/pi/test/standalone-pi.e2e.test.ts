@@ -122,7 +122,7 @@ ${body}\n`);
   return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
 }
 
-function compiledFaultWorker(root: string, kind: "malformed" | "invalid-result" | "stalled" | "echo"): string {
+function compiledFaultWorker(root: string, kind: "malformed" | "invalid-result" | "stalled" | "echo" | "oversized" | "duplicate" | "stderr-flood" | "crash"): string {
   const source = join(root, `fault-worker-${kind}.ts`);
   const executable = join(root, process.platform === "win32" ? `fault-worker-${kind}.exe` : `fault-worker-${kind}`);
   writeFileSync(source, `import { appendFileSync } from "node:fs";
@@ -134,8 +134,15 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   const frame = JSON.parse(line);
   if (kind === "malformed") { process.stdout.write("not-json\\n"); continue; }
   if (kind === "stalled" && frame.event !== "session_start") continue;
+  if (kind === "crash" && frame.event === "tool_call") process.exit(7);
+  if (kind === "stderr-flood" && frame.event === "tool_call") process.stderr.write("x".repeat(2 * 1024 * 1024));
+  if (kind === "oversized" && frame.event === "tool_call") {
+    process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result: { block: true, reason: "x".repeat(2 * 1024 * 1024) } }) + "\\n");
+    continue;
+  }
   const result = kind === "invalid-result" && frame.event === "tool_call" ? {} : null;
   process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
+  if (kind === "duplicate") process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
 }
 `);
   const built = Bun.spawnSync([process.execPath, "build", "--compile", source, "--outfile", executable],
@@ -616,6 +623,78 @@ console.log(JSON.stringify({ answer }));`);
   expect(readFileSync(received, "utf8").trim().split("\n")).toHaveLength(2);
   expect(answer.answer?.block).toBe(true);
   expect(answer.answer?.reason).toMatch(/worker response|worker result|protocol response/i);
+}, 240_000);
+
+for (const [kind, diagnostic] of [
+  ["oversized", /oversized worker response|response.*oversized/i],
+  ["duplicate", /out-of-order|malformed worker response/i],
+  ["crash", /worker exited|worker.*exit/i],
+] as const) {
+  test(`Pi bridge blocks when its native worker sends ${kind} output`, () => {
+    const root = project();
+    expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+    const faulty = compiledFaultWorker(root, kind);
+    const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+    writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
+    const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "fault-${kind}", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+    expect(result.code).toBe(0);
+    const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+    expect(answer.answer?.block).toBe(true);
+    expect(answer.answer?.reason).toMatch(diagnostic);
+  }, 240_000);
+}
+
+test("Pi bridge drains a native worker's stderr without delaying an allowed call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const worker = compiledFaultWorker(root, "stderr-flood");
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, worker));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "stderr-flood", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));
+process.exit(0);`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean } };
+  expect(answer.answer?.block).not.toBe(true);
+  expect(readFileSync(join(root, "fault-worker-stderr-flood.frames"), "utf8").trim().split("\n")).toHaveLength(2);
+}, 240_000);
+
+test("Pi bridge blocks a native worker that never answers a tool call", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const worker = compiledFaultWorker(root, "stalled");
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, worker));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "stalled-worker", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/worker response timed out/i);
+}, 240_000);
+
+test("Pi bridge refuses an oversized request before the native worker sees it", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const worker = compiledFaultWorker(root, "echo");
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, worker));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "oversized-request", toolName: "read", input: { path: "main.py", padding: "x".repeat(2 * 1024 * 1024) } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ answer }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string } };
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/oversized|queue overflow/i);
+  expect(readFileSync(join(root, "fault-worker-echo.frames"), "utf8").trim().split("\n")).toHaveLength(1);
 }, 240_000);
 
 test("Pi bridge refuses aggregate queued bytes before the stalled worker consumes them", () => {
