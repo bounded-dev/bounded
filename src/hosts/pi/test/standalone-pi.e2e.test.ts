@@ -369,6 +369,31 @@ console.log(JSON.stringify({ answer }));`);
   expect(answer.answer?.reason).toMatch(/worker response|worker result|protocol response/i);
 }, 240_000);
 
+test("Pi bridge refuses aggregate queued bytes before the stalled worker consumes them", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const faulty = join(root, process.platform === "win32" ? "stalled-worker.cmd" : "stalled-worker");
+  writeFileSync(faulty, process.platform === "win32"
+    ? '@echo off\r\nset /p first=\r\necho {"protocol":1,"id":1,"event":"session_start","result":null}\r\n:wait\r\nset /p frame=\r\ngoto wait\r\n'
+    : '#!/bin/sh\nIFS= read -r first\nprintf \'%s\\n\' \'{"protocol":1,"id":1,"event":"session_start","result":null}\'\nwhile IFS= read -r frame; do :; done\n');
+  if (process.platform !== "win32") chmodSync(faulty, 0o755);
+  const loaderPath = join(root, ".pi", "extensions", "bounded", "index.ts");
+  writeFileSync(loaderPath, readFileSync(loaderPath, "utf8").replaceAll(archive.executable, faulty));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const payload = "a".repeat(300000);
+for (let index = 0; index < 3; index++) void handlers.get("tool_call")({ type: "tool_call", toolCallId: "queued-" + index, toolName: "read", input: { path: "main.py", padding: payload } }, { cwd: process.cwd() });
+const last = handlers.get("tool_call")({ type: "tool_call", toolCallId: "queued-overflow", toolName: "read", input: { path: "main.py", padding: payload } }, { cwd: process.cwd() });
+const answer = await Promise.race([last, new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 1500))]);
+console.log(JSON.stringify({ answer }));
+process.exit(0);`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { answer?: { block?: boolean; reason?: string; timedOut?: boolean } };
+  expect(answer.answer?.timedOut).not.toBe(true);
+  expect(answer.answer?.block).toBe(true);
+  expect(answer.answer?.reason).toMatch(/queue|queued|aggregate|capacity/i);
+}, 240_000);
+
 test("Pi bridge forwards only the needed context fields when Pi gives a cyclic host context", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
