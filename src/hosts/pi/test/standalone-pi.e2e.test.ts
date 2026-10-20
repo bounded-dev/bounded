@@ -113,7 +113,7 @@ const bus = { ...actualBus, on(name, handler) { channels.push(name); ${options.f
 const loaded = await piLoader.loadExtensions([${JSON.stringify(join(root, ".pi", "extensions", "bounded", "index.ts"))}], process.cwd(), bus);
 if (loaded.errors.length !== 0 || loaded.extensions.length !== 1) throw new Error(JSON.stringify(loaded.errors));
 const handlers = new Map([...loaded.extensions[0].handlers].map(([name, values]) => [name, values[0]]));
-${body}\n`);
+${body}\nprocess.exit(0);\n`);
   const run = Bun.spawnSync([nodeBinary, script], {
     cwd: root, env: { ...process.env, PATH: archive.fakeBin, MANAGER_LOG: archive.managerLog, XDG_STATE_HOME: join(archive.root, "state"),
       XDG_DATA_HOME: archive.dataHome, LOCALAPPDATA: archive.dataHome },
