@@ -58,6 +58,37 @@ function hookPayload(project: string, tool: string): Uint8Array {
     cwd: project, session_id: "managed-add-test", tool_use_id: `call-${tool}` }));
 }
 
+/** Add a second pack to the cloned publication fixture, with its adapter on a declared export path. */
+function addPortBackedPublishedFixture(packageRoot: string): void {
+  const manifestPath = join(packageRoot, "package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown> & { exports: Record<string, unknown>; bounded: { catalog: string; packs: Record<string, string> } };
+  manifest.exports["./port-backed"] = { bun: "./packs/port-backed/index.ts", types: "./dist/types/packs/port-backed/index.d.ts", default: "./dist/packs/port-backed/index.js" };
+  manifest.exports["./port-backed-adapter"] = { bun: "./packs/port-backed/adapter.ts", types: "./dist/types/packs/port-backed/adapter.d.ts", default: "./dist/packs/port-backed/adapter.js" };
+  manifest.bounded.packs["./port-backed"] = "packs/port-backed";
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const directory = join(packageRoot, "packs", "port-backed");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "port-backed.contract.ts"), 'import type { BasePack, PackId, PortKey } from "bounded/domain";\nexport interface Notes { read(): string; }\nexport interface PortBackedPack extends BasePack { readonly id: PackId<"bounded-example/port-backed">; readonly ports: { readonly notes: PortKey<Notes, PackId<"bounded-example/port-backed"> > }; }\n');
+  writeFileSync(join(directory, "port-backed.pack.ts"), `import { contribution, corePack, definePack, packIdsFor, portKeysFor, Verdict } from "bounded/domain";
+import type { PackId, PortKey } from "bounded/domain";
+import type { Notes, PortBackedPack } from "./port-backed.contract.ts";
+const id = packIdsFor("bounded-example")("port-backed");
+export const notes: PortKey<Notes, PackId<"bounded-example/port-backed">> = portKeysFor(id)<Notes>("notes");
+export const portBackedPack: PortBackedPack = definePack({ id, dependsOn: [corePack], ports: { notes },
+  contributes: [contribution(corePack.points.beforeTool, [async (_call, context) => {
+    const opened = context.ports.get(notes);
+    if (!opened.ok) return Verdict.refuse(opened.error, "Provide the notes adapter");
+    return opened.value.read() === "deny" ? Verdict.refuse("Published port refused the call", "Use local docs") : Verdict.allow;
+  }])],
+});\n`);
+  writeFileSync(join(directory, "index.ts"), 'export { portBackedPack, notes } from "./port-backed.pack.ts";\n');
+  writeFileSync(join(directory, "adapter.ts"), 'import type { Notes } from "./port-backed.contract.ts";\nexport class PublishedNotes implements Notes { constructor(readonly root: string) {} read(): string { return "deny"; } }\n');
+  mkdirSync(join(directory, "examples"));
+  writeFileSync(join(directory, "examples", "with-adapter.config.ts"), 'import { defineConfig, Ports } from "bounded/domain";\nimport { portBackedPack } from "bounded-example/port-backed";\nimport { PublishedNotes } from "bounded-example/port-backed-adapter";\n/**\n * Supply a published notes adapter\n *\n * The project selects a pack and supplies its required port.\n */\nexport default defineConfig({ packs: [portBackedPack], ports: [Ports.provide(portBackedPack.ports.notes, root => new PublishedNotes(root))] });\n');
+  writeFileSync(join(directory, "examples", "with-adapter.scenarios.ts"), 'import { defineExampleScenarios } from "bounded/domain";\nexport default defineExampleScenarios({ scenarios: [{ title: "The published adapter refuses a read", steps: [{ toolUse: { tool: "read", effects: [{ kind: "read", path: "README.md" }] }, verdict: { kind: "refuse", reason: "Published port refused the call", redirect: "Use local docs" } }] }] });\n');
+  writeFileSync(join(directory, "README.md"), `# bounded-example/port-backed: use a published adapter\n\nA published pack with a required notes port.\n\n## What it is for\n\nTesting explicit project adapter provisions.\n\n## Rule shape\n\nThe pack has no rule values.\n\n## Workflows it fits\n\nA project that provides a notes adapter.\n\n## What it observes\n\nA tool call before it runs.\n\n## What it cannot see\n\nAnything outside the call and its provided port.\n\n## Ports\n\nThe required \`notes\` port reads a note from the project adapter.\n\n## Examples\n\n\`with-adapter.config.ts\` selects the pack and \`with-adapter.scenarios.ts\` describes a blocked call.\n`);
+}
+
 test("a compiled archive adds and executes a published pack with no ambient package runtime", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "bounded-managed-archive-"));
   let stopRegistry: (() => Promise<void>) | undefined;
@@ -68,6 +99,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     cpSync(join(REPO, "src"), join(source, "src"), { recursive: true, force: true });
     cpSync(join(REPO, "bun.lock"), join(source, "bun.lock"), { force: true });
     successful([process.execPath, "install", "--frozen-lockfile", "--offline"], source);
+    addPortBackedPublishedFixture(join(source, "src", "published-packs", "example"));
     const targetId = nativeTarget();
     successful([process.execPath, join(source, "src", "build-release.ts"), "--target", targetId, "--smoke", "--out", releaseOutput], source);
     successful([process.execPath, join(source, "src", "build-published-pack.ts")], join(source, "src", "published-packs", "example"));
@@ -165,6 +197,15 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       return { exitCode: checked.exitCode, stdout: checked.stdout.toString(), stderr: checked.stderr.toString() };
     };
     const validConfig = readFileSync(join(project, "bounded.config.ts"), "utf8");
+    const portConfig = 'import { defineConfig, Ports } from "bounded/domain";\nimport { portBackedPack } from "bounded-example/port-backed";\nimport { PublishedNotes } from "bounded-example/port-backed-adapter";\nexport default defineConfig({ packs: [portBackedPack], ports: [Ports.provide(portBackedPack.ports.notes, root => new PublishedNotes(root))] });\n';
+    writeFileSync(join(project, "bounded.config.ts"), portConfig);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const portJudged = Bun.spawnSync([binary, "hook", "claude-code"], { cwd: project, env: environment,
+      stdin: hookPayload(project, "Read"), stdout: "pipe", stderr: "pipe" });
+    expect(portJudged.exitCode).toBe(0);
+    expect(portJudged.stdout.toString()).toContain("Published port refused the call");
+    writeFileSync(join(project, "bounded.config.ts"), portConfig.replace("new PublishedNotes(root)", '(() => { throw new Error("factory opened during check"); })() as PublishedNotes'));
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     writeFileSync(join(project, "bounded.config.ts"), validConfig);
