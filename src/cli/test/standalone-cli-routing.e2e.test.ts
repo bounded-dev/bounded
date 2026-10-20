@@ -258,6 +258,7 @@ test("installed standalone Claude Code command applies the generated rule, launc
       expect(answered.stderr.toString()).not.toContain("bounded hook failed");
     }
     const installedReceipt = readFileSync(f.releaseReceipt);
+    const decisionsBeforeTamper = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n").length;
     const configPath = join(f.project, "bounded.config.ts");
     const installedConfig = readFileSync(configPath);
     const executionSentinel = join(f.project, "config-executed-after-receipt-tamper");
@@ -271,7 +272,7 @@ test("installed standalone Claude Code command applies the generated rule, launc
     expect(existsSync(executionSentinel)).toBe(false);
     const afterInvalid = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
       .map((line) => JSON.parse(line) as { verdict: { kind: string } });
-    expect(afterInvalid).toHaveLength(log.length + 1);
+    expect(afterInvalid).toHaveLength(decisionsBeforeTamper + 1);
     expect(afterInvalid.at(-1)?.verdict.kind).toBe("refuse");
     writeFileSync(f.releaseReceipt, installedReceipt);
     writeFileSync(configPath, installedConfig);
