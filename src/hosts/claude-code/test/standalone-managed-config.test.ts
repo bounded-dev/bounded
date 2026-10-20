@@ -101,7 +101,7 @@ describe("standalone managed config from a verified snapshot", () => {
       { "plain-helper": "plain-helper@2.0.0" });
     const helperOne = node("plain-helper", "1.0.0", 'export const version = "one";\n');
     const helperTwo = node("plain-helper", "2.0.0", 'export const version = "two";\n');
-    first.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+    first.exports = { ".": { import: "./dist/index.js", types: "./dist/index.d.ts" } };
     second.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
     helperOne.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
     helperTwo.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
@@ -112,14 +112,15 @@ describe("standalone managed config from a verified snapshot", () => {
     const unused = node("bounded-unused", "1.0.0", 'globalThis.__boundedManagedUnselectedExecuted = true;\n');
     const chosen = graph([first, second, helperOne, helperTwo, unused],
       { "bounded-first": first.id, "bounded-second": second.id, "bounded-unused": unused.id });
-    const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nimport { localName } from "./local-name.ts";\nconst first: "one" = firstVersion; const second: "two" = secondVersion;\nif (localName !== "initial-" || first !== "one" || second !== "two") throw new Error("wrong snapshot bytes executed");\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")("selected") })] });\n');
+    const { root, config } = project('import { defineConfig, definePack, packIdsFor } from "bounded/domain";\nimport { platform } from "node:os";\nimport { firstVersion } from "bounded-first";\nimport { secondVersion } from "bounded-second";\nimport { localName } from "./local-name.ts";\nconst nativePlatform: string = platform();\nconst first: "one" = firstVersion; const second: "two" = secondVersion;\nif (!nativePlatform || localName !== "initial-" || first !== "one" || second !== "two") throw new Error("wrong snapshot bytes executed");\nexport default defineConfig({ packs: [definePack({ id: packIdsFor("local")("selected") })] });\n');
     const localName = join(root, "local-name.ts");
     writeFileSync(localName, 'export const localName = "initial-";\n');
     type Snapshot = { readonly modulePath: string; readonly digest: string; readonly sourceFiles: Readonly<Record<string, Uint8Array>> };
     type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph; readonly verifiedReleaseManifestSha256: string;
       readonly boundedRuntimeExports: Readonly<Record<string, Readonly<Record<string, unknown>>>> }) => Promise<Snapshot>;
     type Check = (snapshot: Snapshot, types: { readonly boundedDeclarations: Readonly<Record<string, Uint8Array>>;
-      readonly standardLibraries: Readonly<Record<string, Uint8Array>> }) => Promise<{ readonly ok: boolean; readonly diagnostics: readonly string[] }>;
+      readonly standardLibraries: Readonly<Record<string, Uint8Array>>;
+      readonly externalDeclarations: Readonly<Record<string, Uint8Array>> }) => Promise<{ readonly ok: boolean; readonly diagnostics: readonly string[] }>;
     const prepare = Reflect.get(adapters, "prepareStandaloneProjectSnapshot") as Prepare | undefined;
     const check = Reflect.get(adapters, "checkStandaloneProjectSnapshot") as Check | undefined;
     expect(prepare).toBeFunction();
@@ -140,8 +141,14 @@ describe("standalone managed config from a verified snapshot", () => {
     writeFileSync(localName, 'export const localName: number = "wrong"; throw new Error("mutated project source executed");\n');
     const changed = await prepare(config, root, options);
     expect(changed.digest).not.toBe(snapshot.digest);
+    const nodeDeclarations = declarations(join(import.meta.dir, "../../../../node_modules/@types/node"));
+    const undiciDeclarations = declarations(join(import.meta.dir, "../../../../node_modules/undici-types"));
     const checked = await check(snapshot, { boundedDeclarations: declarations(join(import.meta.dir, "../../../dist/types")),
-      standardLibraries: declarations(join(import.meta.dir, "../../../../node_modules/typescript/lib")) });
+      standardLibraries: declarations(join(import.meta.dir, "../../../../node_modules/typescript/lib")),
+      externalDeclarations: Object.fromEntries([
+        ...Object.entries(nodeDeclarations).map(([path, content]) => [`@types/node/${path}`, content] as const),
+        ...Object.entries(undiciDeclarations).map(([path, content]) => [`undici-types/${path}`, content] as const),
+      ]) });
     expect(checked).toEqual({ ok: true, diagnostics: [] });
     const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(root);
     expect(loaded.ok).toBe(true);
