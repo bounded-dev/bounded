@@ -13,7 +13,13 @@ import { lstatSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { buildStandaloneConfigModule } from "./hosts/claude-code/standalone-config-as-module.ts";
+import { prepareStandaloneProjectSnapshot, disposeStandaloneProjectSnapshot, standaloneManagedConfigSource, checkStandaloneProjectSnapshot } from "bounded/adapters";
+import { validateProjectWiring } from "bounded/application";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
+import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
+import { verifiedStandaloneTypeEnvironment } from "./cli/standalone-type-environment.ts";
 import { prepareStandaloneClaudeHooks } from "./hosts/claude-code/standalone-install.ts";
 import { INITIAL_CONFIG } from "./cli/initial-config.ts";
 
@@ -21,7 +27,7 @@ const commandRoutes = {
   hook: "host-hook",
   init: "project-setup",
   update: "unavailable",
-  check: "unavailable",
+  check: "project-check",
   host: "unavailable",
   catalog: "unavailable",
   add: "managed-add",
@@ -146,6 +152,13 @@ function embeddedWasmPath(name: "tree-sitter" | "tree-sitter-bash"): string {
 }
 
 function prepareStandaloneRuntime(version: string): void {
+  Object.defineProperty(globalThis, "__boundedStandaloneReleaseIdentityLoader", {
+    value: () => {
+      const located = locateInstalledRelease(version);
+      if (!located.ok) throw new Error(located.error);
+      return located.manifestSha256;
+    }, configurable: false, writable: false,
+  });
   Object.defineProperty(globalThis, "__boundedStandaloneWasmPaths", {
     value: Object.freeze({ engine: embeddedWasmPath("tree-sitter"), grammar: embeddedWasmPath("tree-sitter-bash") }),
     configurable: false,
@@ -157,7 +170,7 @@ function prepareStandaloneRuntime(version: string): void {
     writable: false,
   });
   Object.defineProperty(globalThis, "__boundedStandaloneManagedGraphLoader", {
-    value: async (projectRoot: string) => {
+    value: async (projectRoot: string, selectedReleaseManifestSha256: string) => {
       const bounded = join(projectRoot, ".bounded");
       const has = (name: string): boolean => {
         try { lstatSync(join(bounded, name)); return true; }
@@ -166,6 +179,8 @@ function prepareStandaloneRuntime(version: string): void {
       if (!["packs.lock.json", "types-receipt.json", "types-journal.json"].some(has)) return undefined;
       const located = locateInstalledRelease(version);
       if (!located.ok) throw new Error(located.error);
+      if (located.manifestSha256 !== selectedReleaseManifestSha256)
+        throw new Error("the installed Bounded release changed during snapshot selection; retry the hook");
       const releaseTypeFilesFromVerifiedManifest = Object.fromEntries(located.verifiedFiles
         .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
         .map((file) => [file.path.slice("share/types/".length), file.sha256]));
@@ -199,12 +214,84 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     await addStandalone(args, version);
     return;
   }
+  if (command === "check") {
+    await checkStandalone(args, version);
+    return;
+  }
   const route = commandRoutes[command as keyof typeof commandRoutes];
   if (route === "project-setup") {
     await initStandalone(args, version);
     return;
   }
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);
+}
+
+async function checkStandalone(args: readonly string[], version: string): Promise<void> {
+  if (args.length !== 1) { refusal("Use bounded check from an initialized project"); return; }
+  const projectRoot = process.cwd();
+  const pinPath = join(projectRoot, ".bounded", "version.json");
+  try {
+    const pinInfo = lstatSync(pinPath);
+    if (!pinInfo.isFile() || pinInfo.isSymbolicLink()) throw new Error("version pin is linked or not a file");
+    const parsed: unknown = JSON.parse(readFileSync(pinPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+      || Reflect.get(parsed, "schema") !== "bounded-project-version/1" || Reflect.get(parsed, "version") !== version
+      || Object.keys(parsed).sort().join() !== "schema,version") throw new Error("version pin differs from this executable");
+  } catch (error) { refusal(`bounded check requires this project's exact .bounded/version.json pin; run bounded init or repair the pin: ${error instanceof Error ? error.message : String(error)}`); return; }
+  if (!releaseIdentity(version)) return;
+  const located = locateInstalledRelease(version);
+  if (!located.ok) { refusal(located.error); return; }
+  try {
+    const claudeHooks = await prepareStandaloneClaudeHooks(projectRoot, process.execPath);
+    if (!claudeHooks.ok) throw new Error(`Claude Code host wiring cannot be inspected: ${claudeHooks.error}`);
+    const claudeInstalled = claudeHooks.value.originalBytes !== null
+      && JSON.stringify(JSON.parse(claudeHooks.value.originalBytes)) === JSON.stringify(JSON.parse(claudeHooks.value.nextBytes));
+    if (!claudeInstalled) throw new Error("no installed Bounded host wiring was found; run bounded init --host claude-code or repair its hooks");
+    const declaredTypeEnvironment = located.verifiedFiles.find((file) => file.path === "share/typescript/type-environment.json");
+    if (declaredTypeEnvironment === undefined) throw new Error("installed release lacks its TypeScript declaration manifest; reinstall Bounded");
+    const environment = await verifiedStandaloneTypeEnvironment(located.releaseRoot, declaredTypeEnvironment.sha256);
+    const boundedDeclarations: Record<string, Uint8Array> = {};
+    for (const file of located.verifiedFiles) {
+      if (!file.path.startsWith("share/types/") || !file.path.endsWith(".d.ts")) continue;
+      const bytes = readFileSync(join(located.releaseRoot, file.path));
+      if (bytes.byteLength !== file.size || createHash("sha256").update(bytes).digest("hex") !== file.sha256)
+        throw new Error(`installed Bounded declaration ${file.path} changed after release verification; reinstall Bounded`);
+      boundedDeclarations[file.path.slice("share/types/".length)] = bytes;
+    }
+    const bounded = join(projectRoot, ".bounded");
+    const has = (name: string): boolean => {
+      try { lstatSync(join(bounded, name)); return true; }
+      catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+    };
+    const hasManagedState = ["packs.lock.json", "types-receipt.json", "types-journal.json"].some(has);
+    const managedGraph = hasManagedState ? await captureManagedPackRuntimeGraph({ projectRoot, boundedVersion: version,
+      boundedExportPaths: Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`),
+      storeRoot: join(userDataRoot(), "packs", "store"), releaseTypesRoot: join(located.releaseRoot, "share", "types"),
+      releaseTypeFilesFromVerifiedManifest: Object.fromEntries(located.verifiedFiles
+        .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+        .map((file) => [file.path.slice("share/types/".length), file.sha256])) }) : undefined;
+    if (managedGraph !== undefined && !managedGraph.ok) throw new Error(managedGraph.error);
+    const configFile = join(projectRoot, "bounded.config.ts");
+    let configInfo: ReturnType<typeof lstatSync>;
+    try { configInfo = lstatSync(configFile); }
+    catch { throw new Error("bounded.config.ts is missing or unreadable in this project"); }
+    if (!configInfo.isFile() || configInfo.isSymbolicLink()) throw new Error("bounded.config.ts is missing, linked, or not a regular configuration file");
+    const snapshot = await prepareStandaloneProjectSnapshot(configFile, projectRoot, {
+      verifiedReleaseManifestSha256: located.manifestSha256, boundedRuntimeExports: standaloneRuntimeExports,
+      ...(managedGraph === undefined ? {} : { managedGraph: managedGraph.value }),
+    });
+    try {
+      const checked = await checkStandaloneProjectSnapshot(snapshot, { ...environment, boundedDeclarations });
+      for (const diagnostic of checked.diagnostics) process.stderr.write(`${diagnostic}\n`);
+      if (!checked.ok) { process.exitCode = 2; return; }
+      const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(projectRoot);
+      if (!loaded.ok) { refusal(loaded.error); return; }
+      const wired = validateProjectWiring(loaded.value, projectRoot,
+        [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()]);
+      if (!wired.ok) { refusal(wired.error); return; }
+      process.stdout.write("Bounded configuration checked for Claude Code\n");
+    } finally { disposeStandaloneProjectSnapshot(snapshot); }
+  } catch (error) { refusal(`bounded check could not validate the project: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 async function addStandalone(args: readonly string[], version: string): Promise<void> {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +30,8 @@ interface Fixture {
   readonly root: string;
   readonly binary: string;
   readonly releaseIdentity: string;
+  readonly releaseReceipt: string;
+  readonly dataHome: string;
   readonly project: string;
   readonly managerLog: string;
   readonly version: string;
@@ -67,8 +70,9 @@ async function fixture(): Promise<Fixture> {
   if (entry === undefined) throw new Error(`release lacks ${target}`);
   const verified = await verifyReleaseArchive(manifest, target, readFileSync(join(release, entry.archive.name)));
   if (!verified.ok) throw new Error(verified.error);
-  const installed = join(root, "installed");
-  mkdirSync(installed);
+  const dataHome = join(root, "user-data");
+  const installed = join(dataHome, "bounded", "releases", `v${version}`, target);
+  mkdirSync(installed, { recursive: true });
   for (const [path, contents] of Object.entries(verified.value)) {
     const destination = join(installed, path);
     mkdirSync(dirname(destination), { recursive: true });
@@ -79,16 +83,24 @@ async function fixture(): Promise<Fixture> {
   if (process.platform !== "win32") chmodSync(binary, 0o755);
   const releaseIdentity = join(installed, "release.json");
   if (!existsSync(releaseIdentity)) throw new Error("verified release lacks release.json");
+  const stableManifest = Buffer.from(`${JSON.stringify({ ...manifest, channel: "stable" })}\n`);
+  const manifestDigest = createHash("sha256").update(stableManifest).digest("hex");
+  const receiptDirectory = join(dataHome, "bounded", "receipts", `v${version}`, target);
+  mkdirSync(join(receiptDirectory, "manifests"), { recursive: true });
+  writeFileSync(join(receiptDirectory, "manifests", `${manifestDigest}.json`), stableManifest);
+  const releaseReceipt = join(receiptDirectory, "receipt-v1.json");
+  writeFileSync(releaseReceipt, `${JSON.stringify({ schema: "bounded-install-receipt/1", version, target, manifestSha256: manifestDigest })}\n`);
   rmSync(source, { recursive: true, force: true });
   rmSync(release, { recursive: true, force: true });
   expect(existsSync(source)).toBe(false);
-  return { root, binary, releaseIdentity, project, managerLog, version };
+  return { root, binary, releaseIdentity, releaseReceipt, dataHome, project, managerLog, version };
 }
 
 function run(f: Fixture, args: readonly string[], cwd = f.project, stdin?: string): { readonly exitCode: number; readonly stdout: string; readonly stderr: string } {
   const executable = Bun.spawnSync([f.binary, ...args], {
     cwd,
-    env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project },
+    env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_STATE_HOME: join(f.root, "state"),
+      XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project },
     ...(stdin === undefined ? {} : { stdin: new TextEncoder().encode(stdin) }),
     stdout: "pipe", stderr: "pipe",
   });
@@ -104,13 +116,13 @@ function projectBytes(f: Fixture): { readonly python: string; readonly settings:
   };
 }
 
-test("archive-only executable routes each distribution command locally or refuses before npm CLI and project mutation", async () => {
+test("archive-only executable routes unsupported commands locally and check requires a project pin", async () => {
   const f = await fixture();
   try {
     expect(run(f, ["--version"])).toMatchObject({ exitCode: 0, stdout: `${f.version}\n`, stderr: "" });
     const before = projectBytes(f);
     for (const args of [
-      ["init", "--host", "pi"], ["update"], ["check"],
+      ["init", "--host", "pi"], ["update"],
       ["host", "pi"], ["catalog", "build"], ["unknown"], ["init", "--no-install"],
     ]) {
       const answer = run(f, args);
@@ -120,6 +132,11 @@ test("archive-only executable routes each distribution command locally or refuse
       expect(projectBytes(f)).toEqual(before);
       expect(existsSync(f.managerLog)).toBe(false);
     }
+    const unpinnedCheck = run(f, ["check"]);
+    expect(unpinnedCheck.exitCode).not.toBe(0);
+    expect(unpinnedCheck.stderr).toMatch(/pin|version\.json|bounded init/i);
+    expect(projectBytes(f)).toEqual(before);
+    expect(existsSync(f.managerLog)).toBe(false);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
@@ -146,6 +163,30 @@ test("archive-only init installs Claude Code hooks and pins its executable in a 
       else expect(command).toContain("exit 2");
     }
     expect(existsSync(f.managerLog)).toBe(false);
+    const checked = run(f, ["check"]);
+    expect(checked).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(checked.stdout).toMatch(/checked|valid|ready/i);
+    expect(existsSync(f.managerLog)).toBe(false);
+    const installedSettings = readFileSync(join(f.project, ".claude", "settings.json"));
+    writeFileSync(join(f.project, ".claude", "settings.json"), '{"hooks":{}}\n');
+    const noHost = run(f, ["check"]);
+    expect(noHost.exitCode).not.toBe(0);
+    expect(noHost.stderr).toMatch(/host|Claude Code|init/i);
+    writeFileSync(join(f.project, ".claude", "settings.json"), installedSettings);
+    const validReceipt = readFileSync(f.releaseReceipt);
+    rmSync(f.releaseReceipt);
+    const missingReceipt = run(f, ["check"]);
+    expect(missingReceipt.exitCode).not.toBe(0);
+    expect(missingReceipt.stderr).toMatch(/receipt|install/i);
+    writeFileSync(f.releaseReceipt, "{ malformed\n");
+    const malformedReceipt = run(f, ["check"]);
+    expect(malformedReceipt.exitCode).not.toBe(0);
+    expect(malformedReceipt.stderr).toMatch(/receipt|install/i);
+    writeFileSync(f.releaseReceipt, validReceipt);
+    renameSync(join(f.project, "bounded.config.ts"), join(f.project, "bounded.config.ts.saved"));
+    const missingConfig = run(f, ["check"]);
+    expect(missingConfig.exitCode).not.toBe(0);
+    expect(missingConfig.stderr).toMatch(/bounded\.config\.ts|configuration/i);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
@@ -197,7 +238,7 @@ test("installed standalone Claude Code command applies the generated rule, launc
     const command = settings.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "";
     const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: join(f.project, "bounded.config.ts"), old_string: "x", new_string: "y" }, cwd: f.project, session_id: "session", tool_use_id: "tool" });
     const shell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command] : ["/bin/sh", "-c", command];
-    const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
+    const invoke = () => Bun.spawnSync(shell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(payload), stdout: "pipe", stderr: "pipe" });
     const judged = invoke();
     expect(judged.exitCode).toBe(0);
     const decision = JSON.parse(judged.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
@@ -212,10 +253,29 @@ test("installed standalone Claude Code command applies the generated rule, launc
       const eventCommand = settings.hooks[event]?.[0]?.hooks[0]?.command ?? "";
       const eventShell = process.platform === "win32" ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", eventCommand] : ["/bin/sh", "-c", eventCommand];
       const eventPayload = JSON.stringify({ hook_event_name: event, tool_name: "Edit", tool_input: { file_path: join(f.project, "main.py"), old_string: "hello", new_string: "hi" }, tool_response: {}, cwd: f.project, session_id: "session", tool_use_id: "tool", agent_id: "agent" });
-      const answered = Bun.spawnSync(eventShell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(eventPayload), stdout: "pipe", stderr: "pipe" });
+      const answered = Bun.spawnSync(eventShell, { cwd: f.project, env: { ...process.env, PATH: `${dirname(f.binary)}${process.platform === "win32" ? ";" : ":"}${join(f.root, "fake-bin")}`, XDG_STATE_HOME: join(f.root, "state"), XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project, MANAGER_LOG: f.managerLog }, stdin: new TextEncoder().encode(eventPayload), stdout: "pipe", stderr: "pipe" });
       expect(answered.exitCode).toBe(0);
       expect(answered.stderr.toString()).not.toContain("bounded hook failed");
     }
+    const installedReceipt = readFileSync(f.releaseReceipt);
+    const decisionsBeforeTamper = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n").length;
+    const configPath = join(f.project, "bounded.config.ts");
+    const installedConfig = readFileSync(configPath);
+    const executionSentinel = join(f.project, "config-executed-after-receipt-tamper");
+    writeFileSync(configPath, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(executionSentinel)}, "ran");\n${installedConfig.toString()}`);
+    writeFileSync(f.releaseReceipt, "{ malformed\n");
+    const invalidRelease = invoke();
+    expect(invalidRelease.exitCode).toBe(0);
+    const invalidDecision = JSON.parse(invalidRelease.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    expect(invalidDecision.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(invalidDecision.hookSpecificOutput.permissionDecisionReason).toMatch(/receipt|reinstall/i);
+    expect(existsSync(executionSentinel)).toBe(false);
+    const afterInvalid = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
+      .map((line) => JSON.parse(line) as { verdict: { kind: string } });
+    expect(afterInvalid).toHaveLength(decisionsBeforeTamper + 1);
+    expect(afterInvalid.at(-1)?.verdict.kind).toBe("refuse");
+    writeFileSync(f.releaseReceipt, installedReceipt);
+    writeFileSync(configPath, installedConfig);
     renameSync(f.binary, `${f.binary}.missing`);
     const missing = invoke();
     expect(missing.exitCode).not.toBe(0);
