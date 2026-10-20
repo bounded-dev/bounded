@@ -165,6 +165,9 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       return { exitCode: checked.exitCode, stdout: checked.stdout.toString(), stderr: checked.stderr.toString() };
     };
     const validConfig = readFileSync(join(project, "bounded.config.ts"), "utf8");
+    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    writeFileSync(join(project, "bounded.config.ts"), validConfig);
     const everyPublicDeclaration = ["domain", "application", "adapters", "open-project", "prereqs", "prereqs/adapters",
       "protected-paths", "protected-paths/adapters", "shell-command-reader"]
       .map((path, index) => `import type * as Public${index} from "bounded/${path}";`).join("\n");
@@ -190,7 +193,8 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     writeFileSync(join(project, "bounded.config.ts"), validConfig.replace("packs: [refusedToolsPack, localRule]", "packs: [localRule]"));
     const unlistedContribution = runCheck();
     expect(unlistedContribution.exitCode).not.toBe(0);
-    expect(unlistedContribution.stderr).toMatch(/TS\d{4}|refusedToolsPack|listed pack/);
+    expect(unlistedContribution.stderr).toMatch(/refusedTools|bounded-example/);
+    expect(unlistedContribution.stderr).toMatch(/not.*(list|select|depend)|not assignable|TS\d{4}/i);
 
     writeFileSync(join(project, "bounded.config.ts"), "export default { packs: [] };\n");
     const malformedDefault = runCheck();

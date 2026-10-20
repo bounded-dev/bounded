@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +30,8 @@ interface Fixture {
   readonly root: string;
   readonly binary: string;
   readonly releaseIdentity: string;
+  readonly releaseReceipt: string;
+  readonly dataHome: string;
   readonly project: string;
   readonly managerLog: string;
   readonly version: string;
@@ -67,8 +70,9 @@ async function fixture(): Promise<Fixture> {
   if (entry === undefined) throw new Error(`release lacks ${target}`);
   const verified = await verifyReleaseArchive(manifest, target, readFileSync(join(release, entry.archive.name)));
   if (!verified.ok) throw new Error(verified.error);
-  const installed = join(root, "installed");
-  mkdirSync(installed);
+  const dataHome = join(root, "user-data");
+  const installed = join(dataHome, "bounded", "releases", `v${version}`, target);
+  mkdirSync(installed, { recursive: true });
   for (const [path, contents] of Object.entries(verified.value)) {
     const destination = join(installed, path);
     mkdirSync(dirname(destination), { recursive: true });
@@ -79,16 +83,24 @@ async function fixture(): Promise<Fixture> {
   if (process.platform !== "win32") chmodSync(binary, 0o755);
   const releaseIdentity = join(installed, "release.json");
   if (!existsSync(releaseIdentity)) throw new Error("verified release lacks release.json");
+  const stableManifest = Buffer.from(`${JSON.stringify({ ...manifest, channel: "stable" })}\n`);
+  const manifestDigest = createHash("sha256").update(stableManifest).digest("hex");
+  const receiptDirectory = join(dataHome, "bounded", "receipts", `v${version}`, target);
+  mkdirSync(join(receiptDirectory, "manifests"), { recursive: true });
+  writeFileSync(join(receiptDirectory, "manifests", `${manifestDigest}.json`), stableManifest);
+  const releaseReceipt = join(receiptDirectory, "receipt-v1.json");
+  writeFileSync(releaseReceipt, `${JSON.stringify({ schema: "bounded-install-receipt/1", version, target, manifestSha256: manifestDigest })}\n`);
   rmSync(source, { recursive: true, force: true });
   rmSync(release, { recursive: true, force: true });
   expect(existsSync(source)).toBe(false);
-  return { root, binary, releaseIdentity, project, managerLog, version };
+  return { root, binary, releaseIdentity, releaseReceipt, dataHome, project, managerLog, version };
 }
 
 function run(f: Fixture, args: readonly string[], cwd = f.project, stdin?: string): { readonly exitCode: number; readonly stdout: string; readonly stderr: string } {
   const executable = Bun.spawnSync([f.binary, ...args], {
     cwd,
-    env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project },
+    env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_STATE_HOME: join(f.root, "state"),
+      XDG_DATA_HOME: f.dataHome, LOCALAPPDATA: f.dataHome, CLAUDE_PROJECT_DIR: f.project },
     ...(stdin === undefined ? {} : { stdin: new TextEncoder().encode(stdin) }),
     stdout: "pipe", stderr: "pipe",
   });
@@ -155,6 +167,16 @@ test("archive-only init installs Claude Code hooks and pins its executable in a 
     expect(checked).toMatchObject({ exitCode: 0, stderr: "" });
     expect(checked.stdout).toMatch(/checked|valid|ready/i);
     expect(existsSync(f.managerLog)).toBe(false);
+    const validReceipt = readFileSync(f.releaseReceipt);
+    rmSync(f.releaseReceipt);
+    const missingReceipt = run(f, ["check"]);
+    expect(missingReceipt.exitCode).not.toBe(0);
+    expect(missingReceipt.stderr).toMatch(/receipt|install/i);
+    writeFileSync(f.releaseReceipt, "{ malformed\n");
+    const malformedReceipt = run(f, ["check"]);
+    expect(malformedReceipt.exitCode).not.toBe(0);
+    expect(malformedReceipt.stderr).toMatch(/receipt|install/i);
+    writeFileSync(f.releaseReceipt, validReceipt);
     renameSync(join(f.project, "bounded.config.ts"), join(f.project, "bounded.config.ts.saved"));
     const missingConfig = run(f, ["check"]);
     expect(missingConfig.exitCode).not.toBe(0);
