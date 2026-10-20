@@ -225,7 +225,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(readFileSync(journal, "utf8")).toBe("{}\n");
     rmSync(journal);
 
-    const projectedType = join(projected, "index.d.ts");
+    const projectedType = join(projected, "dist", "types", "packs", "refused-tools", "index.d.ts");
     const originalType = readFileSync(projectedType);
     writeFileSync(projectedType, Buffer.concat([originalType, Buffer.from("\n// changed\n")]));
     const changedProjection = runCheck();
