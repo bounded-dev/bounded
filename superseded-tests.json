@@ -6826,5 +6826,14 @@
       "case": "a second Pi session replaces and stops the prior compiled worker process"
     },
     "reason": "the successor retains distinct worker starts and verifies the prior native worker exits before the second session proceeds"
+  },
+  {
+    "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+    "case": "standalone Pi init replaces only the exact generated npm loader and publishes the version pin last",
+    "successor": {
+      "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+      "case": "standalone Pi init migrates only the exact generated npm loader and preserves user edits"
+    },
+    "reason": "the same migration and user-edit assertions remain; the new title no longer claims pin-write ordering that this case does not observe"
   }
 ]
