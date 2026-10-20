@@ -255,8 +255,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
   exports must match the locked catalogue before composition. The compiled
   archive test installs a real published no-port pack in a Python project,
   then records its refusal and allowance with no Node, Bun or npm on the
-  executable's path. `bounded check`, standalone pi hooks and project-supplied
-  third-party port provisions remain unavailable. A selected pack whose
+  executable's path. `bounded check` verifies the installed release, managed
+  projection and captured project source, reports TypeScript diagnostics from
+  embedded declarations, then validates selected pack and installed Claude Code
+  host wiring without running lifecycle callbacks (ADR 2026-040). Standalone pi
+  hooks and project-supplied third-party port provisions remain unavailable. A selected pack whose
   required port has no provision refuses rather than loading an adapter
   automatically.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))
