@@ -260,8 +260,10 @@ test("installed standalone Claude Code command applies the generated rule, launc
     const installedReceipt = readFileSync(f.releaseReceipt);
     writeFileSync(f.releaseReceipt, "{ malformed\n");
     const invalidRelease = invoke();
-    expect(invalidRelease.exitCode).not.toBe(0);
-    expect(invalidRelease.stderr.toString()).toMatch(/receipt|reinstall|bounded hook failed/i);
+    expect(invalidRelease.exitCode).toBe(0);
+    const invalidDecision = JSON.parse(invalidRelease.stdout.toString()) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    expect(invalidDecision.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(invalidDecision.hookSpecificOutput.permissionDecisionReason).toMatch(/receipt|reinstall/i);
     expect(readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")).toHaveLength(log.length);
     writeFileSync(f.releaseReceipt, installedReceipt);
     renameSync(f.binary, `${f.binary}.missing`);
