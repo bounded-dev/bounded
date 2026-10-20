@@ -173,6 +173,16 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       .map((path, index) => `import type * as Public${index} from "bounded/${path}";`).join("\n");
     writeFileSync(join(project, "bounded.config.ts"), `${everyPublicDeclaration}\ntype PublishedPack = typeof import("bounded-example").refusedToolsPack;\n${validConfig}`);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const typeEnvironmentBytes = verified.value["share/typescript/type-environment.json"];
+    expect(typeEnvironmentBytes).toBeDefined();
+    if (typeEnvironmentBytes === undefined) throw new Error("release lacks its embedded TypeScript type manifest");
+    const typeEnvironment = JSON.parse(new TextDecoder().decode(typeEnvironmentBytes)) as {
+      schema: string; typescriptVersion: string; standardLibraries: Record<string, string>; externalDeclarations: Record<string, string> };
+    expect(typeEnvironment.schema).toBe("bounded-type-environment/1");
+    expect(typeEnvironment.typescriptVersion).toBe("5.9.3");
+    expect(typeEnvironment.standardLibraries["lib.es2024.full.d.ts"]).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(typeEnvironment.standardLibraries).length).toBeGreaterThan(20);
+    expect(Object.keys(typeEnvironment.externalDeclarations).some((path) => path.includes("tree-sitter-wasm"))).toBe(true);
 
     writeFileSync(join(project, "bounded.config.ts"), validConfig.replace('redirect: "Use local docs"', 'redirect: 42'));
     const wrongContribution = runCheck();
@@ -231,6 +241,14 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(changedRelease.exitCode).not.toBe(0);
     expect(changedRelease.stderr).toMatch(/release|receipt|reinstall/i);
     writeFileSync(releaseReceipt, originalReleaseReceipt);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const releaseDeclaration = join(releaseRoot, "share", "types", "core", "domain", "index.d.ts");
+    const originalDeclaration = readFileSync(releaseDeclaration);
+    writeFileSync(releaseDeclaration, Buffer.concat([originalDeclaration, Buffer.from("\n// tampered declaration\n")]));
+    const changedDeclaration = runCheck();
+    expect(changedDeclaration.exitCode).not.toBe(0);
+    expect(changedDeclaration.stderr).toMatch(/release|declaration|reinstall/i);
+    writeFileSync(releaseDeclaration, originalDeclaration);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     expect(existsSync(join(scratch, "package-manager.log"))).toBe(false);
   } finally {

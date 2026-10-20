@@ -85,7 +85,7 @@ describe("standalone managed config from a verified snapshot", () => {
     const localName = join(root, "local-name.ts");
     writeFileSync(localName, 'export const localName = "initial-";\n');
     type Snapshot = { readonly modulePath: string; readonly digest: string; readonly sourceFiles: Readonly<Record<string, Uint8Array>> };
-    type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph;
+    type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph; readonly verifiedReleaseManifestSha256: string;
       readonly boundedRuntimeExports: Readonly<Record<string, Readonly<Record<string, unknown>>>> }) => Promise<Snapshot>;
     type Check = (snapshot: Snapshot, types: { readonly boundedDeclarations: Readonly<Record<string, Uint8Array>>;
       readonly standardLibraries: Readonly<Record<string, Uint8Array>> }) => Promise<{ readonly ok: boolean; readonly diagnostics: readonly string[] }>;
@@ -94,12 +94,18 @@ describe("standalone managed config from a verified snapshot", () => {
     expect(prepare).toBeFunction();
     expect(check).toBeFunction();
     if (prepare === undefined || check === undefined) return;
-    const options = { managedGraph: chosen, boundedRuntimeExports: { "bounded/domain": domain } };
+    const options = { managedGraph: chosen, verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain } };
     const snapshot = await prepare(config, root, options);
     expect(snapshot.digest).toMatch(/^[a-f0-9]{64}$/);
     expect(new TextDecoder().decode(snapshot.sourceFiles[localName])).toContain("initial-");
     const same = await prepare(config, root, options);
     expect(same.digest).toBe(snapshot.digest);
+    const changedRelease = await prepare(config, root, { ...options, verifiedReleaseManifestSha256: "b".repeat(64) });
+    expect(changedRelease.digest).not.toBe(snapshot.digest);
+    const changedHelper = { ...helperTwo, files: { ...helperTwo.files, "dist/index.js": bytes('export const version = "different";\n') } };
+    const changedGraph = graph([first, second, helperOne, changedHelper, unused], chosen.roots);
+    const changedManagedBytes = await prepare(config, root, { ...options, managedGraph: changedGraph });
+    expect(changedManagedBytes.digest).not.toBe(snapshot.digest);
     writeFileSync(localName, 'const changed: number = "wrong"; throw new Error("mutated project source executed");\n');
     const changed = await prepare(config, root, options);
     expect(changed.digest).not.toBe(snapshot.digest);
