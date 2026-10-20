@@ -64,6 +64,21 @@ async function load(root: string, selected: Graph) {
 }
 
 describe("standalone managed config from a verified snapshot", () => {
+  test("TypeScript follows import condition before later types condition", async () => {
+    const selected = node("bounded-ordered", "1.0.0", 'export const value = "import-branch";\n');
+    selected.exports = { ".": { import: "./dist/index.js", types: "./types/custom.d.ts" } };
+    selected.files["dist/index.d.ts"] = bytes('export declare const value: "import-branch";\n');
+    selected.files["types/custom.d.ts"] = bytes('export declare const value: "types-branch";\n');
+    const { root, config } = project('import { value } from "bounded-ordered"; const expected: "import-branch" = value; export default { packs: [] };\n');
+    const prepare = adapters.prepareStandaloneProjectSnapshot;
+    const snapshot = await prepare(config, root, { managedGraph: graph([selected], { "bounded-ordered": selected.id }),
+      verifiedReleaseManifestSha256: "a".repeat(64), boundedRuntimeExports: { "bounded/domain": domain } });
+    const checked = await adapters.checkStandaloneProjectSnapshot(snapshot, {
+      boundedDeclarations: {}, standardLibraries: declarations(join(import.meta.dir, "../../../../node_modules/typescript/lib")),
+    });
+    expect(checked.diagnostics).toEqual([]);
+    expect(checked.ok).toBe(true);
+  });
   test("snapshot identity frames root names and identities without concatenation collisions", async () => {
     const { root, config } = project('import { defineConfig } from "bounded/domain"; export default defineConfig({ packs: [] });\n');
     type Prepare = (file: string, root: string, options: { readonly managedGraph: Graph; readonly verifiedReleaseManifestSha256: string;
