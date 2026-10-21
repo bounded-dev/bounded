@@ -424,6 +424,22 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(readFileSync(join(priorProject, "bounded.config.ts"), "utf8")).toBe(priorConfig);
     const targetCheck = Bun.spawnSync([binary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
     expect({ exitCode: targetCheck.exitCode, stderr: targetCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const priorRollbackRecord = join(priorProject, ".bounded", "update-rollback.json");
+    expect(existsSync(priorRollbackRecord)).toBe(true);
+    const managedRollback = Bun.spawnSync([binary, "update", "--rollback"],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: managedRollback.exitCode, stderr: managedRollback.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
+    expect(existsSync(priorRollbackRecord)).toBe(false);
+    const priorAfterRollbackCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorAfterRollbackCheck.exitCode, stderr: priorAfterRollbackCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
     await stopRegistry();
     stopRegistry = undefined;
 
