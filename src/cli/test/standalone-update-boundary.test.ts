@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { dispatchStandalone } from "../../standalone-dispatch.ts";
+import { runStandaloneAddInternal } from "../../standalone-runtime.ts";
 
 const VERSION = "3.3.0";
 
@@ -69,4 +70,21 @@ test("a pending project update blocks check but permits update to enter recovery
     process.stderr.write = originalWrite;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("internal managed add refuses an update marker before calling its publisher", async () => {
+  const root = mkdtempSync(join(tmpdir(), "bounded-update-internal-add-"));
+  try {
+    mkdirSync(join(root, ".bounded"));
+    writeFileSync(join(root, ".bounded", "update-journal.json"), "{\"schema\":\"bounded-update-journal/1\"}\n");
+    let publications = 0;
+    const added = await runStandaloneAddInternal(["add", "example@1.0.0"], {
+      projectRoot: root, boundedVersion: VERSION,
+      get: async () => { throw new Error("network must not run"); },
+      publish: async () => { publications++; return { ok: true, value: { lockPath: "unused", receiptPath: "unused", catalogueImports: [] } }; },
+    });
+    expect(added.ok).toBe(false);
+    if (!added.ok) expect(added.error).toMatch(/update|journal|recover/i);
+    expect(publications).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
