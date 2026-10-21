@@ -11,6 +11,13 @@ with `bounded` and exported as `bounded/hosts/pi`
 ([ADR 2026-016](adr/2026-016-cli-app.md)). A project configures its packs in `bounded.config.ts`
 ([configuring a project](configuration.md)).
 
+The standalone installation writes a small Pi project extension that starts
+the verified, project-pinned compiled executable. The worker checks the
+release, managed packs and project source on every event, while the Pi
+extension sends bounded messages and blocks calls if the worker fails.
+`bounded check` verifies the generated loader for Pi-only and combined host
+projects ([ADR 2026-041](adr/2026-041-standalone-pi-worker.md)).
+
 ## Reading order (about 15 minutes)
 
 Every file below is in `src/hosts/pi/`.

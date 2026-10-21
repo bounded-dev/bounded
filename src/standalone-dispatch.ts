@@ -27,6 +27,12 @@ function explicitDirectory(path: string, source: string): Root {
 }
 
 function projectRoot(args: readonly string[], env: NodeJS.ProcessEnv): Root {
+  if (args[0] === "hook" && args[1] === "pi") {
+    if (args.length !== 4 || args[2] !== "--project" || args[3] === undefined) {
+      return { ok: false, error: "hook pi requires exactly --project <absolute project directory>" };
+    }
+    return explicitDirectory(args[3], "--project");
+  }
   if (args[0] === "hook" && args[1] === "claude-code") {
     const options = args.slice(2);
     const projectAt = options.indexOf("--project");
@@ -126,5 +132,6 @@ export async function dispatchStandalone(args: readonly string[], currentVersion
     }
     return { answered: true };
   }
-  return { answered: false, ...(root.ok && root.explicit && args[0] === "hook" && args[1] === "claude-code" ? { hostProjectRoot: root.root } : {}) };
+  return { answered: false, ...(root.ok && root.explicit && args[0] === "hook"
+    && (args[1] === "claude-code" || args[1] === "pi") ? { hostProjectRoot: root.root } : {}) };
 }

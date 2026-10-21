@@ -7,6 +7,7 @@
 // extension's own blocks.
 import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
+import type { ProjectConfigSource } from "bounded/application";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { openShellCommandReading } from "bounded-shell-command-reader/shell-command-reading";
@@ -26,10 +27,10 @@ export const shellCommandReading = openShellCommandReading();
  * provides (the protected-paths pack's and the prerequisites pack's, on
  * disk) and decides each event with its judge, which records every decision.
  */
-export async function composeProject(root: string, open: typeof openProject = openProject): Promise<ProjectJudgeForPi> {
+export async function composeProject(root: string, open: typeof openProject = openProject, configSource?: ProjectConfigSource): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;
   try {
-    project = await open(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
+    project = await open(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], ...(configSource === undefined ? {} : { configSource }) });
   } catch (error) {
     const refusal = Verdict.refuse(`bounded could not open the project: ${message(error)}`, "Fix the project's bounded setup, then start a new pi session");
     return async () => refusal;

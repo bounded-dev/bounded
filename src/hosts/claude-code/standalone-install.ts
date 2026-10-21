@@ -63,19 +63,42 @@ export async function prepareStandaloneClaudeHooks(projectRoot: string, executab
     const merged = withProjectHooks(current, commandFor(executable), process.platform === "win32" ? "powershell" : "posix");
     if (!merged.ok) return merged;
     const nextBytes = `${JSON.stringify(merged.value.settings, null, 2)}\n`;
+    let installedByThisAttempt = false;
+    const requireCurrent = async (expected: string | null, expectedMode: number): Promise<void> => {
+      const directory = join(projectRoot, ".claude");
+      try {
+        const info = lstatSync(directory);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("host directory changed");
+      } catch (error) {
+        if (!missing(error) || expected !== null) throw error;
+      }
+      try {
+        const info = lstatSync(settingsPath);
+        if (!info.isFile() || info.isSymbolicLink()) throw new Error("settings path changed");
+        if (expected === null || (await readFile(settingsPath, "utf8")) !== expected
+          || (info.mode & 0o777) !== expectedMode) throw new Error("settings changed after preparation");
+      } catch (error) {
+        if (!missing(error) || expected !== null) throw error;
+      }
+    };
     return { ok: true, value: {
       settingsPath, originalBytes, nextBytes, mode,
       async install() {
-        if (originalBytes === nextBytes) return { ok: true, value: { host: "claude-code", changedPaths: [], skippedBecause: null } };
         try {
+          await requireCurrent(originalBytes, mode);
+          if (originalBytes === nextBytes) return { ok: true, value: { host: "claude-code", changedPaths: [], skippedBecause: null } };
           await mkdir(dirname(settingsPath), { recursive: true });
           await replaceSettings(settingsPath, nextBytes, mode);
+          installedByThisAttempt = true;
           return { ok: true, value: { host: "claude-code", changedPaths: [SETTINGS], skippedBecause: null } };
         } catch (error) { return { ok: false, error: `${SETTINGS} could not be replaced: ${message(error)}` }; }
       },
       async restore() {
+        if (!installedByThisAttempt) return;
+        await requireCurrent(nextBytes, mode);
         if (originalBytes === null) await rm(settingsPath, { force: true });
         else await replaceSettings(settingsPath, originalBytes, mode);
+        installedByThisAttempt = false;
       },
     } };
   } catch (error) {
