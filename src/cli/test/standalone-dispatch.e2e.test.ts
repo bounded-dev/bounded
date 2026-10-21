@@ -207,6 +207,23 @@ test("a validated one-hop marker is consumed before normal handlers run", async 
   }
 });
 
+test("a pending update journal blocks a cross-version Pi hook before handoff", async () => {
+  const f = await fixture();
+  try {
+    if (process.platform === "win32") return;
+    expect(runInstaller(f).exitCode).toBe(0);
+    const journal = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journal, "pending\n");
+    const hook = runCurrent(f, ["hook", "pi", "--project", f.project], "host frame\n");
+    expect(hook.exitCode).toBe(2);
+    expect(hook.stderr).toMatch(/update-journal\.json|update journal/i);
+    expect(hook.stdout).toBe("");
+    expect(readFileSync(journal, "utf8")).toBe("pending\n");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
 test("Claude's explicit unpinned project keeps working after its .bounded log directory appears", async () => {
   const f = await fixture();
   try {

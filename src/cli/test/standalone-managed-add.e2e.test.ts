@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -7,6 +7,10 @@ import { gzipSync } from "node:zlib";
 import { expect, test } from "bun:test";
 import tar from "tar-stream";
 import { verifyReleaseArchive } from "../release-manifest.ts";
+import { acquireManagedPackWriter, prepareManagedPackTargetProjectionUnderWriter, type ManagedPackReleaseTypes } from "../managed-pack-installer.ts";
+import { locateInstalledRelease } from "../../standalone-installed-release.ts";
+import { prepareStandaloneClaudeHooks } from "../../hosts/claude-code/standalone-install.ts";
+import { standalonePiLoader } from "../../hosts/pi/standalone-install.ts";
 import { sha512Integrity, type TarEntry } from "../managed-pack-artifact.test-support.ts";
 
 const REPO = resolve(import.meta.dir, "../../..");
@@ -22,11 +26,108 @@ function nativeTarget(): string {
   }
   throw new Error(`Unsupported native test target ${process.platform}`);
 }
+function installPriorManagedTestRelease(scratch: string, dataHome: string, targetId: string, typeEnvironment: string): string {
+  const priorVersion = "3.2.9";
+  const releaseRoot = join(dataHome, "bounded", "releases");
+  const priorRoot = join(releaseRoot, `v${priorVersion}`, targetId);
+  cpSync(join(releaseRoot, `v${VERSION}`, targetId), priorRoot, { recursive: true });
+  const entry = join(scratch, "prior-managed-entry.ts");
+  writeFileSync(entry, `import { dispatchStandalone } from ${JSON.stringify(join(REPO, "src", "standalone-dispatch.ts"))};\nconst version = ${JSON.stringify(priorVersion)};\nconst args = process.argv.slice(2);\nconst dispatched = await dispatchStandalone(args, version);\nif (!dispatched.answered) { if (args[0] === "--version") console.log(version); else { const { runStandaloneRuntime } = await import(${JSON.stringify(join(REPO, "src", "standalone-runtime.ts"))}); await runStandaloneRuntime(args, version, dispatched.hostProjectRoot); } }\n`);
+  const binary = join(priorRoot, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
+  rmSync(binary);
+  const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
+  successful([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
+    "--asset", join(wasm, "tree-sitter-bash.wasm"), "--asset", typeEnvironment, "--outfile", binary], REPO);
+  if (process.platform !== "win32") chmodSync(binary, 0o755);
+  const identified = Bun.spawnSync([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
+  expect({ exitCode: identified.exitCode, version: identified.stdout.toString().trim() }).toEqual({ exitCode: 0, version: priorVersion });
+  const currentReceipt = JSON.parse(readFileSync(join(dataHome, "bounded", "receipts", `v${VERSION}`, targetId, "receipt-v1.json"), "utf8")) as { manifestSha256: string };
+  const currentManifestPath = join(dataHome, "bounded", "receipts", `v${VERSION}`, targetId, "manifests", `${currentReceipt.manifestSha256}.json`);
+  const manifest = JSON.parse(readFileSync(currentManifestPath, "utf8")) as Parameters<typeof verifyReleaseArchive>[0];
+  const identityPath = join(priorRoot, "release.json");
+  const identity = JSON.parse(readFileSync(identityPath, "utf8")) as Record<string, unknown>;
+  writeFileSync(identityPath, `${JSON.stringify({ ...identity, version: priorVersion })}\n`);
+  const currentArchive = manifest.targets[targetId];
+  if (currentArchive === undefined) throw new Error("Current release lacks native target");
+  const changedManifest = { ...manifest, version: priorVersion, targets: { ...manifest.targets, [targetId]: {
+    ...currentArchive,
+    archive: { ...currentArchive.archive, name: currentArchive.archive.name.replace(`v${VERSION}`, `v${priorVersion}`) },
+    executable: { ...currentArchive.executable, size: readFileSync(binary).byteLength, sha256: digest(readFileSync(binary)) },
+    files: currentArchive.files.map((file) => file.path === "release.json"
+      ? { ...file, size: readFileSync(identityPath).byteLength, sha256: digest(readFileSync(identityPath)) } : file),
+  } } };
+  const stableManifest = Buffer.from(`${JSON.stringify(changedManifest)}\n`);
+  const manifestSha256 = digest(stableManifest);
+  const receiptRoot = join(dataHome, "bounded", "receipts", `v${priorVersion}`, targetId);
+  mkdirSync(join(receiptRoot, "manifests"), { recursive: true });
+  writeFileSync(join(receiptRoot, "manifests", `${manifestSha256}.json`), stableManifest);
+  writeFileSync(join(receiptRoot, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version: priorVersion, target: targetId, manifestSha256 })}\n`);
+  return binary;
+}
+async function managedCrossVersionJournal(project: string, dataHome: string, priorBinary: string, targetBinary: string): Promise<{
+  readonly journal: string;
+  readonly priorOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly targetOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly priorOwnedDirectories: readonly string[];
+  readonly targetLock: Uint8Array;
+}> {
+  const environment = { ...process.env, XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome };
+  const prior = locateInstalledRelease("3.2.9", environment);
+  const target = locateInstalledRelease(VERSION, environment);
+  if (!prior.ok || !target.ok) throw new Error(`Cannot locate both fixture releases: ${!prior.ok ? prior.error : !target.ok ? target.error : ""}`);
+  const release = (version: string, located: Extract<typeof prior, { ok: true }>): ManagedPackReleaseTypes => ({
+    boundedVersion: version,
+    boundedExportPaths: ["./domain", "./application", "./adapters", "./open-project", "./prereqs", "./prereqs/adapters", "./protected-paths", "./protected-paths/adapters", "./shell-command-reader"],
+    releaseTypesRoot: join(located.releaseRoot, "share", "types"),
+    releaseTypeFilesFromVerifiedManifest: Object.fromEntries(located.verifiedFiles.filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+      .map((file) => [file.path.slice("share/types/".length), file.sha256])),
+  });
+  const acquired = await acquireManagedPackWriter(project);
+  if (!acquired.ok) throw new Error(acquired.error);
+  let projection: Awaited<ReturnType<typeof prepareManagedPackTargetProjectionUnderWriter>>;
+  try {
+    projection = await prepareManagedPackTargetProjectionUnderWriter({ writer: acquired.value, projectRoot: project,
+      storeRoot: join(dataHome, "bounded", "packs", "store"), source: release("3.2.9", prior), target: release(VERSION, target) });
+  } finally { await acquired.value.release(); }
+  if (!projection.ok) throw new Error(projection.error);
+  const claude = await prepareStandaloneClaudeHooks(project, realpathSync(targetBinary), { recognizedPriorExecutable: realpathSync(priorBinary) });
+  if (!claude.ok) throw new Error(claude.error);
+  const encoded = (bytes: Uint8Array | null, mode: number | null) => ({ content: bytes === null ? null : Buffer.from(bytes).toString("base64"), mode });
+  const file = (path: string, before: Uint8Array | null, after: Uint8Array | null, beforeMode: number | null, afterMode: number | null) =>
+    ({ path, before: encoded(before, beforeMode), after: encoded(after, afterMode) });
+  const hostFiles = [
+    file(".claude/settings.json", readFileSync(join(project, ".claude", "settings.json")), Buffer.from(claude.value.nextBytes ?? ""),
+      lstatSync(join(project, ".claude", "settings.json")).mode & 0o777, claude.value.mode),
+    file(".pi/extensions/bounded/index.ts", Buffer.from(standalonePiLoader(realpathSync(priorBinary))), Buffer.from(standalonePiLoader(realpathSync(targetBinary))),
+      lstatSync(join(project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777,
+      lstatSync(join(project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777),
+  ];
+  const managedPaths = [...new Set([...Object.keys(projection.value.oldOwnedFiles), ...Object.keys(projection.value.newOwnedFiles)])].sort();
+  const managedFiles = managedPaths.map((path) => {
+    const before = projection.value.oldOwnedFiles[path];
+    const after = projection.value.newOwnedFiles[path];
+    return file(path, before?.bytes ?? null, after?.bytes ?? null, before?.mode ?? null, after?.mode ?? null);
+  });
+  const pinPath = join(project, ".bounded", "version.json");
+  const pin = file(".bounded/version.json", readFileSync(pinPath), Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: VERSION })}\n`),
+    lstatSync(pinPath).mode & 0o777, lstatSync(pinPath).mode & 0o777);
+  const journal = JSON.stringify({ schema: "bounded-update-journal/1", source: { kind: "standalone", version: "3.2.9" }, targetVersion: VERSION,
+    sourceFiles: { [realpathSync(join(project, "bounded.config.ts"))]: digest(readFileSync(join(project, "bounded.config.ts"))) },
+    managed: { oldOwnedDirectories: projection.value.oldOwnedDirectories, newOwnedDirectories: projection.value.newOwnedDirectories },
+    files: [...hostFiles, ...managedFiles, pin] });
+  return { journal: `${journal}\n`, priorOwnedFiles: projection.value.oldOwnedFiles,
+    targetOwnedFiles: projection.value.newOwnedFiles, priorOwnedDirectories: projection.value.oldOwnedDirectories,
+    targetLock: projection.value.targetLockBytes };
+}
 function successful(command: readonly string[], cwd: string): void {
   const [program, ...args] = command;
   if (program === undefined) throw new Error("missing test build command");
   const run = Bun.spawnSync([program, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   if (run.exitCode !== 0) throw new Error(`${command.join(" ")} failed: ${run.stdout.toString()}${run.stderr.toString()}`);
+}
+function directoryInventory(project: string, paths: readonly string[]): Record<string, { readonly mode: number; readonly entries: readonly string[] }> {
+  return Object.fromEntries(paths.map((path) => [path, { mode: lstatSync(join(project, path)).mode & 0o777,
+    entries: readdirSync(join(project, path)).sort() }]));
 }
 function entries(root: string, path = ""): TarEntry[] {
   return readdirSync(join(root, path), { withFileTypes: true }).flatMap((entry) => {
@@ -93,10 +194,11 @@ process.exit(0);
 /** Add a second pack to the cloned publication fixture, with its adapter on a declared export path. */
 function addPortBackedPublishedFixture(packageRoot: string): void {
   const manifestPath = join(packageRoot, "package.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown> & { exports: Record<string, unknown>; bounded: { catalog: string; packs: Record<string, string> } };
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown> & { exports: Record<string, unknown>; bounded: { catalog: string; packs: Record<string, string> }; peerDependencies: Record<string, string> };
   manifest.exports["./port-backed"] = { bun: "./packs/port-backed/index.ts", types: "./dist/types/packs/port-backed/index.d.ts", default: "./dist/packs/port-backed/index.js" };
   manifest.exports["./port-backed-adapter"] = { bun: "./packs/port-backed/adapter.ts", types: "./dist/types/packs/port-backed/adapter.d.ts", default: "./dist/packs/port-backed/adapter.js" };
   manifest.bounded.packs["./port-backed"] = "packs/port-backed";
+  manifest.peerDependencies.bounded = ">=3.2.9 <4";
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const directory = join(packageRoot, "packs", "port-backed");
   mkdirSync(directory, { recursive: true });
@@ -160,6 +262,8 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     mkdirSync(join(receipts, "manifests"), { recursive: true });
     writeFileSync(join(receipts, "manifests", `${manifestDigest}.json`), stableManifestBytes);
     writeFileSync(join(receipts, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version: VERSION, target: targetId, manifestSha256: manifestDigest })}\n`);
+    const priorTypeEnvironment = join(scratch, "bounded-type-environment-bytes.bin");
+    cpSync(join(source, "src", "dist", "standalone", "bounded-type-environment-bytes.bin"), priorTypeEnvironment);
     rmSync(source, { recursive: true, force: true });
     expect(existsSync(source)).toBe(false);
 
@@ -173,7 +277,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
         const tarball = `${registryUrl}/bounded-example/-/bounded-example-0.1.0.tgz`;
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ name: "bounded-example", versions: { "0.1.0": { name: "bounded-example", version: "0.1.0",
-          dependencies: {}, peerDependencies: { bounded: "~3.3.0" }, dist: { tarball, integrity: sha512Integrity(artifact) } } } }));
+          dependencies: {}, peerDependencies: { bounded: ">=3.2.9 <4" }, dist: { tarball, integrity: sha512Integrity(artifact) } } } }));
       } else if (request.url === "/bounded-example/-/bounded-example-0.1.0.tgz") {
         response.writeHead(200, { "content-type": "application/octet-stream" }); response.end(artifact);
       } else { response.writeHead(404); response.end("missing"); }
@@ -230,6 +334,115 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     await new Response(piAdded.stdout).text();
     const piAddError = await new Response(piAdded.stderr).text();
     expect({ exitCode: await piAdded.exited, stderr: piAddError }).toEqual({ exitCode: 0, stderr: "" });
+    const priorBinary = installPriorManagedTestRelease(scratch, dataHome, targetId, priorTypeEnvironment);
+    const priorProject = join(scratch, "prior-managed-project");
+    mkdirSync(join(priorProject, ".pi"), { recursive: true });
+    const priorEnvironment = { ...environment, CLAUDE_PROJECT_DIR: priorProject };
+    const priorInit = Bun.spawnSync([priorBinary, "init", "--host", "claude-code", "--host", "pi"],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorInit.exitCode, stderr: priorInit.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe("3.2.9");
+    const priorAdd = Bun.spawn([priorBinary, "add", "bounded-example@0.1.0", "--registry", registryUrl],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    await new Response(priorAdd.stdout).text();
+    const priorAddError = await new Response(priorAdd.stderr).text();
+    expect({ exitCode: await priorAdd.exited, stderr: priorAddError }).toEqual({ exitCode: 0, stderr: "" });
+    const priorConfig = 'import { defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nexport default defineConfig({ packs: [refusedToolsPack] });\n';
+    writeFileSync(join(priorProject, "bounded.config.ts"), priorConfig);
+    const priorCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorCheck.exitCode, stderr: priorCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const priorLock = JSON.parse(readFileSync(join(priorProject, ".bounded", "packs.lock.json"), "utf8")) as { boundedVersion: string };
+    expect(priorLock.boundedVersion).toBe("3.2.9");
+    const staged = await managedCrossVersionJournal(priorProject, dataHome, priorBinary, binary);
+    const updateJournalPath = join(priorProject, ".bounded", "update-journal.json");
+    const priorDirectoryInventory = directoryInventory(priorProject, staged.priorOwnedDirectories);
+    const forged = JSON.parse(staged.journal) as { files: { path: string; before: { content: string | null } }[] };
+    const forgedLock = forged.files.find((file) => file.path === ".bounded/packs.lock.json" && file.before.content !== null);
+    if (forgedLock?.before.content === null || forgedLock === undefined) throw new Error("Managed update fixture has no source pack lock");
+    const alteredLock = JSON.parse(Buffer.from(forgedLock.before.content, "base64").toString("utf8")) as {
+      nodes: Record<string, { sha256: string }> };
+    const firstNode = Object.values(alteredLock.nodes)[0];
+    if (firstNode === undefined) throw new Error("Managed update fixture has no stored pack node");
+    firstNode.sha256 = "0".repeat(64);
+    forgedLock.before.content = Buffer.from(`${JSON.stringify(alteredLock)}\n`).toString("base64");
+    const originalClaude = readFileSync(join(priorProject, ".claude", "settings.json"));
+    const originalClaudeMode = lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777;
+    const originalPi = readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"));
+    const originalPiMode = lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777;
+    const originalPin = readFileSync(join(priorProject, ".bounded", "version.json"));
+    const originalPinMode = lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777;
+    writeFileSync(updateJournalPath, `${JSON.stringify(forged)}\n`);
+    writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), staged.targetLock);
+    const refusedForged = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect(refusedForged.exitCode).toBe(2);
+    expect(refusedForged.stderr.toString()).toMatch(/snapshot|owned file/i);
+    expect(existsSync(updateJournalPath)).toBe(true);
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(path === ".bounded/packs.lock.json" ? Buffer.from(staged.targetLock) : Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
+    expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
+    expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
+    rmSync(updateJournalPath);
+    const sourceLock = staged.priorOwnedFiles[".bounded/packs.lock.json"];
+    if (sourceLock === undefined) throw new Error("Managed update fixture lost its source pack lock");
+    writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), sourceLock.bytes);
+    writeFileSync(updateJournalPath, staged.journal);
+    writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), staged.targetLock);
+    const recovered = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect(recovered.exitCode).toBe(2);
+    expect(recovered.stderr.toString()).toContain("restored the previous project state");
+    expect(existsSync(updateJournalPath)).toBe(false);
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
+    expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
+    expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
+    expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe("3.2.9");
+    const recoveredCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: recoveredCheck.exitCode, stderr: recoveredCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const targetUpdate = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: targetUpdate.exitCode, stderr: targetUpdate.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe(VERSION);
+    const targetLock = JSON.parse(readFileSync(join(priorProject, ".bounded", "packs.lock.json"), "utf8")) as { boundedVersion: string };
+    expect(targetLock.boundedVersion).toBe(VERSION);
+    for (const [path, owned] of Object.entries(staged.targetOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, "bounded.config.ts"), "utf8")).toBe(priorConfig);
+    const targetCheck = Bun.spawnSync([binary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: targetCheck.exitCode, stderr: targetCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const priorRollbackRecord = join(priorProject, ".bounded", "update-rollback.json");
+    expect(existsSync(priorRollbackRecord)).toBe(true);
+    const managedRollback = Bun.spawnSync([binary, "update", "--rollback"],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: managedRollback.exitCode, stderr: managedRollback.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
+    expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
+    expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
+    expect(existsSync(priorRollbackRecord)).toBe(false);
+    const priorAfterRollbackCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorAfterRollbackCheck.exitCode, stderr: priorAfterRollbackCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
     await stopRegistry();
     stopRegistry = undefined;
 
@@ -329,13 +542,13 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(pendingProjection.stdout.toString()).toBe("");
     expect(pendingProjection.stderr.toString()).toMatch(/journal|recover/i);
     rmSync(projectionJournalPath);
-    const updateJournalPath = join(project, ".bounded", "update-journal.json");
-    writeFileSync(updateJournalPath, "{}\n");
+    const projectUpdateJournalPath = join(project, ".bounded", "update-journal.json");
+    writeFileSync(projectUpdateJournalPath, "{}\n");
     const pendingUpdate = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     expect(pendingUpdate.exitCode).not.toBe(0);
     expect(pendingUpdate.stdout.toString()).toBe("");
     expect(pendingUpdate.stderr.toString()).toMatch(/update.*journal|recover/i);
-    rmSync(updateJournalPath);
+    rmSync(projectUpdateJournalPath);
 
     const runCheck = () => {
       const checked = Bun.spawnSync([binary, "check"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
@@ -346,6 +559,20 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const validConfig = readFileSync(join(project, "bounded.config.ts"), "utf8");
     const portConfig = 'import { defineConfig, Ports } from "bounded/domain";\nimport { portBackedPack } from "bounded-example/port-backed";\nimport { PublishedNotes } from "bounded-example/port-backed-adapter";\nexport default defineConfig({ packs: [portBackedPack], ports: [Ports.provide(portBackedPack.ports.notes, root => new PublishedNotes(root))] });\n';
     writeFileSync(join(project, "bounded.config.ts"), portConfig);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const updateLock = readFileSync(join(project, ".bounded", "packs.lock.json"));
+    const updateReceipt = readFileSync(join(project, ".bounded", "types-receipt.json"));
+    const updatePackManifest = readFileSync(join(projected, "package.json"));
+    const updateSettings = readFileSync(join(project, ".claude", "settings.json"));
+    const updateLoader = readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"));
+    const updated = Bun.spawnSync([binary, "update"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: updated.exitCode, stderr: updated.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(readFileSync(join(project, ".bounded", "packs.lock.json"))).toEqual(updateLock);
+    expect(readFileSync(join(project, ".bounded", "types-receipt.json"))).toEqual(updateReceipt);
+    expect(readFileSync(join(projected, "package.json"))).toEqual(updatePackManifest);
+    expect(readFileSync(join(project, ".claude", "settings.json"))).toEqual(updateSettings);
+    expect(readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(updateLoader);
+    expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(portConfig);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     const portJudged = Bun.spawnSync([binary, "hook", "claude-code"], { cwd: project, env: environment,
       stdin: hookPayload(project, "Read"), stdout: "pipe", stderr: "pipe" });

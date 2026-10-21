@@ -556,9 +556,12 @@ function inWorktree<T>(repo: string, commit: string, use: (tree: string, scratch
   }
 }
 
+export function bunTestArguments(files: readonly string[], report?: string): string[] {
+  return ["test", "--max-concurrency=1", ...(report === undefined ? [] : ["--reporter=junit", `--reporter-outfile=${report}`]), ...files.map((f) => `./${f}`)];
+}
+
 function bunTest(tree: string, files: readonly string[], report?: string): { status: number | null; output: string } {
-  const args = ["test", ...(report === undefined ? [] : ["--reporter=junit", `--reporter-outfile=${report}`]), ...files.map((f) => `./${f}`)];
-  const run = spawnSync("bun", args, { cwd: tree, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: "1" } });
+  const run = spawnSync("bun", bunTestArguments(files, report), { cwd: tree, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: "1" } });
   return { status: run.status, output: `${run.stdout}${run.stderr}` };
 }
 
