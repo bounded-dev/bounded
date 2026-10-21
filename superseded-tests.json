@@ -6844,5 +6844,23 @@
       "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
     },
     "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/validate-project-wiring.test.ts",
+    "case": "project supplied port wiring > a selected transitive pack receives the project's provision without opening it during validation",
+    "successor": {
+      "file": "src/core/application/project-config/open-project/validate-project-wiring.test.ts",
+      "case": "project supplied port wiring > a selected published pack receives the project's provision without opening it during validation"
+    },
+    "reason": "the first red commit's test title is retained for audit identity; its in-memory dependent pack still proves transitive selection, while the separate compiled archive proves a published pack"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/validate-project-wiring.test.ts",
+    "case": "project supplied port wiring > the optional prereqs snapshot is supplied by a Pi-like project but collides with Claude's built-in provision",
+    "successor": {
+      "file": "src/core/composition-root/project-supplied-prereqs-status-snapshot.test.ts",
+      "case": "a project may provide prereqs' optional status snapshot to Pi but Claude's built-in provision conflicts"
+    },
+    "reason": "the actual shipped prereqs pack and host provisions must be tested at the composition root, since core application code cannot depend on shipped packs"
   }
 ]

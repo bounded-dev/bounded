@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "lint": "biome lint .",
-    "test": "bun test",
+    "test": "bun test --max-concurrency=1",
     "check": "bun run typecheck && bun run lint && bun run test",
     "check:prereqs-status-band": "bun scripts/check-prereqs-status-band.ts"
   },
