@@ -4,6 +4,21 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareCases, extractTestCases, FIXTURE_RUNNERS, fixtureRunners, isRunnableTestPath, isTestPath, main, parseJunit, parseSupersessions, redCases } from "./red-first-check.ts";
+import * as workflow from "./red-first-check.ts";
+
+test("red and head checks use the repository's serial Bun test arguments", () => {
+  const buildArguments = (workflow as unknown as {
+    bunTestArguments?: (files: readonly string[], report?: string) => readonly string[];
+  }).bunTestArguments;
+  expect(buildArguments).toBeFunction();
+  if (buildArguments === undefined) return;
+  expect(buildArguments(["src/a.test.ts", "src/b.test.ts"])).toEqual([
+    "test", "--max-concurrency=1", "./src/a.test.ts", "./src/b.test.ts",
+  ]);
+  expect(buildArguments(["src/a.test.ts"], "/tmp/report.xml")).toEqual([
+    "test", "--max-concurrency=1", "--reporter=junit", "--reporter-outfile=/tmp/report.xml", "./src/a.test.ts",
+  ]);
+});
 
 describe("red-first-check paths", () => {
   test("test files, test support and fixtures may be in a red commit; nothing else", () => {
