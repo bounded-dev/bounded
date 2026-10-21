@@ -243,6 +243,20 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const portConfig = 'import { defineConfig, Ports } from "bounded/domain";\nimport { portBackedPack } from "bounded-example/port-backed";\nimport { PublishedNotes } from "bounded-example/port-backed-adapter";\nexport default defineConfig({ packs: [portBackedPack], ports: [Ports.provide(portBackedPack.ports.notes, root => new PublishedNotes(root))] });\n';
     writeFileSync(join(project, "bounded.config.ts"), portConfig);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const updateLock = readFileSync(join(project, ".bounded", "packs.lock.json"));
+    const updateReceipt = readFileSync(join(project, ".bounded", "types-receipt.json"));
+    const updatePackManifest = readFileSync(join(projected, "package.json"));
+    const updateSettings = readFileSync(join(project, ".claude", "settings.json"));
+    const updateLoader = readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"));
+    const updated = Bun.spawnSync([binary, "update"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: updated.exitCode, stderr: updated.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(readFileSync(join(project, ".bounded", "packs.lock.json"))).toEqual(updateLock);
+    expect(readFileSync(join(project, ".bounded", "types-receipt.json"))).toEqual(updateReceipt);
+    expect(readFileSync(join(projected, "package.json"))).toEqual(updatePackManifest);
+    expect(readFileSync(join(project, ".claude", "settings.json"))).toEqual(updateSettings);
+    expect(readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(updateLoader);
+    expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(portConfig);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     const portJudged = Bun.spawnSync([binary, "hook", "claude-code"], { cwd: project, env: environment,
       stdin: hookPayload(project, "Read"), stdout: "pipe", stderr: "pipe" });
     expect(portJudged.exitCode).toBe(0);
