@@ -231,17 +231,27 @@ test("published npm closure refuses an alias or eval loader added to an installe
   });
 }, 120_000);
 
-test("published npm closure rejects a symlinked project root and a false Node package shadow", async () => {
+test("published npm closure rejects a symlinked project root", async () => {
   await withPublishedProject((project, closure) => {
     const linkedRoot = `${project}-linked`;
     symlinkSync(project, linkedRoot, "dir");
     try { expect(closure.captureInstalledNpmClosure(linkedRoot).ok).toBe(false); }
     finally { rmSync(linkedRoot); }
+  });
+}, 120_000);
+
+test("published npm closure does not resolve through a false node_modules/node_modules shadow", async () => {
+  await withPublishedProject((project, closure) => {
     const realDependency = join(project, "node_modules", "picomatch");
     const shadowDependency = join(project, "node_modules", "node_modules", "picomatch");
     mkdirSync(dirname(shadowDependency), { recursive: true });
     cpSync(realDependency, shadowDependency, { recursive: true });
     rmSync(realDependency, { recursive: true, force: true });
+    const lockPath = join(project, "package-lock.json");
+    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { packages: Record<string, unknown> };
+    lock.packages["node_modules/node_modules/picomatch"] = lock.packages["node_modules/picomatch"];
+    delete lock.packages["node_modules/picomatch"];
+    writeFileSync(lockPath, `${JSON.stringify(lock)}\n`);
     const result = closure.captureInstalledNpmClosure(project);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/picomatch|installed|resolve/i);

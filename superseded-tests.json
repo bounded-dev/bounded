@@ -6871,5 +6871,14 @@
       "case": "published npm closure parses the pinned runtime and rejects edited dependency code even when imports are decoys"
     },
     "reason": "the published dependency code must match its pinned tree digest because static parsing alone cannot prove aliased or evaluated imports"
+  },
+  {
+    "file": "src/standalone-npm-closure.test.ts",
+    "case": "published npm closure rejects a symlinked project root and a false Node package shadow",
+    "successor": {
+      "file": "src/standalone-npm-closure.test.ts",
+      "case": "published npm closure rejects a symlinked project root"
+    },
+    "reason": "the root-link and false Node resolution cases need separate fixtures so neither can mask the other"
   }
 ]
