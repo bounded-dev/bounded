@@ -91,8 +91,10 @@ function installPriorTestRelease(f: Fixture): { readonly binary: string; readonl
   const binary = join(priorRelease, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
   rmSync(binary);
   const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
+  const typeEnvironment = join(REPO, "src", "dist", "standalone", "bounded-type-environment-bytes.bin");
   const built = Bun.spawnSync([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
-    "--asset", join(wasm, "tree-sitter-bash.wasm"), "--outfile", binary], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+    "--asset", join(wasm, "tree-sitter-bash.wasm"), "--asset", typeEnvironment, "--outfile", binary],
+    { cwd: REPO, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`prior release build failed: ${built.stderr.toString()}`);
   if (process.platform !== "win32") chmodSync(binary, 0o755);
   const identified = Bun.spawnSync([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -303,7 +305,9 @@ test("recovery restores the old host after a crash following the first host repl
     expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(oldLoader);
     expect(readFileSync(pinPath)).toEqual(oldPin);
     expect(existsSync(journalPath)).toBe(false);
-    expect(run(f, ["check"]).exitCode).toBe(0);
+    const checkedAfterRestore = run(f, ["check"]);
+    if (checkedAfterRestore.exitCode !== 0) throw new Error(checkedAfterRestore.stderr);
+    expect(checkedAfterRestore.exitCode).toBe(0);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
@@ -380,7 +384,9 @@ test("recovery uses the journal's previous release after a torn update has alrea
     expect(readFileSync(loaderPath)).toEqual(oldLoader);
     expect(readFileSync(pinPath)).toEqual(oldPin);
     expect(existsSync(journalPath)).toBe(false);
-    expect(run(f, ["check"], prior.binary).exitCode).toBe(0);
+    const checkedAfterRestore = run(f, ["check"], prior.binary);
+    if (checkedAfterRestore.exitCode !== 0) throw new Error(checkedAfterRestore.stderr);
+    expect(checkedAfterRestore.exitCode).toBe(0);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
