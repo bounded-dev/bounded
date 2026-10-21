@@ -6,7 +6,7 @@ import { locateInstalledRelease } from "./standalone-installed-release.ts";
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 type Root = { readonly ok: true; readonly root: string; readonly explicit: boolean } | { readonly ok: false; readonly error: string };
-type Pin = { readonly ok: true; readonly version: string | null; readonly boundaryFound: boolean } | { readonly ok: false; readonly error: string };
+type Pin = { readonly ok: true; readonly version: string | null; readonly boundaryFound: boolean; readonly boundaryRoot?: string } | { readonly ok: false; readonly error: string };
 
 function lstatIfPresent(path: string): Stats | null {
   try { return lstatSync(path); }
@@ -56,13 +56,13 @@ function pinIn(root: string): Pin {
     if (boundaryInfo.isSymbolicLink() || !boundaryInfo.isDirectory()) return { ok: false, error: `${boundary} is linked or not a readable project directory` };
     const pinPath = join(boundary, "version.json");
     const pinInfo = lstatIfPresent(pinPath);
-    if (pinInfo === null) return { ok: true, version: null, boundaryFound: true };
+    if (pinInfo === null) return { ok: true, version: null, boundaryFound: true, boundaryRoot: root };
     if (pinInfo.isSymbolicLink() || !pinInfo.isFile()) return { ok: false, error: `${pinPath} is linked or not a file; restore the project's Bounded version pin` };
     const raw: unknown = JSON.parse(readFileSync(pinPath, "utf8"));
     if (!isRecord(raw) || Object.keys(raw).sort().join() !== ["schema", "version"].sort().join() || raw.schema !== "bounded-project-version/1" || typeof raw.version !== "string" || !versionPattern.test(raw.version)) {
       return { ok: false, error: `${pinPath} has an invalid Bounded project version pin` };
     }
-    return { ok: true, version: raw.version, boundaryFound: true };
+    return { ok: true, version: raw.version, boundaryFound: true, boundaryRoot: root };
   } catch {
     return { ok: false, error: `${boundary}/version.json is unreadable or malformed; restore the project's Bounded version pin` };
   }
@@ -112,6 +112,24 @@ export async function dispatchStandalone(args: readonly string[], currentVersion
     process.stderr.write(`${pin.error}\n`);
     process.exitCode = 2;
     return { answered: true };
+  }
+  // The current Pi worker checks the marker before every frame and can return
+  // a refusal through its host protocol. An older worker may not, so a
+  // cross-version handoff still stops at this dispatch boundary.
+  const currentPiWorker = args[0] === "hook" && args[1] === "pi" && pin.version === currentVersion;
+  if (pin.boundaryRoot !== undefined && !currentPiWorker) {
+    const journalPath = join(pin.boundaryRoot, ".bounded", "update-journal.json");
+    try {
+      if (lstatIfPresent(journalPath) !== null) {
+        process.stderr.write(`Bounded project update journal ${journalPath} requires recovery; run bounded update before hooks, check or add\n`);
+        process.exitCode = 2;
+        return { answered: true };
+      }
+    } catch {
+      process.stderr.write(`Cannot inspect Bounded project update journal ${journalPath}; run bounded update to recover it\n`);
+      process.exitCode = 2;
+      return { answered: true };
+    }
   }
   if (pin.version !== null && pin.version !== currentVersion) {
     if (marker !== undefined) {

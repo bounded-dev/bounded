@@ -216,7 +216,7 @@ function validDirectory(path: string, required: boolean): Result<undefined> {
 }
 
 /** Prepare Pi's generated bridge without changing any project file. */
-export async function prepareStandalonePiExtension(projectRoot: string, executable: string): Promise<Result<PreparedStandalonePiExtension>> {
+export async function prepareStandalonePiExtension(projectRoot: string, executable: string, options: { readonly recognizedPriorExecutable?: string } = {}): Promise<Result<PreparedStandalonePiExtension>> {
   for (const [relative, required] of [[".pi", true], [".pi/extensions", false], [".pi/extensions/bounded", false]] as const) {
     const checked = validDirectory(join(projectRoot, relative), required);
     if (!checked.ok) return checked;
@@ -229,7 +229,8 @@ export async function prepareStandalonePiExtension(projectRoot: string, executab
     if (!info.isFile() || info.isSymbolicLink()) return { ok: false, error: `${LOADER} is linked or not a regular file` };
     originalBytes = await readFile(loaderPath, "utf8");
     mode = (await stat(loaderPath)).mode & 0o777;
-    if (originalBytes !== piLoader().content && originalBytes !== standalonePiLoader(executable))
+    if (originalBytes !== piLoader().content && originalBytes !== standalonePiLoader(executable)
+      && (options.recognizedPriorExecutable === undefined || originalBytes !== standalonePiLoader(options.recognizedPriorExecutable)))
       return { ok: false, error: `${LOADER} contains user edits or an unknown loader; preserve it and migrate manually` };
   } catch (error) { if (!missing(error)) return { ok: false, error: `${LOADER} cannot be inspected: ${message(error)}` }; }
   const nextBytes = standalonePiLoader(executable);

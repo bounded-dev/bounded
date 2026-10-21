@@ -243,8 +243,26 @@ when written; keep it current (AGENTS.md, "Working with the user").
   It parses the old Claude and Pi hook import graph and refuses linked, changed
   or unresolved runtime code. This first proof path refuses edited configs,
   third-party packs, other old versions and package managers. The update
-  transaction must still check Node availability before restoring an old
-  Claude hook; the closure helper does not execute Node or npm.
+  transaction checks Node 22.18 or newer on `PATH` before it could restore an
+  old Claude hook; this checks the environment, not the binary's provenance.
+  The closure helper does not execute Node or npm.
+- **Standalone project update** ([ADR 2026-043](adr/2026-043-standalone-project-update.md)):
+  `bounded update` selects the active verified installed release exactly. It
+  verifies the prior standalone release or the exact published npm 3.3.0
+  default closure, compiles the unchanged configuration for each installed
+  host, and journals exact old/new host and managed projection bytes. New
+  hosts and projection publish before the version pin. The update marker
+  blocks standalone hooks, Pi worker frames, `check` and `add` during a
+  transition. Recovery verifies a complete old or new state before removing
+  it. One retained generation supports `bounded update --rollback` if the
+  old runtime and unchanged owned project state can still be proved. The
+  published npm Claude and Pi installation migrates and rolls back without
+  calling a package manager. An already loaded old npm Pi session cannot
+  acquire the new marker check; restart it after migration. A previously
+  published Node CLI cannot acquire the new standalone-project guard either:
+  the pinned published 3.3.0 CLI's `update --no-upgrade` returns success but
+  replaces the Pi loader with its npm form while leaving the standalone pin
+  and Claude hooks in place. Use the installed standalone command thereafter.
 - **Managed published packs in the standalone Claude Code runtime**
   ([ADR 2026-038](adr/2026-038-managed-pack-type-projection.md),
   [ADR 2026-039](adr/2026-039-standalone-managed-pack-runtime.md)): the
@@ -272,7 +290,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   embedded declarations, then validates selected pack and installed Claude Code
   host wiring without running lifecycle callbacks (ADR 2026-040). Check also
   validates Pi-only and combined host wiring, including the exact generated
-  Pi loader. Project-supplied third-party port provisions remain unavailable. A selected pack whose
+  Pi loader. Projects can provide third-party port adapters explicitly in
+  `defineConfig`; a selected pack whose
   required port has no provision refuses rather than loading an adapter
   automatically.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))

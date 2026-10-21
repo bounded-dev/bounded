@@ -231,7 +231,21 @@ installed version, which refreshes the hooks. If the upgrade fails,
 refreshes the hooks from the installed version only. Neither touches
 `bounded.config.ts`.
 
-Each says, per host, whether its sessions must restart:
+With an installed standalone release, run `bounded update` from the project
+root. It moves the project to that executable's exact verified version without
+fetching a release or running a package manager. It checks the unchanged
+configuration, refreshes the installed Claude Code and Pi entries, and updates
+the project pin last. If the previous generation is still verified and its
+owned files are unchanged, `bounded update --rollback` restores it. Restart
+host sessions after either transition. Migration from npm is supported for
+the exact published 3.3.0 default installation; its old package remains in
+place for rollback, which requires Node 22.18 or newer on `PATH`. Other npm
+configs or old package graphs need a separately supported migration path.
+After migration, use the installed standalone command: an older published
+`npx bounded update --no-upgrade` can rewrite Pi's loader while leaving the
+standalone version pin in place.
+
+The npm command says, per host, whether its sessions must restart:
 - Claude Code runs the hook in a new node process on every tool call, so a
   new `bounded` is live at once. Its sessions restart only when
   `.claude/settings.json` changed:

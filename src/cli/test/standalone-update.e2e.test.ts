@@ -653,6 +653,29 @@ test("a published npm installation migrates to the archive executable without ch
     expect(run(f, ["check"]).exitCode).toBe(0);
     expect(existsSync(f.managerLog)).toBe(false);
 
+    // This previously published Node CLI cannot see the new standalone pin.
+    // Probe a copy so its Pi rewrite cannot affect the rollback proof below.
+    const publishedCliProbe = join(f.root, "published-cli-probe");
+    cpSync(f.project, publishedCliProbe, { recursive: true });
+    const migratedSettings = readFileSync(join(publishedCliProbe, ".claude", "settings.json"));
+    const migratedPi = readFileSync(join(publishedCliProbe, ".pi", "extensions", "bounded", "index.ts"));
+    const migratedPin = readFileSync(join(publishedCliProbe, ".bounded", "version.json"));
+    const priorCliRefresh = Bun.spawnSync(["node", join(publishedCliProbe, "node_modules", "bounded", "dist", "cli.js"), "update", "--no-upgrade"], {
+      cwd: publishedCliProbe, stdout: "pipe", stderr: "pipe", env: process.env,
+    });
+    expect(priorCliRefresh.exitCode).toBe(0);
+    expect(priorCliRefresh.stdout.toString()).toContain("pi: updated");
+    expect(readFileSync(join(publishedCliProbe, ".claude", "settings.json"))).toEqual(migratedSettings);
+    expect(readFileSync(join(publishedCliProbe, ".pi", "extensions", "bounded", "index.ts"))).not.toEqual(migratedPi);
+    expect(readFileSync(join(publishedCliProbe, ".pi", "extensions", "bounded", "index.ts"), "utf8")).toBe(oldLoader);
+    expect(readFileSync(join(publishedCliProbe, ".bounded", "version.json"))).toEqual(migratedPin);
+    expect(readFileSync(join(publishedCliProbe, "bounded.config.ts"))).toEqual(config);
+    const copiedProjectCheck = Bun.spawnSync([f.binary, "check"], { cwd: publishedCliProbe, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, PATH: join(f.root, "fake-bin"), XDG_DATA_HOME: f.dataHome,
+        LOCALAPPDATA: f.dataHome, XDG_STATE_HOME: join(f.root, "state") } });
+    expect(copiedProjectCheck.exitCode).toBe(2);
+    expect(copiedProjectCheck.stderr.toString()).toContain("Pi host loader differs");
+
     const owned = [join(f.project, ".claude", "settings.json"), join(f.project, ".pi", "extensions", "bounded", "index.ts"),
       join(f.project, ".bounded", "version.json")];
     const current = owned.map((path) => ({ bytes: readFileSync(path), mode: lstatSync(path).mode & 0o777 }));

@@ -9,9 +9,12 @@ import * as prereqsAdapters from "bounded/prereqs/adapters";
 import * as protectedPaths from "bounded/protected-paths";
 import * as protectedPathsAdapters from "bounded/protected-paths/adapters";
 import { shellCommandReader } from "./cli/standalone-shell-command-reader.ts";
-import { addManagedPackWithProjection, captureManagedPackRuntimeGraph, type ProjectionInput } from "./cli/managed-pack-installer.ts";
+import { acquireManagedPackWriter, addManagedPackWithProjection, captureManagedPackRuntimeGraph,
+  prepareManagedPackTargetProjectionUnderWriter, verifyManagedPackUpdateProjectionSnapshot,
+  type ManagedPackReleaseTypes, type ManagedPackRuntimeGraph, type ManagedPackWriter, type ProjectionInput } from "./cli/managed-pack-installer.ts";
 import { locateInstalledRelease, userDataRoot } from "./standalone-installed-release.ts";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -22,10 +25,18 @@ import { validateProjectWiring } from "bounded/application";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
 import { verifiedStandaloneTypeEnvironment } from "./cli/standalone-type-environment.ts";
-import { prepareStandaloneClaudeHooks } from "./hosts/claude-code/standalone-install.ts";
+import { prepareStandaloneClaudeHooks, verifyStandaloneClaudeHookTransition } from "./hosts/claude-code/standalone-install.ts";
 import { prepareStandalonePiExtension } from "./hosts/pi/standalone-install.ts";
+import { standalonePiLoader } from "./hosts/pi/standalone-install.ts";
+import { piLoader } from "./hosts/pi/install.ts";
+import { isBoundedHook } from "./hosts/claude-code/install.ts";
 import { runStandalonePiWorker } from "./hosts/pi/standalone-worker.ts";
 import { INITIAL_CONFIG } from "./cli/initial-config.ts";
+import { acquireStandaloneUpdateWriter } from "./standalone-update-writer.ts";
+import { captureInstalledNpmClosure, reverifyInstalledNpmClosure, type NpmClosureSnapshot } from "./standalone-npm-closure.ts";
+import { captureStandaloneUpdateFile, createStandaloneRollbackJournal, createStandaloneUpdateJournal,
+  publishStandaloneUpdate, readStandaloneRollbackRecord, recoverStandaloneUpdate,
+  type StandaloneUpdateFile, type StandaloneUpdateJournal, type StandaloneUpdateVerifiers } from "./standalone-update-transaction.ts";
 
 const commandRoutes = {
   hook: "host-hook",
@@ -312,6 +323,10 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     await checkStandalone(args, version);
     return;
   }
+  if (command === "update") {
+    await updateStandalone(args, version);
+    return;
+  }
   const route = commandRoutes[command as keyof typeof commandRoutes];
   if (route === "project-setup") {
     await initStandalone(args, version);
@@ -415,6 +430,392 @@ async function checkStandalone(args: readonly string[], version: string): Promis
   } catch (error) { refusal(`bounded check could not validate the project: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
+/** Compile and execute one captured target-release configuration before update changes a host or pin. */
+export async function preflightStandaloneUpdate(projectRoot: string, version: string, hasClaudeHost: boolean, hasPiHost: boolean,
+  managedGraph?: ManagedPackRuntimeGraph): Promise<Result<Readonly<Record<string, Uint8Array>>>> {
+  const located = locateInstalledRelease(version);
+  if (!located.ok) return located;
+  try {
+    const declaredTypeEnvironment = located.verifiedFiles.find((file) => file.path === "share/typescript/type-environment.json");
+    if (declaredTypeEnvironment === undefined) throw new Error("installed release lacks its TypeScript declaration manifest; reinstall Bounded");
+    const environment = await verifiedStandaloneTypeEnvironment(located.releaseRoot, declaredTypeEnvironment.sha256);
+    const boundedDeclarations: Record<string, Uint8Array> = {};
+    for (const file of located.verifiedFiles) {
+      if (!file.path.startsWith("share/types/") || !file.path.endsWith(".d.ts")) continue;
+      const bytes = readFileSync(join(located.releaseRoot, file.path));
+      if (bytes.byteLength !== file.size || createHash("sha256").update(bytes).digest("hex") !== file.sha256)
+        throw new Error(`installed Bounded declaration ${file.path} changed after release verification; reinstall Bounded`);
+      boundedDeclarations[file.path.slice("share/types/".length)] = bytes;
+    }
+    const configFile = join(projectRoot, "bounded.config.ts");
+    const configInfo = lstatSync(configFile);
+    if (!configInfo.isFile() || configInfo.isSymbolicLink()) throw new Error("bounded.config.ts is linked or not a regular configuration file");
+    const snapshot = await prepareStandaloneProjectSnapshot(configFile, projectRoot, {
+      verifiedReleaseManifestSha256: located.manifestSha256, boundedRuntimeExports: standaloneRuntimeExports,
+      ...(managedGraph === undefined ? {} : { managedGraph }),
+    });
+    try {
+      const checked = await checkStandaloneProjectSnapshot(snapshot, { ...environment, boundedDeclarations });
+      if (!checked.ok) return { ok: false, error: checked.diagnostics.join("\n") };
+      const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(projectRoot);
+      if (!loaded.ok) return loaded;
+      const sharedPortProvisions = [...protectedPathsPortProvisions(), ...prereqsPortProvisions()];
+      const installedHostProvisions = [
+        ...(hasClaudeHost ? [{ host: "Claude Code", provisions: [...sharedPortProvisions, ...prereqsStatusSnapshotPortProvisions()] }] : []),
+        ...(hasPiHost ? [{ host: "Pi", provisions: sharedPortProvisions }] : []),
+      ];
+      for (const { host, provisions } of installedHostProvisions) {
+        const wired = validateProjectWiring(loaded.value, projectRoot, provisions);
+        if (!wired.ok) return { ok: false, error: `${host}: ${wired.error}` };
+      }
+      return { ok: true, value: snapshot.sourceFiles };
+    } finally { disposeStandaloneProjectSnapshot(snapshot); }
+  } catch (error) { return { ok: false, error: `Cannot validate the target Bounded configuration: ${error instanceof Error ? error.message : String(error)}` }; }
+}
+
+function exactProjectPin(projectRoot: string): Result<string | null> {
+  const path = join(projectRoot, ".bounded", "version.json");
+  try {
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink()) return { ok: false, error: `${path} is linked or not a regular version pin` };
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+      || Reflect.get(parsed, "schema") !== "bounded-project-version/1"
+      || typeof Reflect.get(parsed, "version") !== "string"
+      || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(Reflect.get(parsed, "version") as string)
+      || Object.keys(parsed).sort().join() !== "schema,version")
+      return { ok: false, error: `${path} has a malformed version pin; repair it before updating` };
+    return { ok: true, value: Reflect.get(parsed, "version") as string };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { ok: true, value: null };
+    return { ok: false, error: `${path} cannot be read as a version pin: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function hasOwnedFile(path: string): Result<boolean> {
+  try {
+    const info = lstatSync(path);
+    return info.isFile() && !info.isSymbolicLink()
+      ? { ok: true, value: true } : { ok: false, error: `${path} is linked or not a regular file` };
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT"
+      ? { ok: true, value: false }
+      : { ok: false, error: `${path} cannot be inspected: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function hasClaudeBoundedHooks(path: string): Result<boolean> {
+  const present = hasOwnedFile(path);
+  if (!present.ok || !present.value) return present;
+  try {
+    const settings: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings))
+      return { ok: false, error: `${path} is not a JSON settings object` };
+    const hooks: unknown = Reflect.get(settings, "hooks");
+    if (typeof hooks !== "object" || hooks === null || Array.isArray(hooks))
+      return { ok: false, error: `${path} has no valid hooks object` };
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop"]) {
+      const entries: unknown = Reflect.get(hooks, event);
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (typeof entry !== "object" || entry === null || !Array.isArray(Reflect.get(entry, "hooks"))) continue;
+        for (const hook of Reflect.get(entry, "hooks") as unknown[]) {
+          if (isBoundedHook(hook) || (typeof hook === "object" && hook !== null
+            && typeof Reflect.get(hook, "command") === "string"
+            && (Reflect.get(hook, "command") as string).includes("hook claude-code"))) return { ok: true, value: true };
+        }
+      }
+    }
+    return { ok: true, value: false };
+  } catch (error) { return { ok: false, error: `${path} cannot be parsed: ${error instanceof Error ? error.message : String(error)}` }; }
+}
+
+function priorNodeAvailable(): Result<void> {
+  try {
+    const identified = spawnSync("node", ["--version"], { encoding: "utf8", timeout: 5_000,
+      shell: process.platform === "win32" });
+    const match = /^v(\d+)\.(\d+)\.(\d+)\s*$/.exec(identified.stdout ?? "");
+    if (identified.error !== undefined || identified.status !== 0 || match === null
+      || Number(match[1]) < 22 || (Number(match[1]) === 22 && Number(match[2]) < 18))
+      return { ok: false, error: "The previous npm hooks require Node 22.18 or newer on PATH before update or rollback can restore them" };
+    return { ok: true, value: undefined };
+  } catch {
+    return { ok: false, error: "The previous npm hooks require Node 22.18 or newer on PATH before update or rollback can restore them" };
+  }
+}
+
+function verifyJournalHostTransition(journal: StandaloneUpdateJournal, activeVersion: string): Result<{ claude: boolean; pi: boolean }> {
+  if (journal.intent === "rollback" ? journal.source.version !== activeVersion : journal.targetVersion !== activeVersion)
+    return { ok: false, error: `The update journal requires the verified active Bounded ${journal.intent === "rollback" ? journal.source.version : journal.targetVersion} executable` };
+  const source = journal.source.kind === "standalone" ? locateInstalledRelease(journal.source.version) : null;
+  if (source !== null && !source.ok) return source;
+  const target = journal.targetKind === "npm" ? null : locateInstalledRelease(journal.targetVersion);
+  if (target !== null && !target.ok) return target;
+  const sourceExecutable = source?.ok ? realpathSync(source.executable) : null;
+  const targetExecutable = target?.ok ? realpathSync(target.executable) : null;
+  const pin = journal.files.find((file) => file.path === ".bounded/version.json");
+  if (pin === undefined) return { ok: false, error: "The update journal has no exact version pin transition" };
+  const previousPin = `${JSON.stringify({ schema: "bounded-project-version/1", version: journal.source.version })}\n`;
+  const nextPin = `${JSON.stringify({ schema: "bounded-project-version/1", version: journal.targetVersion })}\n`;
+  if (journal.source.kind === "npm" ? pin.before.content !== null || pin.before.mode !== null
+    : pin.before.content === null || Buffer.from(pin.before.content, "base64").toString("utf8") !== previousPin)
+    return { ok: false, error: "The update journal has inconsistent source release pin bytes" };
+  if (journal.targetKind === "npm" ? pin.after.content !== null || pin.after.mode !== null
+    : pin.after.content === null || Buffer.from(pin.after.content, "base64").toString("utf8") !== nextPin)
+    return { ok: false, error: "The update journal has inconsistent target release pin bytes" };
+  const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+  const pi = journal.files.find((file) => file.path === ".pi/extensions/bounded/index.ts");
+  if (claude === undefined && pi === undefined)
+    return { ok: false, error: "The update journal has no installed Bounded host" };
+  if (claude !== undefined) {
+    if (claude.before.content === null || claude.after.content === null)
+      return { ok: false, error: "The update journal has incomplete Claude Code hook bytes" };
+    const beforeBytes = Buffer.from(claude.before.content, "base64").toString("utf8");
+    const afterBytes = Buffer.from(claude.after.content, "base64").toString("utf8");
+    const checked = journal.targetKind === "npm"
+      ? verifyStandaloneClaudeHookTransition(afterBytes, beforeBytes, sourceExecutable ?? "", { recognizedPriorNodeHooks: true })
+      : journal.source.kind === "npm"
+        ? verifyStandaloneClaudeHookTransition(beforeBytes, afterBytes, targetExecutable ?? "", { recognizedPriorNodeHooks: true })
+        : verifyStandaloneClaudeHookTransition(beforeBytes, afterBytes, targetExecutable ?? "",
+          { recognizedPriorExecutable: sourceExecutable ?? "" });
+    if (!checked.ok) return checked;
+  }
+  if (pi !== undefined) {
+    const previousLoader = journal.source.kind === "npm" ? piLoader().content : standalonePiLoader(sourceExecutable ?? "");
+    const nextLoader = journal.targetKind === "npm" ? piLoader().content : standalonePiLoader(targetExecutable ?? "");
+    if (pi.before.content === null || pi.after.content === null
+      || Buffer.from(pi.before.content, "base64").toString("utf8") !== previousLoader
+      || Buffer.from(pi.after.content, "base64").toString("utf8") !== nextLoader)
+      return { ok: false, error: "The update journal has an edited or inconsistent Pi loader" };
+  }
+  return { ok: true, value: { claude: claude !== undefined, pi: pi !== undefined } };
+}
+
+function managedReleaseTypes(version: string, located: Extract<ReturnType<typeof locateInstalledRelease>, { ok: true }>): ManagedPackReleaseTypes {
+  return { boundedVersion: version,
+    boundedExportPaths: Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`),
+    releaseTypesRoot: join(located.releaseRoot, "share", "types"),
+    releaseTypeFilesFromVerifiedManifest: Object.fromEntries(located.verifiedFiles
+      .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+      .map((file) => [file.path.slice("share/types/".length), file.sha256])) };
+}
+
+async function verifyJournalManagedSnapshot(projectRoot: string, journal: StandaloneUpdateJournal,
+  side: "before" | "after"): Promise<Result<void>> {
+  if (journal.managed === undefined) return { ok: true, value: undefined };
+  const version = side === "before" ? journal.source.version : journal.targetVersion;
+  const located = locateInstalledRelease(version);
+  if (!located.ok) return located;
+  const ownedFiles: Record<string, { bytes: Uint8Array; mode: number }> = {};
+  for (const file of journal.files) {
+    if (file.path !== ".bounded/packs.lock.json" && file.path !== ".bounded/types-receipt.json" && !file.path.startsWith("node_modules/")) continue;
+    const state = file[side];
+    if (state.content === null || state.mode === null) continue;
+    ownedFiles[file.path] = { bytes: Buffer.from(state.content, "base64"), mode: state.mode };
+  }
+  const lockBytes = ownedFiles[".bounded/packs.lock.json"]?.bytes;
+  const receiptBytes = ownedFiles[".bounded/types-receipt.json"]?.bytes;
+  if (lockBytes === undefined || receiptBytes === undefined)
+    return { ok: false, error: "Managed update snapshot lacks its exact pack lock or receipt" };
+  const verified = await verifyManagedPackUpdateProjectionSnapshot({ projectRoot, storeRoot: join(userDataRoot(), "packs", "store"),
+    release: managedReleaseTypes(version, located), lockBytes, receiptBytes, ownedFiles,
+    ownedDirectories: side === "before" ? journal.managed.oldOwnedDirectories : journal.managed.newOwnedDirectories });
+  return verified.ok ? verified : { ok: false, error: `Managed update snapshot ${side}: ${verified.error}` };
+}
+
+async function managedUpdateGraph(projectRoot: string, version: string): Promise<Result<ManagedPackRuntimeGraph>> {
+  const located = locateInstalledRelease(version);
+  if (!located.ok) return located;
+  return captureManagedPackRuntimeGraph({ projectRoot, storeRoot: join(userDataRoot(), "packs", "store"),
+    ...managedReleaseTypes(version, located) });
+}
+
+function verifyJournalNpmClosure(projectRoot: string, journal: StandaloneUpdateJournal): Result<void> {
+  if (journal.source.kind !== "npm" && journal.targetKind !== "npm") return { ok: true, value: undefined };
+  if (journal.npmClosure === undefined) return { ok: false, error: "The update journal has no verified npm closure" };
+  const checked = reverifyInstalledNpmClosure(projectRoot, journal.npmClosure);
+  if (!checked.ok) return checked;
+  return priorNodeAvailable();
+}
+
+function updateJournalVerifiers(projectRoot: string, activeVersion: string): StandaloneUpdateVerifiers {
+  return {
+    async beforeRestore(journal) {
+      const checked = verifyJournalHostTransition(journal, activeVersion);
+      if (!checked.ok) return checked;
+      const npm = verifyJournalNpmClosure(projectRoot, journal);
+      if (!npm.ok) return npm;
+      const source = await verifyJournalManagedSnapshot(projectRoot, journal, "before");
+      if (!source.ok) return source;
+      return verifyJournalManagedSnapshot(projectRoot, journal, "after");
+    },
+    async restoredSource(journal) {
+      const checked = verifyJournalHostTransition(journal, activeVersion);
+      if (!checked.ok) return checked;
+      if (journal.source.kind === "npm") return verifyJournalNpmClosure(projectRoot, journal);
+      const graph = journal.managed === undefined ? undefined : await managedUpdateGraph(projectRoot, journal.source.version);
+      if (graph !== undefined && !graph.ok) return graph;
+      const preflight = await preflightStandaloneUpdate(projectRoot, journal.source.version, checked.value.claude, checked.value.pi,
+        graph?.value);
+      return preflight.ok ? { ok: true, value: undefined } : preflight;
+    },
+    async committedTarget(journal) {
+      const checked = verifyJournalHostTransition(journal, activeVersion);
+      if (!checked.ok) return checked;
+      if (journal.targetKind === "npm") return verifyJournalNpmClosure(projectRoot, journal);
+      const graph = journal.managed === undefined ? undefined : await managedUpdateGraph(projectRoot, journal.targetVersion);
+      if (graph !== undefined && !graph.ok) return graph;
+      const preflight = await preflightStandaloneUpdate(projectRoot, journal.targetVersion, checked.value.claude, checked.value.pi,
+        graph?.value);
+      return preflight.ok ? { ok: true, value: undefined } : preflight;
+    },
+  };
+}
+
+async function updateStandalone(args: readonly string[], version: string): Promise<void> {
+  const rollbackRequested = args.length === 2 && args[1] === "--rollback";
+  if (args.length !== 1 && !rollbackRequested) { refusal("Use bounded update or bounded update --rollback from the project root"); return; }
+  if (!releaseIdentity(version)) return;
+  const projectRoot = process.cwd();
+  const writer = await acquireStandaloneUpdateWriter(projectRoot);
+  if (!writer.ok) { refusal(writer.error); return; }
+  let packWriter: ManagedPackWriter | undefined;
+  try {
+    const target = locateInstalledRelease(version);
+    if (!target.ok) { refusal(target.error); return; }
+    if (realpathSync(target.executable) !== realpathSync(process.execPath)) { refusal(`The active Bounded executable differs from the verified installed ${version} release; use the installed launcher`); return; }
+    const acquiredPackWriter = await acquireManagedPackWriter(projectRoot);
+    if (!acquiredPackWriter.ok) { refusal(acquiredPackWriter.error); return; }
+    packWriter = acquiredPackWriter.value;
+    const boundary = join(projectRoot, ".bounded");
+    const verifiers = updateJournalVerifiers(projectRoot, version);
+    const journal = hasOwnedFile(join(boundary, "update-journal.json"));
+    if (!journal.ok) { refusal(journal.error); return; }
+    if (journal.value) {
+      const recovered = await recoverStandaloneUpdate(projectRoot, verifiers);
+      if (!recovered.ok) { refusal(recovered.error); return; }
+      if (recovered.value === "source") { refusal("The interrupted update restored the previous project state; run bounded update again to retry"); return; }
+      process.stdout.write(`Bounded ${version} update recovered and verified\n`);
+      return;
+    }
+    if (rollbackRequested) {
+      const recorded = readStandaloneRollbackRecord(projectRoot);
+      if (!recorded.ok) { refusal(recorded.error); return; }
+      if (recorded.value === null) { refusal("No verified previous Bounded generation is available for rollback"); return; }
+      const inverse = createStandaloneRollbackJournal(projectRoot, recorded.value);
+      const published = await publishStandaloneUpdate(projectRoot, inverse, verifiers);
+      if (!published.ok) { refusal(published.error); return; }
+      process.stdout.write(`Bounded project restored from ${version} to ${recorded.value.source.version}; restart the installed host\n`);
+      return;
+    }
+    const pinned = exactProjectPin(projectRoot);
+    if (!pinned.ok) { refusal(pinned.error); return; }
+    let npmClosure: NpmClosureSnapshot | null = null;
+    let sourceVersion: string;
+    if (pinned.value === null) {
+      const captured = captureInstalledNpmClosure(projectRoot);
+      if (!captured.ok) { refusal(captured.error); return; }
+      npmClosure = captured.value;
+      sourceVersion = captured.value.version;
+    } else sourceVersion = pinned.value;
+    const prior = pinned.value === null ? null : locateInstalledRelease(pinned.value);
+    if (prior !== null && !prior.ok) { refusal(prior.error); return; }
+    if (sourceVersion.includes("-") || version.includes("-")) {
+      refusal(`Bounded update requires stable source and target releases; ${sourceVersion} to ${version} is a prerelease transition`);
+      return;
+    }
+    const priorParts = sourceVersion.split(".").map(Number);
+    const targetParts = version.split(".").map(Number);
+    if (priorParts[0] !== targetParts[0] || priorParts.some((part, index) => part > (targetParts[index] ?? -1)
+      && priorParts.slice(0, index).every((earlier, at) => earlier === targetParts[at]))) {
+      refusal(`Bounded ${sourceVersion} cannot update to ${version} across a major version or downgrade; install a compatible target`);
+      return;
+    }
+    const managed = ["packs.lock.json", "types-receipt.json", "types-journal.json"].map((name) => hasOwnedFile(join(boundary, name)));
+    const problem = managed.find((state) => !state.ok);
+    if (problem && !problem.ok) { refusal(problem.error); return; }
+    const hasManagedState = managed.some((state) => state.ok && state.value);
+    if (npmClosure !== null && hasManagedState) { refusal("An npm project with existing managed pack state needs an explicit migration; preserve its lock and project files"); return; }
+    const verifiedPrior = prior?.ok ? prior : null;
+    if (hasManagedState && verifiedPrior === null) { refusal("Managed pack state requires a verified prior standalone release"); return; }
+    const candidateProjection = hasManagedState && verifiedPrior !== null ? await prepareManagedPackTargetProjectionUnderWriter({
+      writer: packWriter, projectRoot, storeRoot: join(userDataRoot(), "packs", "store"),
+      source: managedReleaseTypes(sourceVersion, verifiedPrior), target: managedReleaseTypes(version, target),
+    }) : undefined;
+    const preparedProjection = candidateProjection?.ok && sourceVersion === version
+      ? { ok: true as const, value: { ...candidateProjection.value,
+        newOwnedFiles: candidateProjection.value.oldOwnedFiles,
+        newOwnedDirectories: candidateProjection.value.oldOwnedDirectories,
+        targetLockBytes: candidateProjection.value.oldOwnedFiles[".bounded/packs.lock.json"]?.bytes ?? candidateProjection.value.targetLockBytes,
+        targetReceiptBytes: candidateProjection.value.oldOwnedFiles[".bounded/types-receipt.json"]?.bytes ?? candidateProjection.value.targetReceiptBytes } }
+      : candidateProjection;
+    if (preparedProjection !== undefined && !preparedProjection.ok) { refusal(preparedProjection.error); return; }
+    const steps: StandaloneUpdateFile[] = [];
+    const claudePath = join(projectRoot, ".claude", "settings.json");
+    const claudeInstalled = hasClaudeBoundedHooks(claudePath);
+    if (!claudeInstalled.ok) { refusal(claudeInstalled.error); return; }
+    if (claudeInstalled.value) {
+      const prepared = await prepareStandaloneClaudeHooks(projectRoot, realpathSync(target.executable),
+        prior?.ok ? { recognizedPriorExecutable: realpathSync(prior.executable) } : { recognizedPriorNodeHooks: true });
+      if (!prepared.ok) { refusal(prepared.error); return; }
+      steps.push(captureStandaloneUpdateFile(projectRoot, ".claude/settings.json", prepared.value.nextBytes, prepared.value.mode));
+    }
+    const piPath = join(projectRoot, ".pi", "extensions", "bounded", "index.ts");
+    const piInstalled = hasOwnedFile(piPath);
+    if (!piInstalled.ok) { refusal(piInstalled.error); return; }
+    if (piInstalled.value) {
+      const expectedPriorLoader = prior?.ok ? standalonePiLoader(realpathSync(prior.executable)) : piLoader().content;
+      if (readFileSync(piPath, "utf8") !== expectedPriorLoader) {
+        refusal(`${piPath} differs from the exact previous generated Pi loader; preserve edits and repair before updating`);
+        return;
+      }
+      const prepared = await prepareStandalonePiExtension(projectRoot, realpathSync(target.executable),
+        verifiedPrior === null ? {} : { recognizedPriorExecutable: realpathSync(verifiedPrior.executable) });
+      if (!prepared.ok) { refusal(prepared.error); return; }
+      steps.push(captureStandaloneUpdateFile(projectRoot, ".pi/extensions/bounded/index.ts", prepared.value.nextBytes, prepared.value.mode));
+    }
+    if (steps.length === 0) { refusal("No installed Bounded host wiring was found; initialize a host before updating"); return; }
+    const preflight = await preflightStandaloneUpdate(projectRoot, version, claudeInstalled.value, piInstalled.value,
+      preparedProjection?.value.targetGraph);
+    if (!preflight.ok) { refusal(preflight.error); return; }
+    if (preparedProjection !== undefined) {
+      const paths = [...new Set([...Object.keys(preparedProjection.value.oldOwnedFiles),
+        ...Object.keys(preparedProjection.value.newOwnedFiles)])].sort();
+      for (const path of paths) {
+        const old = preparedProjection.value.oldOwnedFiles[path];
+        const next = preparedProjection.value.newOwnedFiles[path];
+        const step = captureStandaloneUpdateFile(projectRoot, path, next?.bytes ?? null,
+          next?.mode ?? null, true);
+        if ((old === undefined && step.before.content !== null)
+          || (old !== undefined && (step.before.content !== Buffer.from(old.bytes).toString("base64") || step.before.mode !== old.mode))) {
+          refusal(`Managed pack owned file ${path} changed after target preparation; retry the update`);
+          return;
+        }
+        steps.push(step);
+      }
+    }
+    const pinPath = join(boundary, "version.json");
+    const pinMode = pinned.value === null ? 0o644 : lstatSync(pinPath).mode & 0o777;
+    steps.push(captureStandaloneUpdateFile(projectRoot, ".bounded/version.json",
+      `${JSON.stringify({ schema: "bounded-project-version/1", version })}\n`, pinMode));
+    const source = { kind: pinned.value === null ? "npm" as const : "standalone" as const, version: sourceVersion };
+    const preparedJournal = createStandaloneUpdateJournal(projectRoot, source, version, preflight.value, steps,
+      preparedProjection === undefined ? undefined : { oldOwnedDirectories: preparedProjection.value.oldOwnedDirectories,
+        newOwnedDirectories: preparedProjection.value.newOwnedDirectories }, npmClosure ?? undefined);
+    const changed = preparedJournal.files.some((file) => JSON.stringify(file.before) !== JSON.stringify(file.after));
+    if (!changed) { process.stdout.write(`Bounded ${sourceVersion} is already updated to ${version}\n`); return; }
+    const published = await publishStandaloneUpdate(projectRoot, preparedJournal, verifiers);
+    if (!published.ok) { refusal(published.error); return; }
+    process.stdout.write(`Bounded project updated from ${sourceVersion} to ${version}; restart ${steps.slice(0, -1).map((step) => step.path.startsWith(".pi/") ? "Pi" : "Claude Code").join(" and ")}\n`);
+  } catch (error) { refusal(`Cannot update the project: ${error instanceof Error ? error.message : String(error)}`); }
+  finally {
+    try { await packWriter?.release(); }
+    catch (error) { refusal(`Cannot release the managed pack writer: ${error instanceof Error ? error.message : String(error)}`); }
+    try { writer.value(); }
+    catch (error) { refusal(`Cannot release the project update writer: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+}
+
 async function addStandalone(args: readonly string[], version: string): Promise<void> {
   const parsed = parseStandaloneAddArguments(args);
   if (!parsed.ok) { refusal(parsed.error); return; }
@@ -508,6 +909,14 @@ export async function runStandaloneAddInternal(args: readonly string[], context:
   if (!parsed.ok) return parsed;
   if (!isAbsolute(context.projectRoot))
     return { ok: false, error: "The dispatched project root must be absolute" };
+  const updateJournal = join(context.projectRoot, ".bounded", "update-journal.json");
+  try {
+    lstatSync(updateJournal);
+    return { ok: false, error: `Project update journal ${updateJournal} requires recovery; run bounded update before adding packs` };
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      return { ok: false, error: `Cannot inspect project update journal ${updateJournal}; run bounded update to recover it` };
+  }
   const get = context.get ?? ((url: string) => fetchStandalonePackResponse(url));
   const input = { ...parsed.value, projectRoot: context.projectRoot, boundedVersion: context.boundedVersion, get };
   if (context.publish !== undefined) return context.publish(input);
