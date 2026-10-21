@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -190,6 +190,7 @@ describe("managed pack type-only projection and publication", () => {
     const source = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
       releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
     const target = { ...source, boundedVersion: "3.3.1" };
+    chmodSync(join(given.projectRoot, "node_modules", "bounded", "core", "domain", "index.d.ts"), 0o600);
     const writer = await acquireWriter(given.projectRoot);
     expect(writer.ok).toBe(true);
     if (!writer.ok) return;
@@ -209,7 +210,8 @@ describe("managed pack type-only projection and publication", () => {
       ownedDirectories: prepared.newOwnedDirectories };
     rmSync(given.lockPath);
     rmSync(given.receiptPath);
-    rmSync(given.projected("bounded"), { recursive: true });
+    rmSync(join(given.projectRoot, "node_modules"), { recursive: true });
+    expect(old.ownedFiles["node_modules/bounded/core/domain/index.d.ts"]?.mode).toBe(0o600);
     expect((await verifyOffline(old)).ok).toBe(true);
     expect((await verifyOffline(next)).ok).toBe(true);
     expect(existsSync(given.lockPath)).toBe(false);
@@ -241,6 +243,10 @@ describe("managed pack type-only projection and publication", () => {
     expect((await verifyOffline({ ...original, ownedFiles: { ...original.ownedFiles,
       [declaration]: { bytes: utf8("export declare const forged: true;\n"), mode: 0o644 } } })).ok).toBe(false);
     expect((await verifyOffline({ ...original, receiptBytes: utf8("{}\n") })).ok).toBe(false);
+    expect((await verifyOffline({ ...original, ownedFiles: { ...original.ownedFiles,
+      ".bounded/packs.lock.json": { bytes: utf8("{}\n"), mode: 0o644 } } })).ok).toBe(false);
+    expect((await verifyOffline({ ...original, ownedFiles: { ...original.ownedFiles,
+      ".bounded/types-receipt.json": { bytes: utf8("{}\n"), mode: 0o644 } } })).ok).toBe(false);
     expect((await verifyOffline({ ...original, ownedDirectories: [...original.ownedDirectories, "node_modules/user-package"] })).ok).toBe(false);
   });
 
