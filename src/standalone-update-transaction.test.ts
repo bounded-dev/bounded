@@ -87,3 +87,30 @@ test("a byte bound rejects a journal before parsing or invoking recovery callbac
     expect(readFileSync(markerPath, "utf8")).toBe("invalid");
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
+
+test.each([
+  { name: "npm source", source: { kind: "npm", version: "3.3.0" } },
+  { name: "npm rollback target", source: { kind: "standalone", version: "3.3.0" }, targetKind: "npm" },
+])("a $name journal without a verified npm closure is refused before recovery", async ({ source, targetKind }) => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-update-npm-closure-"));
+  const projectRoot = realpathSync(scratch);
+  try {
+    mkdirSync(join(projectRoot, ".bounded"));
+    const markerPath = join(projectRoot, ".bounded", "update-journal.json");
+    const absent = { content: null, mode: null };
+    const journal = { schema: "bounded-update-journal/1", source, targetVersion: "3.3.0", sourceFiles: {},
+      ...(targetKind === undefined ? {} : { targetKind }),
+      files: [{ path: ".bounded/version.json", before: absent, after: absent }] };
+    writeFileSync(markerPath, `${JSON.stringify(journal)}\n`);
+    let callbacks = 0;
+    const result = await recoverStandaloneUpdate(projectRoot, {
+      async beforeRestore() { callbacks += 1; return { ok: true, value: undefined }; },
+      async restoredSource() { callbacks += 1; return { ok: true, value: undefined }; },
+      async committedTarget() { callbacks += 1; return { ok: true, value: undefined }; },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.error).toContain("npm closure");
+    expect(callbacks).toBe(0);
+    expect(readFileSync(markerPath, "utf8")).toBe(`${JSON.stringify(journal)}\n`);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
