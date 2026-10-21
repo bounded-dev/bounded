@@ -434,8 +434,11 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
     }
     expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
     expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
     expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
     expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
     expect(existsSync(priorRollbackRecord)).toBe(false);
     const priorAfterRollbackCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });

@@ -214,6 +214,7 @@ test("one-generation rollback restores the verified prior standalone release and
     const recordedRollback = readFileSync(rollbackRecord);
     const targetPaths = [settingsPath, loaderPath, pinPath, join(f.project, "bounded.config.ts")];
     const targetFiles = targetPaths.map((path) => readFileSync(path));
+    const targetModes = targetPaths.map((path) => lstatSync(path).mode & 0o777);
     const recorded = JSON.parse(recordedRollback.toString("utf8")) as {
       source: { kind: string; version: string }; targetVersion: string; sourceFiles: Record<string, string>;
       files: { path: string; before: { content: string | null; mode: number | null }; after: { content: string | null; mode: number | null } }[];
@@ -243,9 +244,16 @@ test("one-generation rollback restores the verified prior standalone release and
       if (original === undefined) throw new Error(`Missing target update file ${path}`);
       const edited = Buffer.concat([original, Buffer.from(index === 3 ? "\n// user edit\n" : "\n ")]);
       writeFileSync(path, edited);
+      const beforeAttempt = targetPaths.map((ownedPath) => readFileSync(ownedPath));
       const refused = run(f, ["update", "--rollback"]);
       expect(refused.exitCode).toBe(2);
-      expect(readFileSync(path)).toEqual(edited);
+      for (const [ownedIndex, ownedPath] of targetPaths.entries()) {
+        const expected = beforeAttempt[ownedIndex];
+        const expectedMode = targetModes[ownedIndex];
+        if (expected === undefined || expectedMode === undefined) throw new Error(`Missing target update file ${ownedPath}`);
+        expect(readFileSync(ownedPath)).toEqual(expected);
+        expect(lstatSync(ownedPath).mode & 0o777).toBe(expectedMode);
+      }
       expect(readFileSync(rollbackRecord)).toEqual(recordedRollback);
       expect(existsSync(join(f.project, ".bounded", "update-journal.json"))).toBe(false);
       writeFileSync(path, original);
@@ -256,8 +264,10 @@ test("one-generation rollback restores the verified prior standalone release and
     expect(readFileSync(rollbackRecord)).toEqual(recordedRollback);
     for (const [index, path] of targetPaths.entries()) {
       const original = targetFiles[index];
-      if (original === undefined) throw new Error(`Missing target update file ${path}`);
+      const expectedMode = targetModes[index];
+      if (original === undefined || expectedMode === undefined) throw new Error(`Missing target update file ${path}`);
       expect(readFileSync(path)).toEqual(original);
+      expect(lstatSync(path).mode & 0o777).toBe(expectedMode);
     }
     renameSync(`${prior.binary}.missing`, prior.binary);
     const rolledBack = run(f, ["update", "--rollback"]);
