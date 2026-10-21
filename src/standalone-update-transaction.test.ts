@@ -40,3 +40,28 @@ test("a rollback-record edit during target verification retains the update journ
     expect(readFileSync(pinPath, "utf8")).toBe('{"schema":"bounded-project-version/1","version":"3.3.0"}\n');
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
+
+test("an oversized managed update journal is refused before any recovery callback", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-update-journal-bound-"));
+  const projectRoot = realpathSync(scratch);
+  try {
+    mkdirSync(join(projectRoot, ".bounded"));
+    const absent = { content: null, mode: null };
+    const journal = { schema: "bounded-update-journal/1", source: { kind: "standalone", version: "3.3.0" },
+      targetVersion: "3.3.0", sourceFiles: {}, managed: { oldOwnedDirectories: [], newOwnedDirectories: [] },
+      files: [...Array.from({ length: 20_011 }, (_unused, index) => ({ path: `node_modules/test/file-${index}.d.ts`, before: absent, after: absent })),
+        { path: ".bounded/version.json", before: absent, after: absent }] };
+    const markerPath = join(projectRoot, ".bounded", "update-journal.json");
+    writeFileSync(markerPath, `${JSON.stringify(journal)}\n`);
+    let callbackCount = 0;
+    const verified = await recoverStandaloneUpdate(projectRoot, {
+      async beforeRestore() { callbackCount += 1; return { ok: true, value: undefined }; },
+      async restoredSource() { callbackCount += 1; return { ok: true, value: undefined }; },
+      async committedTarget() { callbackCount += 1; return { ok: true, value: undefined }; },
+    });
+    expect(verified.ok).toBe(false);
+    expect(verified.ok ? "" : verified.error).toMatch(/journal.*(?:bound|limit)/i);
+    expect(callbackCount).toBe(0);
+    expect(readFileSync(markerPath, "utf8")).toBe(`${JSON.stringify(journal)}\n`);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
