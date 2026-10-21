@@ -284,7 +284,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   These workflow paths have structural local tests; no four-target workflow
   run, Apple notarization, or draft release is verified yet. The macOS workflow
   checks the installed process with network denied after an online first
-  launch; it has not proved operation on a fully disconnected Mac.
+  launch; it has not proved operation on a fully disconnected Mac. A local
+  unsigned macOS arm64 development archive has run its extracted command and
+  fail-closed hook with no consumer runtime on PATH and with process network
+  access denied. The Unix installer smoke passed against those binary bytes
+  with temporary test-only stable metadata; this is not signed release
+  evidence or a native CI result.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
