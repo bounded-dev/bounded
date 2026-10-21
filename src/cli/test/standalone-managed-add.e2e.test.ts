@@ -67,6 +67,11 @@ function invokeInstalledPi(project: string, environment: Record<string, string |
     if (npm === null) throw new Error("Pinned Pi fixture requires npm during CI setup");
     successful([npm, "ci", "--prefix", fixture, "--ignore-scripts", "--no-audit", "--no-fund"], REPO);
   }
+  const piManifest = JSON.parse(readFileSync(join(piRoot, "package.json"), "utf8")) as {
+    name?: string; version?: string; dependencies?: Record<string, string> };
+  expect(piManifest.name).toBe(piPackage);
+  expect(piManifest.version).toBe("0.87.1");
+  expect(piManifest.dependencies?.jiti).toBe("2.7.0");
   const node = process.env.PI_NODE_BINARY ?? Bun.which("node");
   if (node === null) throw new Error("Pinned Pi runtime requires Node for Pi itself");
   const script = join(project, "pi-published-port.mjs");
