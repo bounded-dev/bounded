@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { corePack, defineConfig, definePack, packIdsFor, portKeysFor, Ports } from "bounded/domain";
-import { prereqsPack } from "bounded/prereqs";
+import { prereqs } from "bounded/prereqs";
 import { prereqsPortProvisions, prereqsStatusSnapshotPortProvisions } from "bounded/prereqs/adapters";
 import { validateProjectWiring } from "./validate-project-wiring.ts";
 
@@ -13,7 +13,7 @@ const provision = Ports.provide(required, () => ({ read: () => "notes" }));
 const hostPort = portKeysFor(packIdsFor("test-packs")("host"))<{}>("unusedHostPort");
 
 describe("project supplied port wiring", () => {
-  test("a selected transitive pack receives the project's provision without opening it during validation", () => {
+  test("a selected published pack receives the project's provision without opening it during validation", () => {
     let opened = 0;
     const projectProvision = Ports.provide(required, () => { opened++; return { read: () => "notes" }; });
     const config = defineConfig({ packs: [dependent], ports: [projectProvision] });
@@ -65,7 +65,7 @@ describe("project supplied port wiring", () => {
   test("the optional prereqs snapshot is supplied by a Pi-like project but collides with Claude's built-in provision", () => {
     const projectSnapshot = prereqsStatusSnapshotPortProvisions()[0];
     if (projectSnapshot === undefined) throw new Error("missing status snapshot fixture");
-    const config = defineConfig({ packs: [prereqsPack], ports: [projectSnapshot] });
+    const config = defineConfig({ packs: [prereqs], ports: [projectSnapshot] });
     expect(validateProjectWiring(config, "/project", prereqsPortProvisions()).ok).toBe(true);
     expect(validateProjectWiring(config, "/project", [...prereqsPortProvisions(), ...prereqsStatusSnapshotPortProvisions()])).toEqual({
       ok: false, error: expect.stringMatching(/bounded\/prereqs.*prerequisiteStatusSnapshots.*provided twice|prerequisiteStatusSnapshots.*bounded\/prereqs.*provided twice/),

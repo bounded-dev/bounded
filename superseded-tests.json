@@ -6826,5 +6826,14 @@
       "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
     },
     "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/validate-project-wiring.test.ts",
+    "case": "project supplied port wiring > a selected transitive pack receives the project's provision without opening it during validation",
+    "successor": {
+      "file": "src/core/application/project-config/open-project/validate-project-wiring.test.ts",
+      "case": "project supplied port wiring > a selected published pack receives the project's provision without opening it during validation"
+    },
+    "reason": "the first red commit's test title is retained for audit identity; its in-memory dependent pack still proves transitive selection, while the separate compiled archive proves a published pack"
   }
 ]
