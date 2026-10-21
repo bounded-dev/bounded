@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -78,6 +78,19 @@ function run(f: Fixture, args: readonly string[]): { exitCode: number; stdout: s
     env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_DATA_HOME: f.dataHome,
       LOCALAPPDATA: f.dataHome, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project } });
   return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
+}
+
+function updateJournalForCurrentProject(f: Fixture): object {
+  const paths = [".claude/settings.json", ".pi/extensions/bounded/index.ts", ".bounded/version.json"];
+  return {
+    schema: "bounded-update-journal/1", source: { kind: "standalone", version: f.version }, targetVersion: f.version,
+    sourceFiles: { [realpathSync(join(f.project, "bounded.config.ts"))]: sha256(readFileSync(join(f.project, "bounded.config.ts"))) },
+    files: paths.map((path) => {
+      const absolute = join(f.project, path);
+      const state = { content: readFileSync(absolute).toString("base64"), mode: lstatSync(absolute).mode & 0o777 };
+      return { path, before: state, after: state };
+    }),
+  };
 }
 
 test("archive-only same-version update refreshes installed hosts after semantic preflight and remains idempotent", async () => {
@@ -178,6 +191,25 @@ test("pending update journal blocks check before project configuration can run",
     expect(checked.exitCode).not.toBe(0);
     expect(checked.stderr).toContain("update-journal.json");
     expect(existsSync(sentinel)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("recovery refuses a linked Claude ancestor even when its target bytes match the journal", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const journal = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journal, `${JSON.stringify(updateJournalForCurrentProject(f))}\n`);
+    const originalClaude = join(f.project, ".claude");
+    const outside = join(f.root, "outside-claude");
+    renameSync(originalClaude, outside);
+    symlinkSync(outside, originalClaude, process.platform === "win32" ? "junction" : "dir");
+    const outsideSettings = readFileSync(join(outside, "settings.json"));
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).not.toBe(0);
+    expect(recovered.stderr).toMatch(/link|symlink|linked/i);
+    expect(existsSync(journal)).toBe(true);
+    expect(readFileSync(join(outside, "settings.json"))).toEqual(outsideSettings);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
