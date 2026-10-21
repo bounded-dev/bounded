@@ -143,7 +143,39 @@ function updateJournalForCurrentProject(f: Fixture): object {
 interface RecoveryJournalFixture {
   source: { kind: "standalone"; version: string };
   targetVersion: string;
+  sourceFiles: Record<string, string>;
   readonly files: { path: string; before: { content: string; mode: number }; after: { content: string; mode: number } }[];
+}
+
+async function preparedCrossVersionJournal(f: Fixture): Promise<{
+  readonly journal: RecoveryJournalFixture;
+  readonly settingsPath: string;
+  readonly loaderPath: string;
+  readonly pinPath: string;
+  readonly targetSettings: Uint8Array;
+}> {
+  const prior = installPriorTestRelease(f);
+  const initialized = run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary);
+  if (initialized.exitCode !== 0) throw new Error(initialized.stderr);
+  const settingsPath = join(f.project, ".claude", "settings.json");
+  const loaderPath = join(f.project, ".pi", "extensions", "bounded", "index.ts");
+  const pinPath = join(f.project, ".bounded", "version.json");
+  const generated = await import("../../hosts/claude-code/standalone-install.ts");
+  const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
+    { recognizedPriorExecutable: realpathSync(prior.binary) });
+  if (!prepared.ok) throw new Error(prepared.error);
+  const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+  journal.source.version = prior.version;
+  journal.targetVersion = f.version;
+  const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+  const pi = journal.files.find((file) => file.path === ".pi/extensions/bounded/index.ts");
+  const pin = journal.files.find((file) => file.path === ".bounded/version.json");
+  if (claude === undefined || pi === undefined || pin === undefined) throw new Error("journal lacks host files or pin");
+  const piLoader = await import("../../hosts/pi/standalone-install.ts");
+  claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+  pi.after.content = Buffer.from(piLoader.standalonePiLoader(realpathSync(f.binary))).toString("base64");
+  pin.after.content = Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`).toString("base64");
+  return { journal, settingsPath, loaderPath, pinPath, targetSettings: Buffer.from(prepared.value.nextBytes) };
 }
 
 test("archive-only same-version update refreshes installed hosts after semantic preflight and remains idempotent", async () => {
@@ -389,6 +421,36 @@ test("recovery uses the journal's previous release after a torn update has alrea
     expect(checkedAfterRestore.exitCode).toBe(0);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
+
+for (const recoveryPhase of ["restored source", "committed target"] as const) {
+  test(`recovery retains its marker when ${recoveryPhase} semantic preflight edits a host`, async () => {
+    const f = await fixture();
+    try {
+      const prepared = await preparedCrossVersionJournal(f);
+      const configPath = join(f.project, "bounded.config.ts");
+      const sentinelPath = join(f.project, "recovery-config-executed.txt");
+      const editedSettings = "edited during recovery verification\n";
+      const originalConfig = readFileSync(configPath, "utf8");
+      writeFileSync(configPath, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(sentinelPath)}, "ran");\nwriteFileSync(${JSON.stringify(prepared.settingsPath)}, ${JSON.stringify(editedSettings)});\n${originalConfig}`);
+      prepared.journal.sourceFiles = { [realpathSync(configPath)]: sha256(readFileSync(configPath)) };
+      writeFileSync(prepared.settingsPath, prepared.targetSettings);
+      if (recoveryPhase === "committed target") {
+        const pi = prepared.journal.files.find((file) => file.path === ".pi/extensions/bounded/index.ts");
+        const pin = prepared.journal.files.find((file) => file.path === ".bounded/version.json");
+        if (pi === undefined || pin === undefined) throw new Error("journal lacks target Pi loader or pin");
+        writeFileSync(prepared.loaderPath, Buffer.from(pi.after.content, "base64"));
+        writeFileSync(prepared.pinPath, Buffer.from(pin.after.content, "base64"));
+      }
+      const journalPath = join(f.project, ".bounded", "update-journal.json");
+      writeFileSync(journalPath, `${JSON.stringify(prepared.journal)}\n`);
+      const recovered = run(f, ["update"]);
+      expect(recovered.exitCode).not.toBe(0);
+      expect(existsSync(sentinelPath)).toBe(true);
+      expect(existsSync(journalPath)).toBe(true);
+      expect(readFileSync(prepared.settingsPath, "utf8")).toBe(editedSettings);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 240_000);
+}
 
 test("a published npm installation migrates to the archive executable without changing config or npm bytes", async () => {
   const f = await fixture();
