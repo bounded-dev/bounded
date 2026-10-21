@@ -80,8 +80,7 @@ function run(f: Fixture, args: readonly string[], executable = f.binary): { exit
   return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
-function installPriorTestRelease(f: Fixture): { readonly binary: string; readonly version: string } {
-  const version = "3.2.9";
+function installPriorTestRelease(f: Fixture, version = "3.2.9"): { readonly binary: string; readonly version: string } {
   const target = targetId();
   const currentRelease = join(f.dataHome, "bounded", "releases", `v${f.version}`, target);
   const priorRelease = join(f.dataHome, "bounded", "releases", `v${version}`, target);
@@ -289,6 +288,25 @@ test("one-generation rollback restores the verified prior standalone release and
       expect(readFileSync(path)).toEqual(saved.bytes);
     }
     expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("update refuses a prerelease source without changing generated hosts or pin", async () => {
+  const f = await fixture();
+  try {
+    const prior = installPriorTestRelease(f, "3.3.0-rc.1");
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary).exitCode).toBe(0);
+    const paths = [".claude/settings.json", ".pi/extensions/bounded/index.ts", ".bounded/version.json"];
+    const before = paths.map((path) => readFileSync(join(f.project, path)));
+    const attempted = run(f, ["update"]);
+    expect(attempted.exitCode).toBe(2);
+    expect(attempted.stderr).toContain("prerelease");
+    for (const [index, path] of paths.entries()) {
+      const original = before[index];
+      if (original === undefined) throw new Error(`Missing generated host or pin ${path}`);
+      expect(readFileSync(join(f.project, path))).toEqual(original);
+    }
+    expect(existsSync(join(f.project, ".bounded", "update-journal.json"))).toBe(false);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
