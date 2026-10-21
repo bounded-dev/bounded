@@ -65,7 +65,11 @@ function installPriorManagedTestRelease(scratch: string, dataHome: string, targe
   return binary;
 }
 async function managedCrossVersionJournal(project: string, dataHome: string, priorBinary: string, targetBinary: string): Promise<{
-  readonly journal: string; readonly priorOwnedFiles: Readonly<Record<string, Uint8Array>>; readonly targetLock: Uint8Array;
+  readonly journal: string;
+  readonly priorOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly targetOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly priorOwnedDirectories: readonly string[];
+  readonly targetLock: Uint8Array;
 }> {
   const environment = { ...process.env, XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome };
   const prior = locateInstalledRelease("3.2.9", environment);
@@ -111,7 +115,8 @@ async function managedCrossVersionJournal(project: string, dataHome: string, pri
     sourceFiles: { [resolve(join(project, "bounded.config.ts"))]: digest(readFileSync(join(project, "bounded.config.ts"))) },
     managed: { oldOwnedDirectories: projection.value.oldOwnedDirectories, newOwnedDirectories: projection.value.newOwnedDirectories },
     files: [...hostFiles, ...managedFiles, pin] });
-  return { journal: `${journal}\n`, priorOwnedFiles: Object.fromEntries(Object.entries(projection.value.oldOwnedFiles).map(([path, owned]) => [path, owned.bytes])),
+  return { journal: `${journal}\n`, priorOwnedFiles: projection.value.oldOwnedFiles,
+    targetOwnedFiles: projection.value.newOwnedFiles, priorOwnedDirectories: projection.value.oldOwnedDirectories,
     targetLock: projection.value.targetLockBytes };
 }
 function successful(command: readonly string[], cwd: string): void {
@@ -119,6 +124,10 @@ function successful(command: readonly string[], cwd: string): void {
   if (program === undefined) throw new Error("missing test build command");
   const run = Bun.spawnSync([program, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   if (run.exitCode !== 0) throw new Error(`${command.join(" ")} failed: ${run.stdout.toString()}${run.stderr.toString()}`);
+}
+function directoryInventory(project: string, paths: readonly string[]): Record<string, { readonly mode: number; readonly entries: readonly string[] }> {
+  return Object.fromEntries(paths.map((path) => [path, { mode: lstatSync(join(project, path)).mode & 0o777,
+    entries: readdirSync(join(project, path)).sort() }]));
 }
 function entries(root: string, path = ""): TarEntry[] {
   return readdirSync(join(root, path), { withFileTypes: true }).flatMap((entry) => {
@@ -346,22 +355,33 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(priorLock.boundedVersion).toBe("3.2.9");
     const staged = await managedCrossVersionJournal(priorProject, dataHome, priorBinary, binary);
     const updateJournalPath = join(priorProject, ".bounded", "update-journal.json");
+    const priorDirectoryInventory = directoryInventory(priorProject, staged.priorOwnedDirectories);
     const forged = JSON.parse(staged.journal) as { files: { path: string; before: { content: string | null } }[] };
     const forgedOwnedFile = forged.files.find((file) => file.path.startsWith("node_modules/") && file.before.content !== null);
     if (forgedOwnedFile === undefined) throw new Error("Managed update fixture has no projected file to forge");
     forgedOwnedFile.before.content = Buffer.from("forged old projection bytes").toString("base64");
     const originalClaude = readFileSync(join(priorProject, ".claude", "settings.json"));
+    const originalClaudeMode = lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777;
     const originalPi = readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"));
+    const originalPiMode = lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777;
     const originalPin = readFileSync(join(priorProject, ".bounded", "version.json"));
+    const originalPinMode = lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777;
     writeFileSync(updateJournalPath, `${JSON.stringify(forged)}\n`);
     const refusedForged = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
     expect(refusedForged.exitCode).toBe(2);
     expect(refusedForged.stderr.toString()).toMatch(/snapshot|owned file/i);
     expect(existsSync(updateJournalPath)).toBe(true);
-    for (const [path, bytes] of Object.entries(staged.priorOwnedFiles)) expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(bytes));
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
     expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
     expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
     expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
     rmSync(updateJournalPath);
     writeFileSync(updateJournalPath, staged.journal);
     writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), staged.targetLock);
@@ -369,7 +389,17 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(recovered.exitCode).toBe(2);
     expect(recovered.stderr.toString()).toContain("restored the previous project state");
     expect(existsSync(updateJournalPath)).toBe(false);
-    for (const [path, bytes] of Object.entries(staged.priorOwnedFiles)) expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(bytes));
+    for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
+    expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
+    expect(lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777).toBe(originalClaudeMode);
+    expect(readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"))).toEqual(originalPi);
+    expect(lstatSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(originalPiMode);
+    expect(readFileSync(join(priorProject, ".bounded", "version.json"))).toEqual(originalPin);
+    expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
+    expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
     expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe("3.2.9");
     const recoveredCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
     expect({ exitCode: recoveredCheck.exitCode, stderr: recoveredCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
@@ -378,6 +408,10 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe(VERSION);
     const targetLock = JSON.parse(readFileSync(join(priorProject, ".bounded", "packs.lock.json"), "utf8")) as { boundedVersion: string };
     expect(targetLock.boundedVersion).toBe(VERSION);
+    for (const [path, owned] of Object.entries(staged.targetOwnedFiles)) {
+      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
+    }
     expect(readFileSync(join(priorProject, "bounded.config.ts"), "utf8")).toBe(priorConfig);
     const targetCheck = Bun.spawnSync([binary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
     expect({ exitCode: targetCheck.exitCode, stderr: targetCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
