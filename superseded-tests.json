@@ -6862,5 +6862,14 @@
       "case": "a project may provide prereqs' optional status snapshot to Pi but Claude's built-in provision conflicts"
     },
     "reason": "the actual shipped prereqs pack and host provisions must be tested at the composition root, since core application code cannot depend on shipped packs"
+  },
+  {
+    "file": "src/standalone-npm-closure.test.ts",
+    "case": "published npm closure parses reachable literal require and import while ignoring comment and string decoys",
+    "successor": {
+      "file": "src/standalone-npm-closure.test.ts",
+      "case": "published npm closure parses the pinned runtime and rejects edited dependency code even when imports are decoys"
+    },
+    "reason": "the published dependency code must match its pinned tree digest because static parsing alone cannot prove aliased or evaluated imports"
   }
 ]

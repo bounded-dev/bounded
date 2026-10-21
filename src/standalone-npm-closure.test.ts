@@ -179,14 +179,16 @@ test("published npm closure refuses alternate config selection and changed known
   });
 }, 120_000);
 
-test("published npm closure parses reachable literal require and import while ignoring comment and string decoys", async () => {
+test("published npm closure parses the pinned runtime and rejects edited dependency code even when imports are decoys", async () => {
   await withPublishedProject((project, closure) => {
     const main = join(project, "node_modules", "picomatch", "index.js");
     const original = readFileSync(main, "utf8");
-    writeFileSync(main, `${original}\n// require('./missing-comment.js')\nconst ignored = "import('./missing-string.js')";\nrequire('node:fs');\nrequire('./lib/utils');\n`);
+    expect(original).toContain("require('./lib/picomatch')");
     expect(closure.captureInstalledNpmClosure(project).ok).toBe(true);
-    writeFileSync(main, `${original}\nimport('./lib/utils.js');\n`);
-    expect(closure.captureInstalledNpmClosure(project).ok).toBe(true);
+    writeFileSync(main, `${original}\n// require('./missing-comment.js')\nconst ignored = "import('./missing-string.js')";\n`);
+    const edited = closure.captureInstalledNpmClosure(project);
+    expect(edited.ok).toBe(false);
+    if (!edited.ok) expect(edited.error).toMatch(/picomatch|published|digest|changed/i);
   });
 }, 120_000);
 
@@ -215,5 +217,33 @@ test("published npm closure rejects forged file path, hash, and package identity
     if (boundedIdentity === undefined) throw new Error("captured snapshot lacks bounded identity");
     withBadIdentity.packages["node_modules/bounded"] = { ...boundedIdentity, version: "9.9.9" };
     expect(closure.reverifyInstalledNpmClosure(project, withBadIdentity).ok).toBe(false);
+  });
+}, 120_000);
+
+test("published npm closure refuses an alias or eval loader added to an installed dependency", async () => {
+  await withPublishedProject((project, closure) => {
+    const main = join(project, "node_modules", "picomatch", "index.js");
+    const original = readFileSync(main, "utf8");
+    writeFileSync(main, `${original}\nconst hiddenRequire = eval('require'); hiddenRequire('./outside.js');\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+    writeFileSync(main, `${original}\nconst alias = require; alias('./outside.js');\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+  });
+}, 120_000);
+
+test("published npm closure rejects a symlinked project root and a false Node package shadow", async () => {
+  await withPublishedProject((project, closure) => {
+    const linkedRoot = `${project}-linked`;
+    symlinkSync(project, linkedRoot, "dir");
+    try { expect(closure.captureInstalledNpmClosure(linkedRoot).ok).toBe(false); }
+    finally { rmSync(linkedRoot); }
+    const realDependency = join(project, "node_modules", "picomatch");
+    const shadowDependency = join(project, "node_modules", "node_modules", "picomatch");
+    mkdirSync(dirname(shadowDependency), { recursive: true });
+    cpSync(realDependency, shadowDependency, { recursive: true });
+    rmSync(realDependency, { recursive: true, force: true });
+    const result = closure.captureInstalledNpmClosure(project);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/picomatch|installed|resolve/i);
   });
 }, 120_000);
