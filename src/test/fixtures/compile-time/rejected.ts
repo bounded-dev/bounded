@@ -1,7 +1,7 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, pointGroup, portKeysFor, type Result } from "bounded/domain";
+import { type BasePack, type Composition, type CorePack, contribution, defineConfig, definePack, type PackId, packIdsFor, point, pointGroup, portKeysFor, Ports, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 declare const somePacks: BasePack[];
@@ -79,3 +79,4 @@ export const borrowsOptionalPorts = definePack({ id: packId("optional-borrower")
 export const dottedOptionalPort = definePack({ id: packId("dotted-optional"), optionalPorts: { "a.b": portKeysFor(packId("dotted-optional"))("files") } }); // rejected: port keys are camelCase words, such as sourceFiles
 const bothFiles = portKeysFor(packId("both"))("files");
 export const requiredAndOptional = definePack({ id: packId("both"), ports: { files: bothFiles }, optionalPorts: { files: bothFiles } }); // rejected: a port is declared required or optional, not both
+export const wrongProjectPort = defineConfig({ packs: [base], ports: [Ports.provide(portKeysFor(packId("port-owner"))<{ read(): string }>("notes"), () => ({ read: () => 42 }))] }); // rejected: Type 'number' is not assignable to type 'string'

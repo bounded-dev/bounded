@@ -6,6 +6,7 @@ import type { BasePack } from "../packs/pack.contract.ts";
 import { definePack } from "../packs/pack.ts";
 import { packIdText, packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
+import type { PortProvision } from "../lifecycle/ports.contract.ts";
 import type * as Contract from "./config.contract.ts";
 
 const PROJECT = packIdsFor("bounded")("project");
@@ -21,17 +22,22 @@ class ConfigImpl implements Contract.Config {
   private constructor(
     readonly listedPacks: readonly BasePack[],
     readonly projectPack: BasePack,
+    readonly ports: readonly PortProvision[],
+    readonly portProvisionsProblem: string | undefined,
   ) {
     Object.freeze(this);
   }
 
   /** Total: whatever it is given, a configuration whose compose names what is wrong. */
-  static defineConfig(spec: { readonly packs?: unknown; readonly contributes?: unknown }): Contract.Config {
-    const given: { readonly packs?: unknown; readonly contributes?: unknown } = typeof spec === "object" && spec !== null ? spec : {};
+  static defineConfig(spec: { readonly packs?: unknown; readonly contributes?: unknown; readonly ports?: unknown }): Contract.Config {
+    const given: { readonly packs?: unknown; readonly contributes?: unknown; readonly ports?: unknown } = typeof spec === "object" && spec !== null ? spec : {};
     const packs = Array.isArray(given.packs) ? Object.freeze([...given.packs]) : given.packs;
+    const ports = Array.isArray(given.ports) ? Object.freeze([...given.ports]) : [];
+    const portProvisionsProblem = given.ports === undefined || Array.isArray(given.ports)
+      ? undefined : "bounded.config.ts ports must be a list of Ports.provide(key, open) values: correct or remove ports";
     // The project acts as a final pack that depends on every listed pack, so
     // its contributions follow the same rule as any pack's.
-    return new ConfigImpl(packs as readonly BasePack[], projectPack({ id: PROJECT, dependsOn: packs, contributes: given.contributes }));
+    return new ConfigImpl(packs as readonly BasePack[], projectPack({ id: PROJECT, dependsOn: packs, contributes: given.contributes }), ports as readonly PortProvision[], portProvisionsProblem);
   }
 
   static parse(raw: unknown): Result<Contract.Config> {

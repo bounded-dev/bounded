@@ -17,4 +17,4 @@ export const loose = defineConfig({ packs: [corePack, tags as BasePack] }); // r
 // Values have exactly the point's type.
 export const wrongType = defineConfig({ packs: [corePack, base], contributes: [contribution(base.points.words, [42])] }); // rejected: Type 'number' is not assignable to type 'string'
 // A configuration is made by defineConfig: even a complete look-alike lacks the brand only the class carries.
-export const lookAlike: Config = { __brand: "Config", listedPacks: [corePack], projectPack: base, compose: () => ({ ok: false, error: "never" }) }; // rejected: Property '[configBrand]' is missing
+export const lookAlike: Config = { __brand: "Config", listedPacks: [corePack], ports: [], portProvisionsProblem: undefined, projectPack: base, compose: () => ({ ok: false, error: "never" }) }; // rejected: Property '[configBrand]' is missing

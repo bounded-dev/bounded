@@ -1,5 +1,5 @@
 // The legitimate forms of guard contributions. Compiles without errors.
-import { type AfterToolReport, contribution, corePack, definePack, portKeysFor, Ports, type Effect, type Event, type ExecuteEffect, type Guard, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
+import { type AfterToolReport, contribution, corePack, defineConfig, definePack, portKeysFor, Ports, type Effect, type Event, type ExecuteEffect, type Guard, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
 import { base, packId } from "./packs.ts";
 
 const guards = corePack.points;
@@ -47,3 +47,4 @@ export const lock = definePack({
   ports: { files },
 });
 export const provided = Ports.provide(files, (root) => ({ read: (path: string) => `${root}/${path}` }));
+export const configured = defineConfig({ packs: [lock], ports: [provided] });

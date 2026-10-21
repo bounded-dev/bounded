@@ -401,9 +401,15 @@ async function checkStandalone(args: readonly string[], version: string): Promis
       if (!checked.ok) { process.exitCode = 2; return; }
       const loaded = await standaloneManagedConfigSource(async () => snapshot.modulePath).load(projectRoot);
       if (!loaded.ok) { refusal(loaded.error); return; }
-      const wired = validateProjectWiring(loaded.value, projectRoot,
-        [...protectedPathsPortProvisions(), ...prereqsPortProvisions(), ...(hasClaudeHost ? prereqsStatusSnapshotPortProvisions() : [])]);
-      if (!wired.ok) { refusal(wired.error); return; }
+      const sharedPortProvisions = [...protectedPathsPortProvisions(), ...prereqsPortProvisions()];
+      const installedHostProvisions = [
+        ...(hasClaudeHost ? [{ host: "Claude Code", provisions: [...sharedPortProvisions, ...prereqsStatusSnapshotPortProvisions()] }] : []),
+        ...(hasPiHost ? [{ host: "Pi", provisions: sharedPortProvisions }] : []),
+      ];
+      for (const { host, provisions } of installedHostProvisions) {
+        const wired = validateProjectWiring(loaded.value, projectRoot, provisions);
+        if (!wired.ok) { refusal(`${host}: ${wired.error}`); return; }
+      }
       process.stdout.write(`Bounded configuration checked for ${[hasClaudeHost ? "Claude Code" : null, hasPiHost ? "Pi" : null].filter(Boolean).join(" and ")}\n`);
     } finally { disposeStandaloneProjectSnapshot(snapshot); }
   } catch (error) { refusal(`bounded check could not validate the project: ${error instanceof Error ? error.message : String(error)}`); }

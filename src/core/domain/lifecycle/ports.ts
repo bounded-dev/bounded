@@ -2,6 +2,7 @@ import type { Result } from "../shared/result.ts";
 import type { BasePortKey, PortKey } from "./port-key.contract.ts";
 import type * as Contract from "./ports.contract.ts";
 import type { portProvisionBrand, portsBrand } from "./ports.contract.ts";
+import { PortKey as PortKeyFactory, isPortKey } from "./port-key.ts";
 
 function text(thrown: unknown): string {
   try {
@@ -51,6 +52,8 @@ class PortsImpl implements Contract.Ports {
       const provision = PortProvisionImpl.parse(given);
       if (provision === undefined) return { ok: false, error: "A port provision is made by Ports.provide(key, open)" };
       const { key } = provision;
+      if (!isPortKey(key) || !PortKeyFactory.parse(key).ok)
+        return { ok: false, error: "A port provision needs a port key made by portKeysFor(owner) in this copy of bounded: correct Ports.provide(key, open)" };
       if (slots.has(key.toJSON())) return { ok: false, error: `The port '${key.name}' of ${key.owner.value} is provided twice: provide each port once` };
       slots.set(key.toJSON(), { open: () => provision.open(projectRoot) });
     }
