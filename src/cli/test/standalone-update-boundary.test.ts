@@ -22,7 +22,7 @@ test("a pending project update blocks hook dispatch before any version handoff",
     expect(process.exitCode).toBe(2);
     expect(diagnostic).toMatch(/update|journal|recover/i);
   } finally {
-    process.exitCode = originalExitCode;
+    process.exitCode = originalExitCode ?? 0;
     process.stderr.write = originalWrite;
     rmSync(root, { recursive: true, force: true });
   }
@@ -32,16 +32,21 @@ test("a pending project update blocks a managed add before it can reach the stor
   const root = mkdtempSync(join(tmpdir(), "bounded-update-add-boundary-"));
   const originalCwd = process.cwd();
   const originalExitCode = process.exitCode;
+  const originalWrite = process.stderr.write;
+  let diagnostic = "";
   try {
     mkdirSync(join(root, ".bounded"));
     writeFileSync(join(root, ".bounded", "update-journal.json"), "{\"schema\":\"bounded-update-journal/1\"}\n");
     process.chdir(root);
+    process.stderr.write = ((chunk: string | Uint8Array) => { diagnostic += String(chunk); return true; }) as typeof process.stderr.write;
     const dispatched = await dispatchStandalone(["add", "example@1.0.0"], VERSION);
     expect(dispatched.answered).toBe(true);
     expect(process.exitCode).toBe(2);
+    expect(diagnostic).toMatch(/update|journal|recover/i);
   } finally {
     process.chdir(originalCwd);
-    process.exitCode = originalExitCode;
+    process.exitCode = originalExitCode ?? 0;
+    process.stderr.write = originalWrite;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -66,7 +71,7 @@ test("a pending project update blocks check but permits update to enter recovery
     expect((await dispatchStandalone(["update"], VERSION)).answered).toBe(false);
   } finally {
     process.chdir(originalCwd);
-    process.exitCode = originalExitCode;
+    process.exitCode = originalExitCode ?? 0;
     process.stderr.write = originalWrite;
     rmSync(root, { recursive: true, force: true });
   }
