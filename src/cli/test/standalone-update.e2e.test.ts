@@ -263,19 +263,29 @@ test("recovery refuses a linked Claude ancestor even when its target bytes match
 test("recovery restores the old host after a crash following the first host replacement", async () => {
   const f = await fixture();
   try {
-    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const prior = installPriorTestRelease(f);
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary).exitCode).toBe(0);
     const settingsPath = join(f.project, ".claude", "settings.json");
+    const pinPath = join(f.project, ".bounded", "version.json");
     const oldSettings = readFileSync(settingsPath);
     const oldLoader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"));
+    const oldPin = readFileSync(pinPath);
     const generated = await import("../../hosts/claude-code/standalone-install.ts");
-    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, join(f.root, "interrupted-target"),
-      { recognizedPriorExecutable: realpathSync(f.binary) });
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
+      { recognizedPriorExecutable: realpathSync(prior.binary) });
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+    journal.source.version = prior.version;
+    journal.targetVersion = f.version;
     const claude = journal.files.find((file) => file.path === ".claude/settings.json");
-    if (claude === undefined) throw new Error("journal lacks Claude settings");
+    const pi = journal.files.find((file) => file.path === ".pi/extensions/bounded/index.ts");
+    const pin = journal.files.find((file) => file.path === ".bounded/version.json");
+    if (claude === undefined || pi === undefined || pin === undefined) throw new Error("journal lacks host files or pin");
     claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    const piLoader = await import("../../hosts/pi/standalone-install.ts");
+    pi.after.content = Buffer.from(piLoader.standalonePiLoader(realpathSync(f.binary))).toString("base64");
+    pin.after.content = Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`).toString("base64");
     writeFileSync(settingsPath, prepared.value.nextBytes);
     const journalPath = join(f.project, ".bounded", "update-journal.json");
     writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
@@ -283,6 +293,7 @@ test("recovery restores the old host after a crash following the first host repl
     expect(recovered.exitCode).not.toBe(0);
     expect(readFileSync(settingsPath)).toEqual(oldSettings);
     expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(oldLoader);
+    expect(readFileSync(pinPath)).toEqual(oldPin);
     expect(existsSync(journalPath)).toBe(false);
     expect(run(f, ["check"]).exitCode).toBe(0);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
@@ -294,7 +305,7 @@ test("recovery keeps its marker if the recorded old Claude hook is not a valid g
     expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
     const settingsPath = join(f.project, ".claude", "settings.json");
     const generated = await import("../../hosts/claude-code/standalone-install.ts");
-    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, join(f.root, "interrupted-target"),
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
       { recognizedPriorExecutable: realpathSync(f.binary) });
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
@@ -345,6 +356,10 @@ test("recovery uses the journal's previous release after a torn update has alrea
     const pin = journal.files.find((file) => file.path === ".bounded/version.json");
     if (claude === undefined || pin === undefined) throw new Error("journal lacks Claude settings or pin");
     claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    const pi = journal.files.find((file) => file.path === ".pi/extensions/bounded/index.ts");
+    if (pi === undefined) throw new Error("journal lacks Pi loader");
+    const piLoader = await import("../../hosts/pi/standalone-install.ts");
+    pi.after.content = Buffer.from(piLoader.standalonePiLoader(realpathSync(f.binary))).toString("base64");
     pin.after.content = Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`).toString("base64");
     writeFileSync(settingsPath, prepared.value.nextBytes);
     writeFileSync(pinPath, Buffer.from(pin.after.content, "base64"));
