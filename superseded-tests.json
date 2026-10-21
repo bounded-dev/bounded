@@ -6844,5 +6844,14 @@
       "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
     },
     "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
+  },
+  {
+    "file": "src/cli/test/standalone-update-hosts.test.ts",
+    "case": "update refuses an incomplete or altered previous Claude hook set",
+    "successor": {
+      "file": "src/cli/test/standalone-update-hosts.test.ts",
+      "case": "update refuses every ambiguous previous Claude hook form"
+    },
+    "reason": "the aggregate successor still checks all five exact old-hook alterations; four also run independently so each reaches its own refusal at the red commit"
   }
 ]

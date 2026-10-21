@@ -55,25 +55,26 @@ test("update removes the exact previous standalone Claude hook set and preserves
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("update refuses an incomplete or altered previous Claude hook set", async () => {
-  const root = mkdtempSync(join(tmpdir(), "bounded-update-ambiguous-claude-"));
+type ClaudeHookSettings = {
+  hooks: Record<string, { matcher: string; hooks: { type: string; command: string; timeout: number }[] }[]>;
+};
+const priorHookAlterations: Record<string, (settings: ClaudeHookSettings) => void> = {
+  partial: (value) => { delete value.hooks.PostToolUse; },
+  duplicate: (value) => { const oldEntry = value.hooks.PreToolUse?.[0]; if (oldEntry) value.hooks.PreToolUse?.push(structuredClone(oldEntry)); },
+  matcher: (value) => { if (value.hooks.PreToolUse?.[0]) value.hooks.PreToolUse[0].matcher = "Read"; },
+  timeout: (value) => { if (value.hooks.PreToolUse?.[0]?.hooks[0]) value.hooks.PreToolUse[0].hooks[0].timeout = 31; },
+  extraField: (value) => { if (value.hooks.PreToolUse?.[0]?.hooks[0]) Object.assign(value.hooks.PreToolUse[0].hooks[0], { unexpected: true }); },
+};
+test("update refuses every ambiguous previous Claude hook form", async () => {
+  const root = mkdtempSync(join(tmpdir(), "bounded-update-ambiguous-claude-all-"));
   try {
     const settings = join(root, ".claude", "settings.json");
     mkdirSync(join(root, ".claude"));
     const generated = await prepareStandaloneClaudeHooks(root, oldExecutable);
     expect(generated.ok).toBe(true);
     if (!generated.ok) return;
-    const original = JSON.parse(generated.value.nextBytes) as {
-      hooks: Record<string, { matcher: string; hooks: { type: string; command: string; timeout: number }[] }[]>;
-    };
-    const alterations: Record<string, (settings: typeof original) => void> = {
-      partial: (value) => { delete value.hooks.PostToolUse; },
-      duplicate: (value) => { const oldEntry = value.hooks.PreToolUse?.[0]; if (oldEntry) value.hooks.PreToolUse?.push(structuredClone(oldEntry)); },
-      matcher: (value) => { if (value.hooks.PreToolUse?.[0]) value.hooks.PreToolUse[0].matcher = "Read"; },
-      timeout: (value) => { if (value.hooks.PreToolUse?.[0]?.hooks[0]) value.hooks.PreToolUse[0].hooks[0].timeout = 31; },
-      extraField: (value) => { if (value.hooks.PreToolUse?.[0]?.hooks[0]) Object.assign(value.hooks.PreToolUse[0].hooks[0], { unexpected: true }); },
-    };
-    for (const [name, alter] of Object.entries(alterations)) {
+    const original = JSON.parse(generated.value.nextBytes) as ClaudeHookSettings;
+    for (const [name, alter] of Object.entries(priorHookAlterations)) {
       const previous = structuredClone(original);
       alter(previous);
       const bytes = `${JSON.stringify(previous)}\n`;
@@ -82,6 +83,24 @@ test("update refuses an incomplete or altered previous Claude hook set", async (
       expect(prepared.ok, name).toBe(false);
       expect(readFileSync(settings, "utf8"), name).toBe(bytes);
     }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const [name, alter] of Object.entries(priorHookAlterations).filter(([name]) => name !== "partial")) test(`update refuses ${name} previous Claude hooks`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "bounded-update-ambiguous-claude-"));
+  try {
+    const settings = join(root, ".claude", "settings.json");
+    mkdirSync(join(root, ".claude"));
+    const generated = await prepareStandaloneClaudeHooks(root, oldExecutable);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+    const previous = JSON.parse(generated.value.nextBytes) as ClaudeHookSettings;
+    alter(previous);
+    const bytes = `${JSON.stringify(previous)}\n`;
+    writeFileSync(settings, bytes);
+    const prepared = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
+    expect(prepared.ok).toBe(false);
+    expect(readFileSync(settings, "utf8")).toBe(bytes);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
