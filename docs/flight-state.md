@@ -236,6 +236,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
   The published Node CLI remains available for npm projects. The executable
   running a same-version hook is not rehashed from an installation receipt
   on every invocation; a different pinned version uses the verified locator.
+- **Published npm rollback closure** ([ADR 2026-044](adr/2026-044-published-npm-runtime-closure.md)):
+  the standalone update helper captures and reverifies the actual installed
+  `bounded@3.3.0` npm v3 package tree, its three published runtime dependencies,
+  the project manifest and lock, and the byte-identical default configuration.
+  It parses the old Claude and Pi hook import graph and refuses linked, changed
+  or unresolved runtime code. This first proof path refuses edited configs,
+  third-party packs, other old versions and package managers. The update
+  transaction must still check Node availability before restoring an old
+  Claude hook; the closure helper does not execute Node or npm.
 - **Managed published packs in the standalone Claude Code runtime**
   ([ADR 2026-038](adr/2026-038-managed-pack-type-projection.md),
   [ADR 2026-039](adr/2026-039-standalone-managed-pack-runtime.md)): the
