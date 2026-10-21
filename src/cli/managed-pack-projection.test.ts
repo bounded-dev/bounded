@@ -39,6 +39,17 @@ const recover = (projectionModule as unknown as { readonly recoverManagedPackPro
 type RuntimeGraph = { readonly roots: Readonly<Record<string, string>>; readonly nodes: Readonly<Record<string, unknown>> };
 type Capture = (input: Parameters<Verify>[0]) => Promise<Result<RuntimeGraph>>;
 const capture = (projectionModule as unknown as { readonly captureManagedPackRuntimeGraph: Capture }).captureManagedPackRuntimeGraph;
+type Writer = { readonly release: () => Promise<void> };
+type Release = Pick<Input, "boundedVersion" | "boundedExportPaths" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">;
+type PreparedTarget = { readonly oldOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly newOwnedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly oldOwnedDirectories: readonly string[]; readonly newOwnedDirectories: readonly string[];
+  readonly targetLockBytes: Uint8Array; readonly targetReceiptBytes: Uint8Array;
+  readonly targetGraph: RuntimeGraph; readonly sourceLockSha256: string; readonly targetLockSha256: string };
+type PrepareTarget = (input: { readonly writer: Writer; readonly projectRoot: string; readonly storeRoot: string;
+  readonly source: Release; readonly target: Release }) => Promise<Result<PreparedTarget>>;
+const acquireWriter = (projectionModule as unknown as { readonly acquireManagedPackWriter: (projectRoot: string) => Promise<Result<Writer>> }).acquireManagedPackWriter;
+const prepareTarget = (projectionModule as unknown as { readonly prepareManagedPackTargetProjectionUnderWriter: PrepareTarget }).prepareManagedPackTargetProjectionUnderWriter;
 const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
 const digest = (value: Uint8Array): string => createHash("sha256").update(value).digest("hex");
 const registry = "https://registry.example.test";
@@ -166,6 +177,89 @@ async function tsserver(projectRoot: string, file: string, position = { completi
 }
 
 describe("managed pack type-only projection and publication", () => {
+  test("update preparation captures old and target bytes while leaving the project untouched", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const source = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const targetTypesRoot = join(given.root, "target-types");
+    mkdirSync(join(targetTypesRoot, "core", "domain"), { recursive: true });
+    const targetDeclaration = utf8('export declare const boundedWord: "target";\n');
+    writeFileSync(join(targetTypesRoot, "core", "domain", "index.d.ts"), targetDeclaration);
+    const target = { ...source, releaseTypesRoot: targetTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: { "core/domain/index.d.ts": digest(targetDeclaration) } };
+    const oldLock = readFileSync(given.lockPath);
+    const oldReceipt = readFileSync(given.receiptPath);
+    const oldDeclaration = readFileSync(join(given.projectRoot, "node_modules", "bounded", "core", "domain", "index.d.ts"));
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    try {
+      const result = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot, source, target });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.oldOwnedFiles[".bounded/packs.lock.json"]?.bytes).toEqual(oldLock);
+      expect(result.value.oldOwnedFiles[".bounded/types-receipt.json"]?.bytes).toEqual(oldReceipt);
+      expect(result.value.newOwnedFiles["node_modules/bounded/core/domain/index.d.ts"]?.bytes).toEqual(targetDeclaration);
+      expect(result.value.newOwnedFiles["node_modules/bounded/core/domain/index.d.ts"]?.mode).toBe(0o644);
+      expect(result.value.sourceLockSha256).toBe(digest(oldLock));
+      expect(result.value.targetLockSha256).toBe(digest(result.value.targetLockBytes));
+      expect(result.value.targetGraph.roots["bounded-example"]).toBeDefined();
+      expect(result.value.oldOwnedDirectories).toContain("node_modules/bounded");
+      expect(result.value.newOwnedDirectories).toContain("node_modules/bounded");
+      expect(readFileSync(given.lockPath)).toEqual(oldLock);
+      expect(readFileSync(given.receiptPath)).toEqual(oldReceipt);
+      expect(readFileSync(join(given.projectRoot, "node_modules", "bounded", "core", "domain", "index.d.ts"))).toEqual(oldDeclaration);
+      expect(existsSync(given.journalPath)).toBe(false);
+    } finally { await writer.value.release(); }
+  });
+
+  test("target peer mismatch and removed export refuse without changing source", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const source = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const oldLock = readFileSync(given.lockPath);
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    try {
+      const peer = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source, target: { ...source, boundedVersion: "3.4.0" } });
+      expect(peer.ok).toBe(false);
+      if (!peer.ok) expect(peer.error).toMatch(/peer|bounded|3\.4\.0/i);
+      const exports = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source, target: { ...source, boundedExportPaths: [] } });
+      expect(exports.ok).toBe(false);
+      if (!exports.ok) expect(exports.error).toMatch(/export|bounded|declaration/i);
+      expect(readFileSync(given.lockPath)).toEqual(oldLock);
+    } finally { await writer.value.release(); }
+  });
+
+  test("preparation requires a live writer for the same project and refuses a pending types journal", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    writeFileSync(given.journalPath, "{}\n");
+    const pending = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+      source: release, target: release });
+    expect(pending.ok).toBe(false);
+    if (!pending.ok) expect(pending.error).toMatch(/journal|recovery/i);
+    rmSync(given.journalPath);
+    const wrong = await prepareTarget({ writer: writer.value, projectRoot: join(given.root, "other"), storeRoot: given.storeRoot,
+      source: release, target: release });
+    expect(wrong.ok).toBe(false);
+    if (!wrong.ok) expect(wrong.error).toMatch(/writer|project/i);
+    await writer.value.release();
+    const released = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+      source: release, target: release });
+    expect(released.ok).toBe(false);
+    if (!released.ok) expect(released.error).toMatch(/writer|release/i);
+  });
   test("an overbound proposed runtime graph refuses before publishing lock, receipt or projection", async () => {
     const helperNames = Array.from({ length: 128 }, (_, index) => `helper-${index}`);
     const dependencies = Object.fromEntries(helperNames.map((name) => [name, "1.0.0"]));
