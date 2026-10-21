@@ -186,7 +186,7 @@ describe("managed pack type-only projection and publication", () => {
     mkdirSync(join(targetTypesRoot, "core", "domain"), { recursive: true });
     const targetDeclaration = utf8('export declare const boundedWord: "target";\n');
     writeFileSync(join(targetTypesRoot, "core", "domain", "index.d.ts"), targetDeclaration);
-    const target = { ...source, releaseTypesRoot: targetTypesRoot,
+    const target = { ...source, boundedVersion: "3.3.1", releaseTypesRoot: targetTypesRoot,
       releaseTypeFilesFromVerifiedManifest: { "core/domain/index.d.ts": digest(targetDeclaration) } };
     const oldLock = readFileSync(given.lockPath);
     const oldReceipt = readFileSync(given.receiptPath);
@@ -204,6 +204,7 @@ describe("managed pack type-only projection and publication", () => {
       expect(result.value.newOwnedFiles["node_modules/bounded/core/domain/index.d.ts"]?.mode).toBe(0o644);
       expect(result.value.sourceLockSha256).toBe(digest(oldLock));
       expect(result.value.targetLockSha256).toBe(digest(result.value.targetLockBytes));
+      expect(JSON.parse(new TextDecoder().decode(result.value.targetLockBytes)).boundedVersion).toBe("3.3.1");
       expect(result.value.targetGraph.roots["bounded-example"]).toBeDefined();
       expect(result.value.oldOwnedDirectories).toContain("node_modules/bounded");
       expect(result.value.newOwnedDirectories).toContain("node_modules/bounded");
@@ -259,6 +260,63 @@ describe("managed pack type-only projection and publication", () => {
       source: release, target: release });
     expect(released.ok).toBe(false);
     if (!released.ok) expect(released.error).toMatch(/writer|release/i);
+  });
+
+  test("update refuses missing target release declarations and an intruder in an owned package", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    try {
+      const missing = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: { ...release, releaseTypeFilesFromVerifiedManifest: {} } });
+      expect(missing.ok).toBe(false);
+      if (!missing.ok) expect(missing.error).toMatch(/declaration|types/i);
+      const intruder = join(given.projectRoot, "node_modules", "bounded-example", "unexpected.d.ts");
+      writeFileSync(intruder, "export {};\n");
+      const changed = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release });
+      expect(changed.ok).toBe(false);
+      if (!changed.ok) expect(changed.error).toMatch(/projection|unexpected|receipt/i);
+      expect(readFileSync(intruder, "utf8")).toBe("export {};\n");
+    } finally { await writer.value.release(); }
+  });
+
+  test("update refuses store tampering, and target graph retains captured bytes after later tampering", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const lock: { nodes: Record<string, { sha256: string }> } = JSON.parse(readFileSync(given.lockPath, "utf8"));
+    const node = Object.values(lock.nodes)[0];
+    expect(node).toBeDefined();
+    if (node === undefined) return;
+    const stored = join(given.storeRoot, node.sha256, "package", "dist", "index.js");
+    const original = readFileSync(stored);
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    try {
+      writeFileSync(stored, "export const changed = true;\n");
+      const tampered = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release });
+      expect(tampered.ok).toBe(false);
+      if (!tampered.ok) expect(tampered.error).toMatch(/store|inventory|digest/i);
+      writeFileSync(stored, original);
+      const prepared = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release });
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) return;
+      const capturedNode = Object.values(prepared.value.targetGraph.nodes)[0] as { files: Readonly<Record<string, Uint8Array>> };
+      expect(capturedNode.files["dist/index.js"]).toEqual(original);
+      writeFileSync(stored, "export const changed = true;\n");
+      expect(capturedNode.files["dist/index.js"]).toEqual(original);
+      writeFileSync(given.journalPath, "{}\n");
+      expect((await (prepared.value.targetGraph as RuntimeGraph & { recheckBoundary: () => Promise<Result<void>> }).recheckBoundary()).ok).toBe(false);
+    } finally { await writer.value.release(); }
   });
   test("an overbound proposed runtime graph refuses before publishing lock, receipt or projection", async () => {
     const helperNames = Array.from({ length: 128 }, (_, index) => `helper-${index}`);
