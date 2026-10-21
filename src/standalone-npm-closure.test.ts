@@ -233,10 +233,14 @@ test("published npm closure refuses an alias or eval loader added to an installe
 
 test("published npm closure rejects a symlinked project root", async () => {
   await withPublishedProject((project, closure) => {
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(true);
     const linkedRoot = `${project}-linked`;
     symlinkSync(project, linkedRoot, "dir");
-    try { expect(closure.captureInstalledNpmClosure(linkedRoot).ok).toBe(false); }
-    finally { rmSync(linkedRoot); }
+    try {
+      const result = closure.captureInstalledNpmClosure(linkedRoot);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/root|link|symlink/i);
+    } finally { rmSync(linkedRoot); }
   });
 }, 120_000);
 
