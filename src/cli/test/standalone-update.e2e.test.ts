@@ -89,11 +89,15 @@ function installPriorTestRelease(f: Fixture): { readonly binary: string; readonl
   const entry = join(f.root, "prior-standalone-entry.ts");
   writeFileSync(entry, `import { dispatchStandalone } from ${JSON.stringify(join(REPO, "src", "standalone-dispatch.ts"))};\nconst version = ${JSON.stringify(version)};\nconst args = process.argv.slice(2);\nconst dispatched = await dispatchStandalone(args, version);\nif (!dispatched.answered) { if (args[0] === "--version") console.log(version); else { const { runStandaloneRuntime } = await import(${JSON.stringify(join(REPO, "src", "standalone-runtime.ts"))}); await runStandaloneRuntime(args, version, dispatched.hostProjectRoot); } }\n`);
   const binary = join(priorRelease, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
+  rmSync(binary);
   const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
   const built = Bun.spawnSync([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
     "--asset", join(wasm, "tree-sitter-bash.wasm"), "--outfile", binary], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`prior release build failed: ${built.stderr.toString()}`);
   if (process.platform !== "win32") chmodSync(binary, 0o755);
+  const identified = Bun.spawnSync([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
+  if (identified.exitCode !== 0 || identified.stdout.toString().trim() !== version)
+    throw new Error(`synthetic prior executable identifies as ${identified.stdout.toString().trim()}: ${identified.stderr.toString()}`);
   const currentReceipt = JSON.parse(readFileSync(join(f.dataHome, "bounded", "receipts", `v${f.version}`, target, "receipt-v1.json"), "utf8")) as { manifestSha256: string };
   const currentManifestPath = join(f.dataHome, "bounded", "receipts", `v${f.version}`, target, "manifests", `${currentReceipt.manifestSha256}.json`);
   const manifest = JSON.parse(readFileSync(currentManifestPath, "utf8")) as Parameters<typeof verifyReleaseArchive>[0];
@@ -129,7 +133,7 @@ function updateJournalForCurrentProject(f: Fixture): object {
     files: paths.map((path) => {
       const absolute = join(f.project, path);
       const state = { content: readFileSync(absolute).toString("base64"), mode: lstatSync(absolute).mode & 0o777 };
-      return { path, before: state, after: state };
+      return { path, before: { ...state }, after: { ...state } };
     }),
   };
 }
@@ -264,7 +268,9 @@ test("recovery restores the old host after a crash following the first host repl
   const f = await fixture();
   try {
     const prior = installPriorTestRelease(f);
-    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary).exitCode).toBe(0);
+    const initialized = run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary);
+    expect(initialized.exitCode).toBe(0);
+    expect(initialized.stdout).toContain(`Bounded ${prior.version} initialized`);
     const settingsPath = join(f.project, ".claude", "settings.json");
     const pinPath = join(f.project, ".bounded", "version.json");
     const oldSettings = readFileSync(settingsPath);
@@ -286,6 +292,8 @@ test("recovery restores the old host after a crash following the first host repl
     const piLoader = await import("../../hosts/pi/standalone-install.ts");
     pi.after.content = Buffer.from(piLoader.standalonePiLoader(realpathSync(f.binary))).toString("base64");
     pin.after.content = Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`).toString("base64");
+    expect(Buffer.from(pin.before.content, "base64").toString("utf8")).toBe(`${JSON.stringify({ schema: "bounded-project-version/1", version: prior.version })}\n`);
+    expect(Buffer.from(pin.after.content, "base64").toString("utf8")).toBe(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`);
     writeFileSync(settingsPath, prepared.value.nextBytes);
     const journalPath = join(f.project, ".bounded", "update-journal.json");
     writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
@@ -344,6 +352,7 @@ test("recovery uses the journal's previous release after a torn update has alrea
     const oldSettings = readFileSync(settingsPath);
     const oldLoader = readFileSync(loaderPath);
     const oldPin = readFileSync(pinPath);
+    expect(oldPin.toString("utf8")).toBe(`${JSON.stringify({ schema: "bounded-project-version/1", version: prior.version })}\n`);
     const generated = await import("../../hosts/claude-code/standalone-install.ts");
     const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
       { recognizedPriorExecutable: realpathSync(prior.binary) });
