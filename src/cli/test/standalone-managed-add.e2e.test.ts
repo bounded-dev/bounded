@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -86,7 +86,7 @@ async function managedCrossVersionJournal(project: string, dataHome: string, pri
       storeRoot: join(dataHome, "bounded", "packs", "store"), source: release("3.2.9", prior), target: release(VERSION, target) });
   } finally { await acquired.value.release(); }
   if (!projection.ok) throw new Error(projection.error);
-  const claude = await prepareStandaloneClaudeHooks(project, targetBinary, { recognizedPriorExecutable: priorBinary });
+  const claude = await prepareStandaloneClaudeHooks(project, realpathSync(targetBinary), { recognizedPriorExecutable: realpathSync(priorBinary) });
   if (!claude.ok) throw new Error(claude.error);
   const encoded = (bytes: Uint8Array | null, mode: number | null) => ({ content: bytes === null ? null : Buffer.from(bytes).toString("base64"), mode });
   const file = (path: string, before: Uint8Array | null, after: Uint8Array | null, beforeMode: number | null, afterMode: number | null) =>
@@ -94,7 +94,7 @@ async function managedCrossVersionJournal(project: string, dataHome: string, pri
   const hostFiles = [
     file(".claude/settings.json", readFileSync(join(project, ".claude", "settings.json")), Buffer.from(claude.value.nextBytes ?? ""),
       lstatSync(join(project, ".claude", "settings.json")).mode & 0o777, claude.value.mode),
-    file(".pi/extensions/bounded/index.ts", Buffer.from(standalonePiLoader(priorBinary)), Buffer.from(standalonePiLoader(targetBinary)),
+    file(".pi/extensions/bounded/index.ts", Buffer.from(standalonePiLoader(realpathSync(priorBinary))), Buffer.from(standalonePiLoader(realpathSync(targetBinary))),
       lstatSync(join(project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777,
       lstatSync(join(project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777),
   ];
