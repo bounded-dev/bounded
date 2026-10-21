@@ -2,13 +2,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { withProjectHooks } from "../../hosts/claude-code/install.ts";
 import { prepareStandaloneClaudeHooks } from "../../hosts/claude-code/standalone-install.ts";
 import { prepareStandalonePiExtension, standalonePiLoader } from "../../hosts/pi/standalone-install.ts";
 
 const oldExecutable = "/installed/bounded/v3.2.9/bin/bounded";
 const targetExecutable = "/installed/bounded/v3.3.0/bin/bounded";
-const oldCommand = `'${oldExecutable}' hook claude-code --project "$CLAUDE_PROJECT_DIR"`;
+type PriorExecutableOption = { readonly recognizedPriorExecutable: string };
+const preparePiUpdate = prepareStandalonePiExtension as unknown as
+  (root: string, executable: string, options: PriorExecutableOption) => ReturnType<typeof prepareStandalonePiExtension>;
+const prepareClaudeUpdate = prepareStandaloneClaudeHooks as unknown as
+  (root: string, executable: string, options: PriorExecutableOption) => ReturnType<typeof prepareStandaloneClaudeHooks>;
 
 test("update recognizes the exact prior standalone Pi loader and prepares only the new executable", async () => {
   const root = mkdtempSync(join(tmpdir(), "bounded-update-prior-pi-"));
@@ -16,7 +19,7 @@ test("update recognizes the exact prior standalone Pi loader and prepares only t
     const loader = join(root, ".pi", "extensions", "bounded", "index.ts");
     mkdirSync(join(root, ".pi", "extensions", "bounded"), { recursive: true });
     writeFileSync(loader, standalonePiLoader(oldExecutable));
-    const prepared = await prepareStandalonePiExtension(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
+    const prepared = await preparePiUpdate(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     expect(prepared.value.originalBytes).toBe(standalonePiLoader(oldExecutable));
@@ -30,11 +33,14 @@ test("update removes the exact previous standalone Claude hook set and preserves
   try {
     const settings = join(root, ".claude", "settings.json");
     mkdirSync(join(root, ".claude"));
-    const old = withProjectHooks({ custom: { keep: true }, hooks: { PreToolUse: [{ matcher: "Read", hooks: [{ type: "command", command: "echo owner" }] }] } }, oldCommand);
+    const old = await prepareStandaloneClaudeHooks(root, oldExecutable);
     expect(old.ok).toBe(true);
     if (!old.ok) return;
-    writeFileSync(settings, `${JSON.stringify(old.value.settings)}\n`);
-    const prepared = await prepareStandaloneClaudeHooks(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
+    const prior = JSON.parse(old.value.nextBytes) as { custom?: unknown; hooks: Record<string, { matcher: string; hooks: { type: string; command: string }[] }[]> };
+    prior.custom = { keep: true };
+    prior.hooks.PreToolUse?.unshift({ matcher: "Read", hooks: [{ type: "command", command: "echo owner" }] });
+    writeFileSync(settings, `${JSON.stringify(prior)}\n`);
+    const prepared = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     const next = JSON.parse(prepared.value.nextBytes) as { custom: unknown; hooks: Record<string, { hooks: { command: string }[] }[]> };
