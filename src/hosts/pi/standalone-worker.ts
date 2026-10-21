@@ -54,11 +54,22 @@ function parseFrame(line: Buffer, priorId: number): Frame {
   return parsed as unknown as Frame;
 }
 
+function verifyNoPendingUpdate(root: string): void {
+  const marker = join(root, ".bounded", "update-journal.json");
+  try { lstatSync(marker); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw new Error(`the project update journal cannot be inspected: ${message(error)}; finish or repair the update and start a new Pi session`);
+  }
+  throw new Error("the project update journal is pending; finish or repair the update and start a new Pi session");
+}
+
 function verifyProjectPin(root: string, version: string): void {
   const stateDirectory = join(root, ".bounded");
   const stateInfo = lstatSync(stateDirectory);
   if (!stateInfo.isDirectory() || stateInfo.isSymbolicLink())
     throw new Error("the project .bounded state directory is linked or not a directory; repair it");
+  verifyNoPendingUpdate(root);
   const pin = join(root, ".bounded", "version.json");
   const info = lstatSync(pin);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("the project version pin is linked or missing; repair it");
@@ -91,6 +102,7 @@ export async function runStandalonePiWorker<Snapshot extends ProjectSnapshot>(ro
         verifyProjectPin(root, version);
         const snapshot = await bindings.capture();
         selectedSnapshot = snapshot;
+        verifyNoPendingUpdate(root);
         sessionDigest = snapshot.digest;
         handlers = new Map();
         busHandlers = new Map();
@@ -116,6 +128,7 @@ export async function runStandalonePiWorker<Snapshot extends ProjectSnapshot>(ro
         verifyProjectPin(root, version);
         const snapshot = await bindings.capture();
         try {
+          verifyNoPendingUpdate(root);
           if (snapshot.digest !== sessionDigest) invalid = "the verified project snapshot changed during this Pi session";
         } finally { bindings.dispose(snapshot); }
       } catch (error) { invalid = message(error); }
