@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -103,16 +103,96 @@ test("update refuses a configuration type error before changing any installed ho
   const f = await fixture();
   try {
     expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
-    writeFileSync(join(f.project, "bounded.config.ts"), 'import { missing } from "bounded/domain";\nexport default missing;\n');
+    const originalConfig = readFileSync(join(f.project, "bounded.config.ts"), "utf8");
+    writeFileSync(join(f.project, "bounded.config.ts"), `${originalConfig}\nconst updateSemanticMismatch: string = 42;\n`);
     const settings = readFileSync(join(f.project, ".claude", "settings.json"));
     const loader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"));
     const pin = readFileSync(join(f.project, ".bounded", "version.json"));
     const answer = run(f, ["update"]);
     expect(answer.exitCode).not.toBe(0);
-    expect(answer.stderr).toMatch(/TS2305|missing|bounded\.config\.ts/i);
+    expect(answer.stderr).toContain("TS2322");
+    expect(answer.stderr).toContain("bounded.config.ts");
     expect(readFileSync(join(f.project, ".claude", "settings.json"))).toEqual(settings);
     expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(loader);
     expect(readFileSync(join(f.project, ".bounded", "version.json"))).toEqual(pin);
+    expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("update reclaims a provably dead writer and refuses a live writer without replacing hosts", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const writer = join(f.project, ".bounded", ".update-writer");
+    mkdirSync(writer);
+    writeFileSync(join(writer, "owner.json"), '{"pid":2147483647,"nonce":"00000000-0000-4000-8000-000000000001"}\n');
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).toBe(0);
+    expect(existsSync(writer)).toBe(false);
+    mkdirSync(writer);
+    writeFileSync(join(writer, "owner.json"), `${JSON.stringify({ pid: process.pid, nonce: "00000000-0000-4000-8000-000000000002" })}\n`);
+    const settings = readFileSync(join(f.project, ".claude", "settings.json"));
+    const refused = run(f, ["update"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toMatch(/writer|busy|owner/i);
+    expect(readFileSync(join(f.project, ".claude", "settings.json"))).toEqual(settings);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("pending update journal blocks check before project configuration can run", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const sentinel = join(f.project, "config-executed.txt");
+    const originalConfig = readFileSync(join(f.project, "bounded.config.ts"), "utf8");
+    writeFileSync(join(f.project, "bounded.config.ts"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(sentinel)}, "ran");\n${originalConfig}`);
+    writeFileSync(join(f.project, ".bounded", "update-journal.json"), "{malformed\n");
+    const checked = run(f, ["check"]);
+    expect(checked.exitCode).not.toBe(0);
+    expect(checked.stderr).toContain("update-journal.json");
+    expect(existsSync(sentinel)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("a published npm installation migrates to the archive executable without changing config or npm bytes", async () => {
+  const f = await fixture();
+  try {
+    const archive = join(import.meta.dir, "fixtures", "bounded-published-3.3.0.tgz");
+    expect(sha256(readFileSync(archive))).toBe("f79adce31f1148d578874b35d4099ef205bf5ba72068e71eac88fab27b2aeaa3");
+    const extracted = join(f.root, "published-package");
+    mkdirSync(extracted);
+    const unpack = Bun.spawnSync(["tar", "-xzf", archive, "-C", extracted], { stdout: "pipe", stderr: "pipe" });
+    expect(unpack.exitCode).toBe(0);
+    const modules = join(f.project, "node_modules");
+    mkdirSync(modules);
+    cpSync(join(extracted, "package"), join(modules, "bounded"), { recursive: true });
+    for (const name of ["@vscode/tree-sitter-wasm", "picomatch", "zod"]) {
+      const target = join(modules, name);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(join(REPO, "node_modules", name), target, { recursive: true });
+    }
+    writeFileSync(join(f.project, "package.json"), '{"name":"python-project","private":true,"dependencies":{"bounded":"3.3.0"}}\n');
+    writeFileSync(join(f.project, "package-lock.json"), '{"name":"python-project","lockfileVersion":3,"packages":{"":{"dependencies":{"bounded":"3.3.0"}},"node_modules/bounded":{"version":"3.3.0"}}}\n');
+    const oldCli = Bun.spawnSync(["node", join(modules, "bounded", "dist", "cli.js"), "init", "--no-install"], {
+      cwd: f.project, stdout: "pipe", stderr: "pipe", env: process.env,
+    });
+    expect(oldCli.exitCode).toBe(0);
+    const config = readFileSync(join(f.project, "bounded.config.ts"));
+    const manifest = readFileSync(join(f.project, "package.json"));
+    const lock = readFileSync(join(f.project, "package-lock.json"));
+    const oldSettings = readFileSync(join(f.project, ".claude", "settings.json"), "utf8");
+    const oldLoader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
+    expect(oldSettings).toContain("node_modules/bounded/dist/hosts/claude-code/hook.js");
+    expect(oldLoader).toBe(readFileSync(join(import.meta.dir, "fixtures", "bounded-3.3.0-pi-loader.txt"), "utf8"));
+    const result = run(f, ["update"]);
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(f.project, "bounded.config.ts"))).toEqual(config);
+    expect(readFileSync(join(f.project, "package.json"))).toEqual(manifest);
+    expect(readFileSync(join(f.project, "package-lock.json"))).toEqual(lock);
+    expect(readFileSync(join(f.project, ".claude", "settings.json"), "utf8")).not.toContain("node_modules/bounded/dist/hosts/claude-code/hook.js");
+    expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8")).toContain("hook pi --project");
+    expect(JSON.parse(readFileSync(join(f.project, ".bounded", "version.json"), "utf8"))).toEqual({ schema: "bounded-project-version/1", version: f.version });
+    expect(run(f, ["check"]).exitCode).toBe(0);
     expect(existsSync(f.managerLog)).toBe(false);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
