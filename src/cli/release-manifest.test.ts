@@ -15,6 +15,7 @@ const archive = fixture("valid.tar.gz");
 const requiredFiles = {
   LICENSE: bytes("MIT test license\n"),
   "release.json": releaseJson,
+  "share/catalog/bounded.catalog.json": fixture("bounded.catalog.json"),
   "share/types/index.d.ts": declarations,
   "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json": bytes('{"name": "bounded-prereqs-status-band", "version": "3.3.0", "types": "./types/index.d.ts"}'),
   "share/claude-code/prereqs-status-band/hooks/hooks.json": bytes('{"hooks":{}}'),
@@ -111,8 +112,8 @@ describe("standalone release manifest", () => {
     }
   });
 
-  test("requires the license, declarations and Claude plugin's loadable files", () => {
-    for (const missingPath of ["LICENSE", "share/types/index.d.ts", "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json", "share/claude-code/prereqs-status-band/hooks/hooks.json", "share/claude-code/prereqs-status-band/hooks/register.ts", "share/claude-code/prereqs-status-band/hooks/engine-subset.ts", "share/claude-code/prereqs-status-band/hooks/prereqs-status-band-lines.ts", "share/claude-code/prereqs-status-band/hooks/prereqs-status-file.ts", "share/claude-code/prereqs-status-band/hooks/project-config-names.ts", "share/claude-code/prereqs-status-band/types/index.d.ts"]) {
+  test("requires the license, catalogue, declarations and Claude plugin's loadable files", () => {
+    for (const missingPath of ["LICENSE", "share/catalog/bounded.catalog.json", "share/types/index.d.ts", "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json", "share/claude-code/prereqs-status-band/hooks/hooks.json", "share/claude-code/prereqs-status-band/hooks/register.ts", "share/claude-code/prereqs-status-band/hooks/engine-subset.ts", "share/claude-code/prereqs-status-band/hooks/prereqs-status-band-lines.ts", "share/claude-code/prereqs-status-band/hooks/prereqs-status-file.ts", "share/claude-code/prereqs-status-band/hooks/project-config-names.ts", "share/claude-code/prereqs-status-band/types/index.d.ts"]) {
       const candidate = { ...manifest, targets: { "linux-arm64-gnu": { ...target, files: files.filter((file) => file.path !== missingPath) } } };
       expect(read(candidate).ok).toBe(false);
     }

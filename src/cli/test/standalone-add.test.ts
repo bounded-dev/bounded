@@ -35,7 +35,7 @@ function verifiedReleaseFixture() {
   const releaseRoot = join(data, "bounded", "releases", "v3.3.0", target);
   const executablePath = process.platform === "win32" ? "bin/bounded.exe" : "bin/bounded";
   const required = [
-    "LICENSE", "release.json", "share/types/index.d.ts",
+    "LICENSE", "release.json", "share/catalog/bounded.catalog.json", "share/types/index.d.ts",
     "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json",
     "share/claude-code/prereqs-status-band/hooks/engine-subset.ts",
     "share/claude-code/prereqs-status-band/hooks/hooks.json",
@@ -57,7 +57,9 @@ function verifiedReleaseFixture() {
     const bytes = text(content); return { path: name, size: bytes.length, sha256: digest(bytes) };
   };
   const executable = fileOf(executablePath, "fixture executable\n");
-  const files = required.map((name) => fileOf(name, name === "release.json" ? identity : name.endsWith(".d.ts") ? "export declare const fixture: true;\n" : `${name}\n`))
+  const files = required.map((name) => fileOf(name, name === "release.json" ? identity
+    : name === "share/catalog/bounded.catalog.json" ? readFileSync(join(import.meta.dir, "fixtures", "bounded.catalog.json"), "utf8")
+    : name.endsWith(".d.ts") ? "export declare const fixture: true;\n" : `${name}\n`))
     .sort((a, b) => a.path.localeCompare(b.path, "en"));
   const manifestBytes = text(`${JSON.stringify({ schema: "bounded-release/1", version: "3.3.0", channel: "stable", sourceCommit: "a".repeat(40), builtWith: `Bun ${Bun.version}`,
     targets: { [target]: { minimumOS: "fixture", archive: { name: `bounded-v3.3.0-${target}.${target.startsWith("linux-") ? "tar.gz" : "zip"}`, size: 0, sha256: "0".repeat(64) }, executable, files } } })}\n`);

@@ -14,7 +14,7 @@ const SOURCE_COMMIT = "a".repeat(40);
 const digest = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const requiredFiles = [
-  "LICENSE", "release.json", "share/types/index.d.ts",
+  "LICENSE", "release.json", "share/catalog/bounded.catalog.json", "share/types/index.d.ts",
   "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json",
   "share/claude-code/prereqs-status-band/hooks/engine-subset.ts",
   "share/claude-code/prereqs-status-band/hooks/hooks.json",
@@ -100,6 +100,10 @@ async function fixture(options: { readonly pinnedStopsWithSignal?: boolean } = {
     mkdirSync(dirname(path), { recursive: true });
     let content = `${file}\n`;
     if (file === "release.json") content = `${JSON.stringify({ version: PINNED, target, sourceCommit: SOURCE_COMMIT, protocolVersion: 1 })}\n`;
+    if (file === "share/catalog/bounded.catalog.json") {
+      const fixtureCatalogue = JSON.parse(readFileSync(join(REPO, "src", "cli", "test", "fixtures", "bounded.catalog.json"), "utf8")) as Record<string, unknown>;
+      content = `${JSON.stringify({ ...fixtureCatalogue, package: { name: "bounded", version: PINNED } })}\n`;
+    }
     if (file.endsWith(".claude-plugin/plugin.json")) content = `${JSON.stringify({ name: "bounded-prereqs-status-band", version: PINNED, types: "./types/index.d.ts" })}\n`;
     writeFileSync(path, content);
   }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Result } from "bounded/domain";
+import { PackageCatalog, type Result } from "bounded/domain";
 import { readReleaseArchive, safeReleasePath } from "./release-archive.ts";
 
 export interface ReleaseFile {
@@ -43,6 +43,7 @@ const validFile = (value: unknown): value is ReleaseFile => isRecord(value) && s
 const REQUIRED_FILES = [
   "LICENSE",
   "release.json",
+  "share/catalog/bounded.catalog.json",
   "share/types/index.d.ts",
   "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json",
   "share/claude-code/prereqs-status-band/hooks/engine-subset.ts",
@@ -134,6 +135,16 @@ export async function verifyReleaseArchive(manifest: ReleaseManifest, targetId: 
     }
   } catch {
     return { ok: false, error: "release.json is not valid UTF-8 JSON" };
+  }
+  const catalogueBytes = parsed.value["share/catalog/bounded.catalog.json"];
+  if (catalogueBytes === undefined) return { ok: false, error: "release archive lacks share/catalog/bounded.catalog.json" };
+  try {
+    const catalogue = PackageCatalog.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(catalogueBytes)));
+    if (!catalogue.ok) return { ok: false, error: `release catalogue is invalid: ${catalogue.error}` };
+    if (catalogue.value.package.name !== "bounded" || catalogue.value.package.version !== manifest.version)
+      return { ok: false, error: `release catalogue package/version does not match bounded@${manifest.version}` };
+  } catch {
+    return { ok: false, error: "release catalogue is not valid UTF-8 JSON" };
   }
   const pluginManifestBytes = parsed.value["share/claude-code/prereqs-status-band/.claude-plugin/plugin.json"];
   if (pluginManifestBytes === undefined) return { ok: false, error: "release archive lacks the Claude plugin manifest" };

@@ -34,7 +34,10 @@ native release draft and publishing to npm (AGENTS.md).
 4. **Require the native jobs.** Every declared runner runs `bun run check`,
    compiles and executes its own target, and tests the installer, launcher,
    and fail-closed hook without Node, Bun, or npm on the consumer PATH. The
-   macOS jobs sign the executable with a Developer ID identity before
+   native archive carries `share/catalog/bounded.catalog.json` for offline
+   `bounded packs` discovery, bound to the manifest and release version.
+   Check its presence and digest in the verified archive. The macOS jobs
+   sign the executable with a Developer ID identity before
    packaging, notarize the exact ZIP, then check Gatekeeper and an online
    first launch. The installed macOS process is also tested with network
    denied. The Linux and Windows jobs must pass on their native runners.

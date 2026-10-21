@@ -252,6 +252,10 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(linkedListed.exitCode).not.toBe(0);
     expect(linkedListed.stdout.toString()).toBe("");
     expect(linkedListed.stderr.toString()).toMatch(/linked|symlink|boundary|version/i);
+    const includedOnly = Bun.spawnSync([binary, "packs"], { cwd: scratch, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: includedOnly.exitCode, stderr: includedOnly.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(includedOnly.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    expect(includedOnly.stdout.toString()).not.toContain("bounded-example/");
     for (const args of [["packs", "show"], ["packs", "show", "bounded-example/refused-tools", "extra"], ["packs", "extra"]]) {
       const invalid = Bun.spawnSync([binary, ...args], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
       expect(invalid.exitCode).not.toBe(0);
@@ -296,6 +300,14 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(tamperedDiscovery.stdout.toString()).toBe("");
     expect(tamperedDiscovery.stderr.toString()).toMatch(/catalog|changed|modified|re-add/i);
     writeFileSync(cataloguePath, catalogueBytes);
+    const includedCataloguePath = join(releaseRoot, "share", "catalog", "bounded.catalog.json");
+    const includedCatalogueBytes = readFileSync(includedCataloguePath);
+    writeFileSync(includedCataloguePath, Buffer.concat([includedCatalogueBytes, Buffer.from("changed release catalogue\n")]));
+    const tamperedIncluded = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(tamperedIncluded.exitCode).not.toBe(0);
+    expect(tamperedIncluded.stdout.toString()).toBe("");
+    expect(tamperedIncluded.stderr.toString()).toMatch(/catalog|release|reinstall/i);
+    writeFileSync(includedCataloguePath, includedCatalogueBytes);
     const packLockPath = join(project, ".bounded", "packs.lock.json");
     const lockBytes = readFileSync(packLockPath);
     writeFileSync(packLockPath, Buffer.concat([lockBytes, Buffer.from("corrupt lock\n")]));

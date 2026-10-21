@@ -146,6 +146,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded/prereqs` and `bounded/protected-paths`; the catalogue is
   generated, never committed. The README test runs the build's own rules
   (`MarkedMarkdownSections`, `PackReadme`).
+- **Standalone installed-pack discovery** (ADR 2026-045): the native release
+  carries its own catalogue under a required, hashed archive path.
+  `bounded packs` lists its included packs and the published packs in the
+  project's verified managed lock graph, including catalogued transitive
+  dependencies. `bounded packs show <id>` reads the full catalogue entry.
+  Both commands are offline and read only; they do not evaluate pack code.
 - **A managed published-pack artifact installer contract**
   ([ADR 2026-034](adr/2026-034-managed-pack-artifacts.md),
   [ADR 2026-035](adr/2026-035-managed-pack-lock-verification.md)) in the CLI source
@@ -695,8 +701,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   bounded's own, and `bounded catalog build` refuses a listed pack whose id
   is not rooted at its package's name
   ([ADR 2026-029](adr/2026-029-package-catalogue.md)). A pack loaded at run
-  time is still not checked: that belongs to a file-backed pack catalog,
-  which does not exist yet
+  time is still not checked against its catalogue during composition; the
+  catalogue files now exist, but that comparison is separate work
   ([ADR 2026-004](adr/2026-004-namespaced-pack-ids.md)).
 - **The package catalogue's limits** (ADR 2026-029): a point's schema is its
   compile-time wire shape, so limits only its run-time check enforces are in
@@ -737,12 +743,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - A tool allowlist pack: shaping the tools offered at session start, with a
   `toolUseGuards` backstop (the point exists; no pack contributes).
 - Skills, role briefs and instruction projections written at install.
-- Beyond `bounded init`, `bounded update` (see "The install command"
-  below) and `bounded catalog build` (ADR 2026-029), no other command-line
-  tool exists: issue #68's discovery commands (`bounded packs`,
-  `bounded packs show`, `bounded packs search`), `bounded guide`,
-  `bounded pack init` and the website are later steps.
-- A file-backed pack catalog (only the in-memory catalog exists).
+- Issue #68's registry search, guide, provenance display,
+  official/reviewed labels, `bounded pack init` and website remain later steps.
+- A cross-package searchable pack registry or index; release and managed
+  package catalogue files exist, but discovery is limited to included packages.
 - The prerequisites pack's next item (ADR 2026-019, "Future work"):
   `require: { execute }`. Installing the prereqs status band with
   `bounded init`, once project-level plugin loading is verified
