@@ -124,7 +124,11 @@ test("update recognizes one complete published Node Claude hook set and refuses 
       expect(recognized.value.nextBytes).toContain(targetExecutable);
     }
     expect(readFileSync(settings, "utf8")).toBe(oldBytes);
-    const edited = oldBytes.replace(PROJECT_HOOK_COMMAND, `${PROJECT_HOOK_COMMAND} # edited`);
+    const changed = JSON.parse(oldBytes) as ClaudeHookSettings;
+    if (!changed.hooks.PreToolUse?.[0]?.hooks[0]) throw new Error("published Node hook fixture lacks PreToolUse");
+    changed.hooks.PreToolUse[0].hooks[0].command += " # edited";
+    const edited = `${JSON.stringify(changed)}\n`;
+    expect(edited).not.toBe(oldBytes);
     writeFileSync(settings, edited);
     const refused = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorNodeHooks: true });
     expect(refused.ok).toBe(false);
