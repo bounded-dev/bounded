@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as projectionModule from "./managed-pack-installer.ts";
+import * as standaloneRuntimeModule from "../standalone-runtime.ts";
+import { PackageCatalog, type PackageCatalog as CataloguedPackage } from "bounded/domain";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
 type Reply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array };
@@ -826,6 +828,35 @@ describe("managed pack type-only projection and publication", () => {
     expect(new TextDecoder().decode(node.files["dist/index.js"])).toContain('"original"');
     expect(new TextDecoder().decode(node.files["dist/index.js"])).not.toContain('"tampered"');
     expect(readFileSync(source, "utf8")).toContain('"tampered"');
+  });
+
+  test("a pack catalogue captured for offline discovery stays original after its store file changes", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const captured = await capture({ projectRoot: given.projectRoot, storeRoot: given.storeRoot, boundedVersion: "3.3.0",
+      boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest });
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) return;
+    const lock = JSON.parse(readFileSync(given.lockPath, "utf8")) as { roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const root = lock.roots["bounded-example"];
+    if (root === undefined) throw new Error("missing test root");
+    const node = captured.value.nodes[root] as { catalogue: { toJSON(): { packs: { summary: string }[] } } };
+    const original = node.catalogue.toJSON();
+    const catalogPath = join(given.storeRoot, lock.nodes[root]?.sha256 ?? "missing", "package", "bounded.catalog.json");
+    writeFileSync(catalogPath, readFileSync(catalogPath, "utf8").replace("Refuses selected tools", "Tampered tool rules"));
+    const included = PackageCatalog.parse(catalogue("bounded", "3.3.0"));
+    expect(included.ok).toBe(true);
+    if (!included.ok) return;
+    const render = (standaloneRuntimeModule as unknown as { readonly renderStandalonePackDiscovery:
+      (includedCatalogue: CataloguedPackage, graph: RuntimeGraph, selectedPackId?: string) => Result<string> }).renderStandalonePackDiscovery;
+    const listed = render(included.value, captured.value);
+    expect(listed.ok).toBe(true);
+    if (listed.ok) expect(listed.value).toContain("bounded-example/refused-tools\tbounded-example@1.0.0\tRefuses selected tools");
+    const shown = render(included.value, captured.value, "bounded-example/refused-tools");
+    expect(shown.ok).toBe(true);
+    if (shown.ok) expect(JSON.parse(shown.value).pack.summary).toBe(original.packs[0]?.summary);
+    expect(readFileSync(catalogPath, "utf8")).toContain("Tampered tool rules");
   });
 
   test("capture refuses an overbound graph before opening any store", async () => {

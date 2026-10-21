@@ -25,7 +25,7 @@ test("the pinned release requires its bundled catalogue in the manifest", async 
 });
 
 test("an extracted archive refuses a catalogue for another package or version, even with matching digests", async () => {
-  for (const options of [{ catalogPackage: "other-pack" }, { catalogVersion: "3.3.1" }]) {
+  for (const options of [{ catalogPackage: "other-pack" }, { catalogVersion: "3.3.1" }, { duplicateCatalogPack: true }]) {
     const root = mkdtempSync(join(tmpdir(), "bounded-release-catalogue-identity-"));
     try {
       const { archiveName, archiveBytes } = await nativeJob(root, "linux-x64-gnu", "3.3.0", options);

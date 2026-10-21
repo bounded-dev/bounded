@@ -44,16 +44,20 @@ async function archiveFor(targetId: TargetId, version: string, files: Readonly<R
 }
 
 /** A valid, target-specific release archive and matching one-target manifest, without trusted provenance. */
-export async function nativeJob(directory: string, targetId: TargetId, version: string, options: { channel?: string; sourceCommit?: string; builtWith?: string; catalogPackage?: string; catalogVersion?: string } = {}): Promise<{ archiveName: string; archiveBytes: Uint8Array }> {
+export async function nativeJob(directory: string, targetId: TargetId, version: string, options: { channel?: string; sourceCommit?: string; builtWith?: string; catalogPackage?: string; catalogVersion?: string; duplicateCatalogPack?: boolean } = {}): Promise<{ archiveName: string; archiveBytes: Uint8Array }> {
   mkdirSync(directory, { recursive: true });
   const sourceCommit = options.sourceCommit ?? COMMIT;
   const executablePath = targetId.startsWith("windows-") ? "bin/bounded.exe" : "bin/bounded";
   const executableBytes = bytes(`bounded executable for ${targetId}\n`);
+  const builtCatalogue = catalogue(options.catalogPackage ?? "bounded", options.catalogVersion ?? version);
+  const releaseCatalogue = options.duplicateCatalogPack
+    ? { ...builtCatalogue, packs: [...builtCatalogue.packs, builtCatalogue.packs[0]] }
+    : builtCatalogue;
   const files: Record<string, Uint8Array> = {
     [executablePath]: executableBytes,
     LICENSE: bytes("MIT test license\n"),
     "release.json": bytes(`${JSON.stringify({ version, target: targetId, sourceCommit, protocolVersion: 1 })}\n`),
-    "share/catalog/bounded.catalog.json": bytes(`${JSON.stringify(catalogue(options.catalogPackage ?? "bounded", options.catalogVersion ?? version))}\n`),
+    "share/catalog/bounded.catalog.json": bytes(`${JSON.stringify(releaseCatalogue)}\n`),
     "share/types/index.d.ts": bytes("export declare const bounded: true;\n"),
     "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json": bytes(JSON.stringify({ name: "bounded-prereqs-status-band", version, types: "./types/index.d.ts" })),
     "share/claude-code/prereqs-status-band/hooks/hooks.json": bytes('{"hooks":{}}'),

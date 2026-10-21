@@ -238,6 +238,24 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(listed.stdout.toString()).toContain("bounded-example/refused-tools\tbounded-example@0.1.0\t");
     expect(listed.stdout.toString()).toContain("bounded-example/port-backed\tbounded-example@0.1.0\t");
     expect(listed.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    for (const args of [["packs", "show"], ["packs", "show", "bounded-example/refused-tools", "extra"], ["packs", "extra"]]) {
+      const invalid = Bun.spawnSync([binary, ...args], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+      expect(invalid.exitCode).not.toBe(0);
+      expect(invalid.stdout.toString()).toBe("");
+      expect(invalid.stderr.toString()).toMatch(/packs|usage|show/i);
+    }
+    const unknown = Bun.spawnSync([binary, "packs", "show", "unknown/missing"],
+      { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(unknown.exitCode).not.toBe(0);
+    expect(unknown.stdout.toString()).toBe("");
+    expect(unknown.stderr.toString()).toContain("unknown/missing");
+    const looseStore = join(dataHome, "bounded", "packs", "store", "f".repeat(64), "package");
+    mkdirSync(looseStore, { recursive: true });
+    writeFileSync(join(looseStore, "bounded.catalog.json"), `${JSON.stringify({ catalogVersion: 1,
+      package: { name: "loose", version: "9.9.9" }, packs: [{ id: "loose/unpinned" }] })}\n`);
+    const afterLooseStore = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: afterLooseStore.exitCode, stderr: afterLooseStore.stderr.toString(), stdout: afterLooseStore.stdout.toString() })
+      .toEqual({ exitCode: 0, stderr: "", stdout: listed.stdout.toString() });
     const shown = Bun.spawnSync([binary, "packs", "show", "bounded-example/port-backed"],
       { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     expect({ exitCode: shown.exitCode, stderr: shown.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
@@ -264,6 +282,34 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(tamperedDiscovery.stdout.toString()).toBe("");
     expect(tamperedDiscovery.stderr.toString()).toMatch(/catalog|changed|modified|re-add/i);
     writeFileSync(cataloguePath, catalogueBytes);
+    const packLockPath = join(project, ".bounded", "packs.lock.json");
+    const lockBytes = readFileSync(packLockPath);
+    writeFileSync(packLockPath, Buffer.concat([lockBytes, Buffer.from("corrupt lock\n")]));
+    const badLock = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(badLock.exitCode).not.toBe(0);
+    expect(badLock.stdout.toString()).toBe("");
+    writeFileSync(packLockPath, lockBytes);
+    const projectionReceiptPath = join(project, ".bounded", "types-receipt.json");
+    const projectionReceiptBytes = readFileSync(projectionReceiptPath);
+    writeFileSync(projectionReceiptPath, Buffer.concat([projectionReceiptBytes, Buffer.from("corrupt receipt\n")]));
+    const badReceipt = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(badReceipt.exitCode).not.toBe(0);
+    expect(badReceipt.stdout.toString()).toBe("");
+    writeFileSync(projectionReceiptPath, projectionReceiptBytes);
+    const projectionJournalPath = join(project, ".bounded", "types-journal.json");
+    writeFileSync(projectionJournalPath, "{}\n");
+    const pendingProjection = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(pendingProjection.exitCode).not.toBe(0);
+    expect(pendingProjection.stdout.toString()).toBe("");
+    expect(pendingProjection.stderr.toString()).toMatch(/journal|recover/i);
+    rmSync(projectionJournalPath);
+    const updateJournalPath = join(project, ".bounded", "update-journal.json");
+    writeFileSync(updateJournalPath, "{}\n");
+    const pendingUpdate = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(pendingUpdate.exitCode).not.toBe(0);
+    expect(pendingUpdate.stdout.toString()).toBe("");
+    expect(pendingUpdate.stderr.toString()).toMatch(/update.*journal|recover/i);
+    rmSync(updateJournalPath);
 
     const runCheck = () => {
       const checked = Bun.spawnSync([binary, "check"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
