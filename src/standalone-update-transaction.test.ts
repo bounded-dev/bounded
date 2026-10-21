@@ -65,3 +65,25 @@ test("an oversized managed update journal is refused before any recovery callbac
     expect(readFileSync(markerPath, "utf8")).toBe(`${JSON.stringify(journal)}\n`);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
+
+test("a byte bound rejects a journal before parsing or invoking recovery callbacks", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bounded-update-byte-limit-"));
+  const projectRoot = realpathSync(scratch);
+  try {
+    mkdirSync(join(projectRoot, ".bounded"));
+    const markerPath = join(projectRoot, ".bounded", "update-journal.json");
+    writeFileSync(markerPath, "invalid");
+    let callbackCount = 0;
+    const verifiers = {
+      async beforeRestore() { callbackCount += 1; return { ok: true as const, value: undefined }; },
+      async restoredSource() { callbackCount += 1; return { ok: true as const, value: undefined }; },
+      async committedTarget() { callbackCount += 1; return { ok: true as const, value: undefined }; },
+    };
+    const verified: Awaited<ReturnType<typeof recoverStandaloneUpdate>> = await Reflect.apply(
+      recoverStandaloneUpdate, undefined, [projectRoot, verifiers, { maxJournalBytes: 5 }]);
+    expect(verified.ok).toBe(false);
+    expect(verified.ok ? "" : verified.error).toContain("update journal exceeds byte bound");
+    expect(callbackCount).toBe(0);
+    expect(readFileSync(markerPath, "utf8")).toBe("invalid");
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
