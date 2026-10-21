@@ -171,8 +171,9 @@ test("a published npm installation migrates to the archive executable without ch
       mkdirSync(dirname(target), { recursive: true });
       cpSync(join(REPO, "node_modules", name), target, { recursive: true });
     }
-    writeFileSync(join(f.project, "package.json"), '{"name":"python-project","private":true,"dependencies":{"bounded":"3.3.0"}}\n');
-    writeFileSync(join(f.project, "package-lock.json"), '{"name":"python-project","lockfileVersion":3,"packages":{"":{"dependencies":{"bounded":"3.3.0"}},"node_modules/bounded":{"version":"3.3.0"}}}\n');
+    writeFileSync(join(f.project, "package.json"), '{"name":"python-project","private":true,"version":"1.0.0","dependencies":{"bounded":"3.3.0"}}\n');
+    // npm-generated once from the pinned published package; the consumer run stays offline.
+    writeFileSync(join(f.project, "package-lock.json"), readFileSync(join(import.meta.dir, "fixtures", "bounded-published-3.3.0-package-lock.json")));
     const oldCli = Bun.spawnSync(["node", join(modules, "bounded", "dist", "cli.js"), "init", "--no-install"], {
       cwd: f.project, stdout: "pipe", stderr: "pipe", env: process.env,
     });
