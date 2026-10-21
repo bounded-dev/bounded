@@ -51,6 +51,12 @@ type PrepareTarget = (input: { readonly writer: Writer; readonly projectRoot: st
   readonly source: Release; readonly target: Release }) => Promise<Result<PreparedTarget>>;
 const acquireWriter = (projectionModule as unknown as { readonly acquireManagedPackWriter: (projectRoot: string) => Promise<Result<Writer>> }).acquireManagedPackWriter;
 const prepareTarget = (projectionModule as unknown as { readonly prepareManagedPackTargetProjectionUnderWriter: PrepareTarget }).prepareManagedPackTargetProjectionUnderWriter;
+type OfflineSnapshot = { readonly projectRoot: string; readonly storeRoot: string; readonly release: Release;
+  readonly lockBytes: Uint8Array; readonly receiptBytes: Uint8Array;
+  readonly ownedFiles: Readonly<Record<string, { readonly bytes: Uint8Array; readonly mode: number }>>;
+  readonly ownedDirectories: readonly string[] };
+const verifyOffline = (projectionModule as unknown as { readonly verifyManagedPackUpdateProjectionSnapshot:
+  (input: OfflineSnapshot) => Promise<Result<void>> }).verifyManagedPackUpdateProjectionSnapshot;
 const utf8 = (value: string): Uint8Array => new TextEncoder().encode(value);
 const digest = (value: Uint8Array): string => createHash("sha256").update(value).digest("hex");
 const registry = "https://registry.example.test";
@@ -178,6 +184,102 @@ async function tsserver(projectRoot: string, file: string, position = { completi
 }
 
 describe("managed pack type-only projection and publication", () => {
+  test("offline update snapshot verification authenticates old and target owned files after live projection is mixed", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const source = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const target = { ...source, boundedVersion: "3.3.1" };
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    let prepared: PreparedTarget;
+    try {
+      const result = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot, source, target });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      prepared = result.value;
+    } finally { await writer.value.release(); }
+    const old = { projectRoot: given.projectRoot, storeRoot: given.storeRoot, release: source,
+      lockBytes: prepared.oldOwnedFiles[".bounded/packs.lock.json"]?.bytes ?? new Uint8Array(),
+      receiptBytes: prepared.oldOwnedFiles[".bounded/types-receipt.json"]?.bytes ?? new Uint8Array(),
+      ownedFiles: prepared.oldOwnedFiles, ownedDirectories: prepared.oldOwnedDirectories };
+    const next = { ...old, release: target, lockBytes: prepared.targetLockBytes,
+      receiptBytes: prepared.targetReceiptBytes, ownedFiles: prepared.newOwnedFiles,
+      ownedDirectories: prepared.newOwnedDirectories };
+    rmSync(given.lockPath);
+    rmSync(given.receiptPath);
+    rmSync(given.projected("bounded"), { recursive: true });
+    expect((await verifyOffline(old)).ok).toBe(true);
+    expect((await verifyOffline(next)).ok).toBe(true);
+    expect(existsSync(given.lockPath)).toBe(false);
+    expect(existsSync(given.projected("bounded"))).toBe(false);
+  });
+
+  test("offline update snapshot verification refuses forged paths, changed bytes, receipt and directory sets", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    let prepared: PreparedTarget;
+    try {
+      const result = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      prepared = result.value;
+    } finally { await writer.value.release(); }
+    const original: OfflineSnapshot = { projectRoot: given.projectRoot, storeRoot: given.storeRoot, release,
+      lockBytes: prepared.targetLockBytes, receiptBytes: prepared.targetReceiptBytes,
+      ownedFiles: prepared.newOwnedFiles, ownedDirectories: prepared.newOwnedDirectories };
+    expect((await verifyOffline({ ...original, ownedFiles: { ...original.ownedFiles,
+      "node_modules/user-package/package.json": { bytes: utf8("{}"), mode: 0o644 } } })).ok).toBe(false);
+    const declaration = "node_modules/bounded/core/domain/index.d.ts";
+    expect((await verifyOffline({ ...original, ownedFiles: { ...original.ownedFiles,
+      [declaration]: { bytes: utf8("export declare const forged: true;\n"), mode: 0o644 } } })).ok).toBe(false);
+    expect((await verifyOffline({ ...original, receiptBytes: utf8("{}\n") })).ok).toBe(false);
+    expect((await verifyOffline({ ...original, ownedDirectories: [...original.ownedDirectories, "node_modules/user-package"] })).ok).toBe(false);
+  });
+
+  test("offline update snapshot verification checks pinned store and safe recorded modes", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    let prepared: PreparedTarget;
+    try {
+      const result = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      prepared = result.value;
+    } finally { await writer.value.release(); }
+    const snapshot: OfflineSnapshot = { projectRoot: given.projectRoot, storeRoot: given.storeRoot, release,
+      lockBytes: prepared.targetLockBytes, receiptBytes: prepared.targetReceiptBytes,
+      ownedFiles: prepared.newOwnedFiles, ownedDirectories: prepared.newOwnedDirectories };
+    const declaration = "node_modules/bounded/core/domain/index.d.ts";
+    const file = snapshot.ownedFiles[declaration];
+    expect(file).toBeDefined();
+    if (file === undefined) return;
+    expect((await verifyOffline({ ...snapshot, ownedFiles: { ...snapshot.ownedFiles,
+      [declaration]: { ...file, mode: 0o600 } } })).ok).toBe(true);
+    for (const mode of [0o666, 0o222, -1, 0o1000]) {
+      expect((await verifyOffline({ ...snapshot, ownedFiles: { ...snapshot.ownedFiles,
+        [declaration]: { ...file, mode } } })).ok).toBe(false);
+    }
+    const lock: { nodes: Record<string, { sha256: string }> } = JSON.parse(new TextDecoder().decode(snapshot.lockBytes));
+    const node = Object.values(lock.nodes)[0];
+    expect(node).toBeDefined();
+    if (node === undefined) return;
+    writeFileSync(join(given.storeRoot, node.sha256, "package", "dist", "index.js"), "export const changed = true;\n");
+    expect((await verifyOffline(snapshot)).ok).toBe(false);
+  });
   test("update preparation captures old and target bytes while leaving the project untouched", async () => {
     const given = fixture();
     expect((await given.run()).ok).toBe(true);
