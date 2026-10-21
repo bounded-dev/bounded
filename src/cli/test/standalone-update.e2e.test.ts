@@ -80,6 +80,16 @@ function run(f: Fixture, args: readonly string[], executable = f.binary): { exit
   return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
+function makePriorNodeAvailable(f: Fixture): void {
+  const node = Bun.which(process.platform === "win32" ? "node.exe" : "node");
+  if (node === null) throw new Error("The published npm migration fixture requires Node 22.18 or newer");
+  const shim = join(f.root, "fake-bin", process.platform === "win32" ? "node.cmd" : "node");
+  writeFileSync(shim, process.platform === "win32"
+    ? `@echo off\r\n"${node}" %*\r\n`
+    : `#!/bin/sh\nexec '${node.replaceAll("'", "'\\''")}' "$@"\n`);
+  if (process.platform !== "win32") chmodSync(shim, 0o755);
+}
+
 function installPriorTestRelease(f: Fixture, version = "3.2.9"): { readonly binary: string; readonly version: string } {
   const target = targetId();
   const currentRelease = join(f.dataHome, "bounded", "releases", `v${f.version}`, target);
@@ -624,6 +634,7 @@ test("a published npm installation migrates to the archive executable without ch
     const oldLoader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
     expect(oldSettings).toContain("node_modules/bounded/dist/hosts/claude-code/hook.js");
     expect(oldLoader).toBe(readFileSync(join(import.meta.dir, "fixtures", "bounded-3.3.0-pi-loader.txt"), "utf8"));
+    makePriorNodeAvailable(f);
     const result = run(f, ["update"]);
     expect(result.exitCode).toBe(0);
     expect(readFileSync(join(f.project, "bounded.config.ts"))).toEqual(config);
