@@ -637,6 +637,8 @@ test("a published npm installation migrates to the archive executable without ch
     const lock = readFileSync(join(f.project, "package-lock.json"));
     const oldSettings = readFileSync(join(f.project, ".claude", "settings.json"), "utf8");
     const oldLoader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
+    const oldSettingsMode = lstatSync(join(f.project, ".claude", "settings.json")).mode & 0o777;
+    const oldLoaderMode = lstatSync(join(f.project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777;
     expect(oldSettings).toContain("node_modules/bounded/dist/hosts/claude-code/hook.js");
     expect(oldLoader).toBe(readFileSync(join(import.meta.dir, "fixtures", "bounded-3.3.0-pi-loader.txt"), "utf8"));
     makePriorNodeAvailable(f);
@@ -676,6 +678,8 @@ test("a published npm installation migrates to the archive executable without ch
     expect(rolledBack.exitCode).toBe(0);
     expect(readFileSync(join(f.project, ".claude", "settings.json"), "utf8")).toBe(oldSettings);
     expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8")).toBe(oldLoader);
+    expect(lstatSync(join(f.project, ".claude", "settings.json")).mode & 0o777).toBe(oldSettingsMode);
+    expect(lstatSync(join(f.project, ".pi", "extensions", "bounded", "index.ts")).mode & 0o777).toBe(oldLoaderMode);
     expect(existsSync(join(f.project, ".bounded", "version.json"))).toBe(false);
     expect(existsSync(rollbackRecordPath)).toBe(false);
     expect(readFileSync(join(f.project, "bounded.config.ts"))).toEqual(config);
@@ -688,6 +692,19 @@ test("a published npm installation migrates to the archive executable without ch
     });
     expect(oldRuntime.exitCode).toBe(0);
     expect(oldRuntime.stdout.toString()).toContain("loaded");
+    const oldHook = Bun.spawnSync([node, join(modules, "bounded", "dist", "hosts", "claude-code", "hook.js")], {
+      cwd: f.project, stdout: "pipe", stderr: "pipe",
+      stdin: new TextEncoder().encode(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write",
+        tool_input: { file_path: join(f.project, "bounded.config.ts"), content: "changed" },
+        cwd: f.project, session_id: "npm-rollback", tool_use_id: "npm-rollback-write" })),
+      env: { ...process.env, PATH: join(f.root, "fake-bin"), CLAUDE_PROJECT_DIR: f.project },
+    });
+    expect(oldHook.exitCode).toBe(0);
+    const oldDecision = JSON.parse(oldHook.stdout.toString()) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+    expect(oldDecision.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(oldDecision.hookSpecificOutput?.permissionDecisionReason).toContain("bounded.config");
+    const oldLog = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8");
+    expect(oldLog).toContain("npm-rollback-write");
     if (existsSync(f.managerLog)) expect(readFileSync(f.managerLog, "utf8").trim().split("\n").every((name) => name === "node")).toBe(true);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
