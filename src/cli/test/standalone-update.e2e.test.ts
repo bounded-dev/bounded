@@ -83,6 +83,11 @@ function run(f: Fixture, args: readonly string[], executable = f.binary): { exit
 function makePriorNodeAvailable(f: Fixture): void {
   const node = Bun.which(process.platform === "win32" ? "node.exe" : "node");
   if (node === null) throw new Error("The published npm migration fixture requires Node 22.18 or newer");
+  const identified = Bun.spawnSync([node, "--version"], { stdout: "pipe", stderr: "pipe" });
+  const match = /^v(\d+)\.(\d+)\.(\d+)\s*$/.exec(identified.stdout.toString());
+  if (identified.exitCode !== 0 || match === null || Number(match[1]) < 22
+    || (Number(match[1]) === 22 && Number(match[2]) < 18))
+    throw new Error("The published npm migration fixture requires Node 22.18 or newer");
   const shim = join(f.root, "fake-bin", process.platform === "win32" ? "node.cmd" : "node");
   writeFileSync(shim, process.platform === "win32"
     ? `@echo off\r\n"${node}" %*\r\n`
