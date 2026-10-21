@@ -22,7 +22,7 @@ function nativeTarget(): string {
   }
   throw new Error(`Unsupported native test target ${process.platform}`);
 }
-function installPriorManagedTestRelease(scratch: string, dataHome: string, targetId: string): string {
+function installPriorManagedTestRelease(scratch: string, dataHome: string, targetId: string, typeEnvironment: string): string {
   const priorVersion = "3.2.9";
   const releaseRoot = join(dataHome, "bounded", "releases");
   const priorRoot = join(releaseRoot, `v${priorVersion}`, targetId);
@@ -32,7 +32,6 @@ function installPriorManagedTestRelease(scratch: string, dataHome: string, targe
   const binary = join(priorRoot, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
   rmSync(binary);
   const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
-  const typeEnvironment = join(REPO, "src", "dist", "standalone", "bounded-type-environment-bytes.bin");
   successful([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
     "--asset", join(wasm, "tree-sitter-bash.wasm"), "--asset", typeEnvironment, "--outfile", binary], REPO);
   if (process.platform !== "win32") chmodSync(binary, 0o755);
@@ -200,6 +199,8 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     mkdirSync(join(receipts, "manifests"), { recursive: true });
     writeFileSync(join(receipts, "manifests", `${manifestDigest}.json`), stableManifestBytes);
     writeFileSync(join(receipts, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version: VERSION, target: targetId, manifestSha256: manifestDigest })}\n`);
+    const priorTypeEnvironment = join(scratch, "prior-type-environment.bin");
+    cpSync(join(source, "src", "dist", "standalone", "bounded-type-environment-bytes.bin"), priorTypeEnvironment);
     rmSync(source, { recursive: true, force: true });
     expect(existsSync(source)).toBe(false);
 
@@ -270,7 +271,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     await new Response(piAdded.stdout).text();
     const piAddError = await new Response(piAdded.stderr).text();
     expect({ exitCode: await piAdded.exited, stderr: piAddError }).toEqual({ exitCode: 0, stderr: "" });
-    const priorBinary = installPriorManagedTestRelease(scratch, dataHome, targetId);
+    const priorBinary = installPriorManagedTestRelease(scratch, dataHome, targetId, priorTypeEnvironment);
     const priorProject = join(scratch, "prior-managed-project");
     mkdirSync(join(priorProject, ".pi"), { recursive: true });
     const priorEnvironment = { ...environment, CLAUDE_PROJECT_DIR: priorProject };
