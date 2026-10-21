@@ -68,6 +68,7 @@ function targetJob(directory: string, targetId: "linux-arm64-gnu" | "windows-arm
   const fileBytes: Record<string, Uint8Array> = {
     LICENSE: bytes("MIT test license\n"),
     "release.json": releaseJson,
+    "share/catalog/bounded.catalog.json": fixture("bounded.catalog.json"),
     "share/types/index.d.ts": bytes("export declare const bounded: true;\n"),
     "share/claude-code/prereqs-status-band/.claude-plugin/plugin.json": pluginManifest,
     "share/claude-code/prereqs-status-band/hooks/hooks.json": bytes('{"hooks":{}}'),

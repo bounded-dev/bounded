@@ -44,6 +44,10 @@ hosts:
   examples, failing closed; bounded's tarball carries the catalogue of its
   two packs ([ADR 2026-029](docs/adr/2026-029-package-catalogue.md),
   [writing a pack](docs/writing-a-pack.md)).
+- **Offline pack discovery**: the standalone executable's `bounded packs`
+  lists its bundled packs and the project's pinned managed packs;
+  `bounded packs show <id>` prints a pack's full catalogue entry and exact
+  package version (ADR 2026-045).
 - **The Bounded log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/log.jsonl`
   ([docs/bounded-log.md](docs/bounded-log.md)).

@@ -26,6 +26,7 @@ import { prepareStandaloneClaudeHooks } from "./hosts/claude-code/standalone-ins
 import { prepareStandalonePiExtension } from "./hosts/pi/standalone-install.ts";
 import { runStandalonePiWorker } from "./hosts/pi/standalone-worker.ts";
 import { INITIAL_CONFIG } from "./cli/initial-config.ts";
+import { renderStandalonePackDiscovery, standalonePackDiscoveryProjectRoot, verifyStandalonePackDiscoveryBoundary } from "./cli/standalone-pack-discovery.ts";
 
 const commandRoutes = {
   hook: "host-hook",
@@ -35,6 +36,7 @@ const commandRoutes = {
   host: "unavailable",
   catalog: "unavailable",
   add: "managed-add",
+  packs: "pack-discovery",
 } as const;
 
 const standaloneRuntimeExports = Object.freeze({
@@ -308,6 +310,10 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     await addStandalone(args, version);
     return;
   }
+  if (command === "packs") {
+    await packsStandalone(args, version);
+    return;
+  }
   if (command === "check") {
     await checkStandalone(args, version);
     return;
@@ -318,6 +324,62 @@ export async function runStandaloneRuntime(args: readonly string[], version: str
     return;
   }
   refusal(`unsupported standalone command ${JSON.stringify(args.join(" ") || "(none)")}; this release has no handler for it`);
+}
+
+/** Read only the exact installed release and the project's pinned managed graph. */
+async function packsStandalone(args: readonly string[], version: string): Promise<void> {
+  if (args.length !== 1 && !(args.length === 3 && args[1] === "show" && args[2]?.trim())) {
+    refusal("Use bounded packs or bounded packs show <pack-id>");
+    return;
+  }
+  if (!releaseIdentity(version)) return;
+  const located = locateInstalledRelease(version);
+  if (!located.ok) { refusal(located.error); return; }
+  try {
+    const projectRoot = standalonePackDiscoveryProjectRoot(process.cwd());
+    const boundedPath = join(projectRoot, ".bounded");
+    const has = (name: string): boolean => {
+      try { lstatSync(join(boundedPath, name)); return true; }
+      catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+    };
+    let boundedExists = false;
+    try { boundedExists = lstatSync(boundedPath).isDirectory(); }
+    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+    if (boundedExists) {
+      const pin = join(boundedPath, "version.json");
+      const info = lstatSync(pin);
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error("project version pin is linked or not a regular file");
+      const parsed: unknown = JSON.parse(readFileSync(pin, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+        || Reflect.get(parsed, "schema") !== "bounded-project-version/1" || Reflect.get(parsed, "version") !== version
+        || Object.keys(parsed).sort().join() !== "schema,version") throw new Error("project version pin differs from this executable");
+    }
+    if (has("update-journal.json")) throw new Error("project update journal requires recovery before pack discovery");
+    const cataloguePath = "share/catalog/bounded.catalog.json";
+    const declaredCatalogue = located.verifiedFiles.find((file) => file.path === cataloguePath);
+    if (declaredCatalogue === undefined) throw new Error(`installed release lacks ${cataloguePath}; reinstall Bounded ${version}`);
+    const catalogueBytes = readFileSync(join(located.releaseRoot, cataloguePath));
+    if (catalogueBytes.byteLength !== declaredCatalogue.size || createHash("sha256").update(catalogueBytes).digest("hex") !== declaredCatalogue.sha256)
+      throw new Error(`installed release ${cataloguePath} changed; reinstall Bounded ${version}`);
+    const included = domain.PackageCatalog.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(catalogueBytes)));
+    if (!included.ok) throw new Error(included.error);
+    if (included.value.package.name !== "bounded" || included.value.package.version !== version)
+      throw new Error(`installed release catalogue is not bounded@${version}; reinstall Bounded`);
+    const hasManagedState = ["packs.lock.json", "types-receipt.json", "types-journal.json"].some(has);
+    const graph = hasManagedState ? await captureManagedPackRuntimeGraph({ projectRoot, boundedVersion: version,
+      boundedExportPaths: Object.keys(standaloneRuntimeExports).map((specifier) => `.${specifier.slice("bounded".length)}`),
+      storeRoot: join(userDataRoot(), "packs", "store"), releaseTypesRoot: join(located.releaseRoot, "share", "types"),
+      releaseTypeFilesFromVerifiedManifest: Object.fromEntries(located.verifiedFiles
+        .filter((file) => file.path.startsWith("share/types/") && file.path.endsWith(".d.ts"))
+        .map((file) => [file.path.slice("share/types/".length), file.sha256])),
+    }) : undefined;
+    if (graph !== undefined && !graph.ok) throw new Error(graph.error);
+    const rendered = renderStandalonePackDiscovery(included.value, graph?.value, args[2]);
+    if (!rendered.ok) throw new Error(rendered.error);
+    const boundary = await verifyStandalonePackDiscoveryBoundary(projectRoot, graph?.value);
+    if (!boundary.ok) throw new Error(boundary.error);
+    process.stdout.write(rendered.value);
+  } catch (error) { refusal(`cannot discover installed packs: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 async function checkStandalone(args: readonly string[], version: string): Promise<void> {

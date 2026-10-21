@@ -11,6 +11,7 @@ import { buildDist, PREREQS_STATUS_BAND_FILES } from "./build-dist.ts";
 import { readReleaseManifest, verifyReleaseArchive, type ReleaseFile, type ReleaseManifest } from "./cli/release-manifest.ts";
 import { assembleRelease } from "./release-assembly.ts";
 import { readDeclaredReleaseTargets } from "./release-targets.ts";
+import { PackageCatalog } from "bounded/domain";
 
 const HERE = import.meta.dir;
 const packageManifest = JSON.parse(readFileSync(join(HERE, "package.json"), "utf8")) as { version: string };
@@ -191,7 +192,20 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
     if (!readDeclaredReleaseTargets(packageManifest.version).includes(targetId)) throw new Error(`release target ${targetId} is not declared for version ${packageManifest.version}`);
     requireCleanSource();
   }
-  if (macStage !== "package-signed") await buildDist();
+  if (macStage !== "package-signed") {
+    await buildDist();
+    const builtCatalogue = Bun.spawnSync([process.execPath, join(HERE, "dist", "cli.js"), "catalog", "build"],
+      { cwd: HERE, stdout: "pipe", stderr: "pipe" });
+    if (builtCatalogue.exitCode !== 0)
+      throw new Error(`release catalogue build failed:\n${builtCatalogue.stdout.toString()}${builtCatalogue.stderr.toString()}`);
+  }
+  const catalogueBytes = readFileSync(join(HERE, "bounded.catalog.json"));
+  let catalogueSource: unknown;
+  try { catalogueSource = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(catalogueBytes)); }
+  catch { throw new Error("release catalogue is not valid UTF-8 JSON"); }
+  const catalogue = PackageCatalog.parse(catalogueSource);
+  if (!catalogue.ok || catalogue.value.package.name !== "bounded" || catalogue.value.package.version !== packageManifest.version)
+    throw new Error(`release catalogue does not describe bounded@${packageManifest.version}: ${catalogue.ok ? "wrong package identity" : catalogue.error}`);
   if (macStage !== "compile-only") await mkdir(outputDirectory, { recursive: true });
   const executableName = targetId.startsWith("windows-") ? "bounded.exe" : "bounded";
   const executablePath = join(HERE, "dist", "standalone", executableName);
@@ -222,6 +236,7 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
     [`bin/${executableName}`]: readFileSync(executablePath),
     LICENSE: readFileSync(join(HERE, "LICENSE")),
     "release.json": Buffer.from(`${JSON.stringify({ version: packageManifest.version, target: targetId, sourceCommit: commit, protocolVersion: 1 })}\n`),
+    "share/catalog/bounded.catalog.json": catalogueBytes,
     "share/typescript/type-environment.json": bundledTypeEnvironment.manifest,
     ...await declarationFiles(),
   };

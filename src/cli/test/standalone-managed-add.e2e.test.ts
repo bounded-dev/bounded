@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -232,6 +232,110 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect({ exitCode: await piAdded.exited, stderr: piAddError }).toEqual({ exitCode: 0, stderr: "" });
     await stopRegistry();
     stopRegistry = undefined;
+
+    const listed = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: listed.exitCode, stderr: listed.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(listed.stdout.toString()).toContain("bounded-example/refused-tools\tbounded-example@0.1.0\t");
+    expect(listed.stdout.toString()).toContain("bounded-example/port-backed\tbounded-example@0.1.0\t");
+    expect(listed.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    const nestedProjectDirectory = join(project, "nested", "source");
+    mkdirSync(nestedProjectDirectory, { recursive: true });
+    const nestedListed = Bun.spawnSync([binary, "packs"], { cwd: nestedProjectDirectory, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: nestedListed.exitCode, stderr: nestedListed.stderr.toString(), stdout: nestedListed.stdout.toString() })
+      .toEqual({ exitCode: 0, stderr: "", stdout: listed.stdout.toString() });
+    const linkedProject = join(scratch, "linked-python-project");
+    const linkedBoundary = join(scratch, "linked-boundary");
+    mkdirSync(linkedProject);
+    mkdirSync(linkedBoundary);
+    symlinkSync(linkedBoundary, join(linkedProject, ".bounded"), process.platform === "win32" ? "junction" : "dir");
+    const linkedListed = Bun.spawnSync([binary, "packs"], { cwd: linkedProject, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(linkedListed.exitCode).not.toBe(0);
+    expect(linkedListed.stdout.toString()).toBe("");
+    expect(linkedListed.stderr.toString()).toMatch(/linked|symlink|boundary|version/i);
+    const includedOnly = Bun.spawnSync([binary, "packs"], { cwd: scratch, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: includedOnly.exitCode, stderr: includedOnly.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(includedOnly.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    expect(includedOnly.stdout.toString()).not.toContain("bounded-example/");
+    for (const args of [["packs", "show"], ["packs", "show", "bounded-example/refused-tools", "extra"], ["packs", "extra"]]) {
+      const invalid = Bun.spawnSync([binary, ...args], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+      expect(invalid.exitCode).not.toBe(0);
+      expect(invalid.stdout.toString()).toBe("");
+      expect(invalid.stderr.toString()).toMatch(/packs|usage|show/i);
+    }
+    const unknown = Bun.spawnSync([binary, "packs", "show", "unknown/missing"],
+      { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(unknown.exitCode).not.toBe(0);
+    expect(unknown.stdout.toString()).toBe("");
+    expect(unknown.stderr.toString()).toContain("unknown/missing");
+    const looseStore = join(dataHome, "bounded", "packs", "store", "f".repeat(64), "package");
+    mkdirSync(looseStore, { recursive: true });
+    writeFileSync(join(looseStore, "bounded.catalog.json"), `${JSON.stringify({ catalogVersion: 1,
+      package: { name: "loose", version: "9.9.9" }, packs: [{ id: "loose/unpinned" }] })}\n`);
+    const afterLooseStore = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: afterLooseStore.exitCode, stderr: afterLooseStore.stderr.toString(), stdout: afterLooseStore.stdout.toString() })
+      .toEqual({ exitCode: 0, stderr: "", stdout: listed.stdout.toString() });
+    const shown = Bun.spawnSync([binary, "packs", "show", "bounded-example/port-backed"],
+      { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: shown.exitCode, stderr: shown.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const shownJson = JSON.parse(shown.stdout.toString()) as { package: { name: string; version: string }; pack: {
+      id: string; summary: string; points: unknown[]; ports: { key: string }[];
+      readme: { whatItIsFor: string }; examples: { scenarios: unknown[] }[] } };
+    expect(shownJson.package).toEqual({ name: "bounded-example", version: "0.1.0" });
+    expect(shownJson.pack.id).toBe("bounded-example/port-backed");
+    expect(shownJson.pack.summary.length).toBeGreaterThan(0);
+    expect(shownJson.pack.ports.map((port) => port.key)).toContain("notes");
+    expect(shownJson.pack.readme.whatItIsFor).toContain("Testing explicit project adapter provisions");
+    expect(shownJson.pack.examples[0]?.scenarios.length).toBeGreaterThan(0);
+
+    const discoveryLock = JSON.parse(readFileSync(join(project, ".bounded", "packs.lock.json"), "utf8")) as {
+      roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const discoveryRoot = discoveryLock.roots["bounded-example"];
+    const discoveryNode = discoveryRoot === undefined ? undefined : discoveryLock.nodes[discoveryRoot];
+    if (discoveryNode === undefined) throw new Error("Published pack has no locked discovery node");
+    const cataloguePath = join(dataHome, "bounded", "packs", "store", discoveryNode.sha256, "package", "bounded.catalog.json");
+    const catalogueBytes = readFileSync(cataloguePath);
+    writeFileSync(cataloguePath, Buffer.concat([catalogueBytes, Buffer.from("\nchanged catalogue\n")]));
+    const tamperedDiscovery = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(tamperedDiscovery.exitCode).not.toBe(0);
+    expect(tamperedDiscovery.stdout.toString()).toBe("");
+    expect(tamperedDiscovery.stderr.toString()).toMatch(/catalog|changed|modified|re-add/i);
+    writeFileSync(cataloguePath, catalogueBytes);
+    const includedCataloguePath = join(releaseRoot, "share", "catalog", "bounded.catalog.json");
+    const includedCatalogueBytes = readFileSync(includedCataloguePath);
+    writeFileSync(includedCataloguePath, Buffer.concat([includedCatalogueBytes, Buffer.from("changed release catalogue\n")]));
+    const tamperedIncluded = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(tamperedIncluded.exitCode).not.toBe(0);
+    expect(tamperedIncluded.stdout.toString()).toBe("");
+    expect(tamperedIncluded.stderr.toString()).toMatch(/catalog|release|reinstall/i);
+    writeFileSync(includedCataloguePath, includedCatalogueBytes);
+    const packLockPath = join(project, ".bounded", "packs.lock.json");
+    const lockBytes = readFileSync(packLockPath);
+    writeFileSync(packLockPath, Buffer.concat([lockBytes, Buffer.from("corrupt lock\n")]));
+    const badLock = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(badLock.exitCode).not.toBe(0);
+    expect(badLock.stdout.toString()).toBe("");
+    writeFileSync(packLockPath, lockBytes);
+    const projectionReceiptPath = join(project, ".bounded", "types-receipt.json");
+    const projectionReceiptBytes = readFileSync(projectionReceiptPath);
+    writeFileSync(projectionReceiptPath, Buffer.concat([projectionReceiptBytes, Buffer.from("corrupt receipt\n")]));
+    const badReceipt = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(badReceipt.exitCode).not.toBe(0);
+    expect(badReceipt.stdout.toString()).toBe("");
+    writeFileSync(projectionReceiptPath, projectionReceiptBytes);
+    const projectionJournalPath = join(project, ".bounded", "types-journal.json");
+    writeFileSync(projectionJournalPath, "{}\n");
+    const pendingProjection = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(pendingProjection.exitCode).not.toBe(0);
+    expect(pendingProjection.stdout.toString()).toBe("");
+    expect(pendingProjection.stderr.toString()).toMatch(/journal|recover/i);
+    rmSync(projectionJournalPath);
+    const updateJournalPath = join(project, ".bounded", "update-journal.json");
+    writeFileSync(updateJournalPath, "{}\n");
+    const pendingUpdate = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(pendingUpdate.exitCode).not.toBe(0);
+    expect(pendingUpdate.stdout.toString()).toBe("");
+    expect(pendingUpdate.stderr.toString()).toMatch(/update.*journal|recover/i);
+    rmSync(updateJournalPath);
 
     const runCheck = () => {
       const checked = Bun.spawnSync([binary, "check"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
