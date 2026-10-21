@@ -249,19 +249,22 @@ export async function prepareStandalonePiExtension(projectRoot: string, executab
     }
     return { ok: true, value: undefined };
   };
+  let installedByThisAttempt = false;
   return { ok: true, value: {
     loaderPath, originalBytes, nextBytes, mode,
     async install() {
-      if (originalBytes === nextBytes) return { ok: true, value: { host: "pi", changedPaths: [], skippedBecause: null } };
       try {
         const current = await recheck(originalBytes);
         if (!current.ok) return current;
+        if (originalBytes === nextBytes) return { ok: true, value: { host: "pi", changedPaths: [], skippedBecause: null } };
         await mkdir(dirname(loaderPath), { recursive: true });
         await replaceLoader(loaderPath, nextBytes, mode, () => recheck(originalBytes));
+        installedByThisAttempt = true;
         return { ok: true, value: { host: "pi", changedPaths: [LOADER], skippedBecause: null } };
       } catch (error) { return { ok: false, error: `${LOADER} could not be replaced: ${message(error)}` }; }
     },
     async restore() {
+      if (!installedByThisAttempt) return;
       const current = await recheck(nextBytes);
       if (!current.ok) {
         const unchangedOriginal = await recheck(originalBytes);
@@ -270,6 +273,7 @@ export async function prepareStandalonePiExtension(projectRoot: string, executab
       }
       if (originalBytes === null) await rm(loaderPath, { force: true });
       else await replaceLoader(loaderPath, originalBytes, mode, () => recheck(nextBytes));
+      installedByThisAttempt = false;
     },
   } };
 }
