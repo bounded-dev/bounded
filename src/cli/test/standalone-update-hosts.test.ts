@@ -3,15 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { prepareStandaloneClaudeHooks } from "../../hosts/claude-code/standalone-install.ts";
+import { PROJECT_HOOK_COMMAND, withHooks } from "../../hosts/claude-code/install.ts";
 import { prepareStandalonePiExtension, standalonePiLoader } from "../../hosts/pi/standalone-install.ts";
 
 const oldExecutable = "/installed/bounded/v3.2.9/bin/bounded";
 const targetExecutable = "/installed/bounded/v3.3.0/bin/bounded";
 type PriorExecutableOption = { readonly recognizedPriorExecutable: string };
+type PriorNodeOption = { readonly recognizedPriorNodeHooks: true };
 const preparePiUpdate = prepareStandalonePiExtension as unknown as
   (root: string, executable: string, options: PriorExecutableOption) => ReturnType<typeof prepareStandalonePiExtension>;
 const prepareClaudeUpdate = prepareStandaloneClaudeHooks as unknown as
-  (root: string, executable: string, options: PriorExecutableOption) => ReturnType<typeof prepareStandaloneClaudeHooks>;
+  (root: string, executable: string, options: PriorExecutableOption | PriorNodeOption) => ReturnType<typeof prepareStandaloneClaudeHooks>;
 
 test("update recognizes the exact prior standalone Pi loader and prepares only the new executable", async () => {
   const root = mkdtempSync(join(tmpdir(), "bounded-update-prior-pi-"));
@@ -101,6 +103,32 @@ for (const [name, alter] of Object.entries(priorHookAlterations).filter(([name])
     const prepared = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorExecutable: oldExecutable });
     expect(prepared.ok).toBe(false);
     expect(readFileSync(settings, "utf8")).toBe(bytes);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("update recognizes one complete published Node Claude hook set and refuses an edited command", async () => {
+  const root = mkdtempSync(join(tmpdir(), "bounded-update-node-claude-"));
+  try {
+    const settings = join(root, ".claude", "settings.json");
+    mkdirSync(join(root, ".claude"));
+    const generated = withHooks({}, PROJECT_HOOK_COMMAND);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+    const oldBytes = `${JSON.stringify(generated.value.settings)}\n`;
+    writeFileSync(settings, oldBytes);
+    const recognized = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorNodeHooks: true });
+    expect(recognized.ok).toBe(true);
+    if (recognized.ok) {
+      expect(recognized.value.originalBytes).toBe(oldBytes);
+      expect(recognized.value.nextBytes).not.toContain(PROJECT_HOOK_COMMAND);
+      expect(recognized.value.nextBytes).toContain(targetExecutable);
+    }
+    expect(readFileSync(settings, "utf8")).toBe(oldBytes);
+    const edited = oldBytes.replace(PROJECT_HOOK_COMMAND, `${PROJECT_HOOK_COMMAND} # edited`);
+    writeFileSync(settings, edited);
+    const refused = await prepareClaudeUpdate(root, targetExecutable, { recognizedPriorNodeHooks: true });
+    expect(refused.ok).toBe(false);
+    expect(readFileSync(settings, "utf8")).toBe(edited);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
