@@ -147,3 +147,67 @@ test("published npm closure rejects forged journal snapshot and a changed projec
     expect(existsSync(join(project, ".claude", "settings.json"))).toBe(true);
   });
 }, 120_000);
+
+test("published npm closure refuses changed installed dependency identity and missing declared transitive dependency", async () => {
+  await withPublishedProject((project, closure) => {
+    const manifestPath = join(project, "node_modules", "zod", "package.json");
+    const original = readFileSync(manifestPath);
+    const manifest = JSON.parse(original.toString("utf8")) as Record<string, unknown>;
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, version: "9.9.9" })}\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, dependencies: { "not-installed": "1.0.0" } })}\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+    writeFileSync(manifestPath, original);
+    const captured = closure.captureInstalledNpmClosure(project);
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) throw new Error(captured.error);
+    mkdirSync(join(project, "node_modules", "zod", "extra-directory"));
+    expect(closure.reverifyInstalledNpmClosure(project, captured.value).ok).toBe(false);
+  });
+}, 120_000);
+
+test("published npm closure refuses alternate config selection and changed known dynamic loader", async () => {
+  await withPublishedProject((project, closure) => {
+    writeFileSync(join(project, "bounded.config.mjs"), "export default {};\n");
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+    rmSync(join(project, "bounded.config.mjs"));
+    const loader = join(project, "node_modules", "bounded", "dist", "core", "adapters", "out", "index.js");
+    writeFileSync(loader, `${readFileSync(loader, "utf8")}\n// changed installed loader\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(false);
+  });
+}, 120_000);
+
+test("published npm closure parses reachable literal require and import while ignoring comment and string decoys", async () => {
+  await withPublishedProject((project, closure) => {
+    const main = join(project, "node_modules", "picomatch", "index.js");
+    const original = readFileSync(main, "utf8");
+    writeFileSync(main, `${original}\n// require('./missing-comment.js')\nconst ignored = "import('./missing-string.js')";\nrequire('node:fs');\nrequire('./lib/utils');\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(true);
+    writeFileSync(main, `${original}\nimport('./lib/utils.js');\n`);
+    expect(closure.captureInstalledNpmClosure(project).ok).toBe(true);
+  });
+}, 120_000);
+
+test("published npm closure rejects forged file path, hash, and package identity in journal snapshot", async () => {
+  await withPublishedProject((project, closure) => {
+    const captured = closure.captureInstalledNpmClosure(project);
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) throw new Error(captured.error);
+    const snapshot = JSON.parse(JSON.stringify(captured.value)) as {
+      files: Record<string, { sha256: string }>;
+      packages: Record<string, { name: string; version: string }>;
+    };
+    const file = Object.keys(snapshot.files).find((path) => path.endsWith("node_modules/bounded/package.json"));
+    expect(file).toBeDefined();
+    if (file === undefined) return;
+    const withBadHash = structuredClone(snapshot);
+    withBadHash.files[file] = { ...withBadHash.files[file], sha256: "0".repeat(64) };
+    expect(closure.reverifyInstalledNpmClosure(project, withBadHash).ok).toBe(false);
+    const withBadPath = structuredClone(snapshot);
+    withBadPath.files["../outside"] = withBadPath.files[file];
+    expect(closure.reverifyInstalledNpmClosure(project, withBadPath).ok).toBe(false);
+    const withBadIdentity = structuredClone(snapshot);
+    withBadIdentity.packages["node_modules/bounded"] = { ...withBadIdentity.packages["node_modules/bounded"], version: "9.9.9" };
+    expect(closure.reverifyInstalledNpmClosure(project, withBadIdentity).ok).toBe(false);
+  });
+}, 120_000);
