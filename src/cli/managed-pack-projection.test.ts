@@ -212,8 +212,10 @@ describe("managed pack type-only projection and publication", () => {
     rmSync(given.receiptPath);
     rmSync(join(given.projectRoot, "node_modules"), { recursive: true });
     expect(old.ownedFiles["node_modules/bounded/core/domain/index.d.ts"]?.mode).toBe(0o600);
-    expect((await verifyOffline(old)).ok).toBe(true);
-    expect((await verifyOffline(next)).ok).toBe(true);
+    const oldVerified = await verifyOffline(old);
+    expect(oldVerified.ok ? "verified" : oldVerified.error).toBe("verified");
+    const nextVerified = await verifyOffline(next);
+    expect(nextVerified.ok ? "verified" : nextVerified.error).toBe("verified");
     expect(existsSync(given.lockPath)).toBe(false);
     expect(existsSync(given.projected("bounded"))).toBe(false);
   });
