@@ -459,7 +459,7 @@ console.log(JSON.stringify({ before, stale, after }));`);
   expect(answer.after?.block).not.toBe(true);
 }, 240_000);
 
-test("a second Pi session replaces the prior compiled worker process", () => {
+test("a second Pi session replaces and stops the prior compiled worker process", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
   const worker = compiledFaultWorker(root, "echo");
@@ -470,15 +470,24 @@ await handlers.get("session_start")({ type: "session_start", reason: "startup" }
 const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "session-one", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
 await handlers.get("session_start")({ type: "session_start", reason: "new-session" }, { cwd: process.cwd() });
 const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "session-two", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
-console.log(JSON.stringify({ first, second }));
+const fs = await import("node:fs");
+const starts = fs.readFileSync(${JSON.stringify(join(root, "fault-worker-echo.starts"))}, "utf8").trim().split("\\n");
+const oldPid = Number(starts[0]);
+let oldWorkerAlive = true;
+for (let attempt = 0; attempt < 40; attempt++) {
+  try { process.kill(oldPid, 0); } catch { oldWorkerAlive = false; break; }
+  await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+}
+console.log(JSON.stringify({ first, second, oldWorkerAlive }));
 process.exit(0);`);
   expect(result.code).toBe(0);
-  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean } };
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean }; oldWorkerAlive: boolean };
   expect(answer.first?.block).not.toBe(true);
   expect(answer.second?.block).not.toBe(true);
   const starts = readFileSync(join(root, "fault-worker-echo.starts"), "utf8").trim().split("\n");
   expect(starts).toHaveLength(2);
   expect(new Set(starts).size).toBe(2);
+  expect(answer.oldWorkerAlive).toBe(false);
 }, 240_000);
 
 test("Pi bridge blocks a tool call when its child writes malformed protocol output", () => {

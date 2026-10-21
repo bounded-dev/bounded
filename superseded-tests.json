@@ -6817,5 +6817,14 @@
       "case": "bounded, the one published package > packed, its manifest names the version, the bin and four runtime dependencies including TypeScript"
     },
     "reason": "the carried Node host now declares the pinned TypeScript parser as a fourth runtime dependency"
+  },
+  {
+    "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+    "case": "a second Pi session replaces the prior compiled worker process",
+    "successor": {
+      "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+      "case": "a second Pi session replaces and stops the prior compiled worker process"
+    },
+    "reason": "the successor retains distinct worker starts and verifies the prior native worker exits before the second session proceeds"
   }
 ]
