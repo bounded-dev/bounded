@@ -233,6 +233,38 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     await stopRegistry();
     stopRegistry = undefined;
 
+    const listed = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: listed.exitCode, stderr: listed.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(listed.stdout.toString()).toContain("bounded-example/refused-tools\tbounded-example@0.1.0\t");
+    expect(listed.stdout.toString()).toContain("bounded-example/port-backed\tbounded-example@0.1.0\t");
+    expect(listed.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    const shown = Bun.spawnSync([binary, "packs", "show", "bounded-example/port-backed"],
+      { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: shown.exitCode, stderr: shown.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const shownJson = JSON.parse(shown.stdout.toString()) as { package: { name: string; version: string }; pack: {
+      id: string; summary: string; points: unknown[]; ports: { key: string }[];
+      readme: { whatItIsFor: string }; examples: { scenarios: unknown[] }[] } };
+    expect(shownJson.package).toEqual({ name: "bounded-example", version: "0.1.0" });
+    expect(shownJson.pack.id).toBe("bounded-example/port-backed");
+    expect(shownJson.pack.summary.length).toBeGreaterThan(0);
+    expect(shownJson.pack.ports.map((port) => port.key)).toContain("notes");
+    expect(shownJson.pack.readme.whatItIsFor).toContain("Testing explicit project adapter provisions");
+    expect(shownJson.pack.examples[0]?.scenarios.length).toBeGreaterThan(0);
+
+    const discoveryLock = JSON.parse(readFileSync(join(project, ".bounded", "packs.lock.json"), "utf8")) as {
+      roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const discoveryRoot = discoveryLock.roots["bounded-example"];
+    const discoveryNode = discoveryRoot === undefined ? undefined : discoveryLock.nodes[discoveryRoot];
+    if (discoveryNode === undefined) throw new Error("Published pack has no locked discovery node");
+    const cataloguePath = join(dataHome, "bounded", "packs", "store", discoveryNode.sha256, "package", "bounded.catalog.json");
+    const catalogueBytes = readFileSync(cataloguePath);
+    writeFileSync(cataloguePath, Buffer.concat([catalogueBytes, Buffer.from("\nchanged catalogue\n")]));
+    const tamperedDiscovery = Bun.spawnSync([binary, "packs"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(tamperedDiscovery.exitCode).not.toBe(0);
+    expect(tamperedDiscovery.stdout.toString()).toBe("");
+    expect(tamperedDiscovery.stderr.toString()).toMatch(/catalog|changed|modified|re-add/i);
+    writeFileSync(cataloguePath, catalogueBytes);
+
     const runCheck = () => {
       const checked = Bun.spawnSync([binary, "check"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
       expect(existsSync(source)).toBe(false);
