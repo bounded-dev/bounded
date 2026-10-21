@@ -713,7 +713,7 @@ test("a published npm installation migrates to the archive executable without ch
     expect(recorded.tool).toBe("write");
     expect(recorded.verdict?.kind).toBe("refuse");
     expect(recorded.verdict?.reason).toContain("bounded.config");
-    expect(recorded.verdict?.pack).toBe("bounded/project");
+    expect(recorded.verdict?.pack).toBe("bounded/protected-paths");
     if (existsSync(f.managerLog)) expect(readFileSync(f.managerLog, "utf8").trim().split("\n").every((name) => name === "node")).toBe(true);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
