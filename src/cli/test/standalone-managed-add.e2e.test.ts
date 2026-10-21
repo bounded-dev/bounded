@@ -22,6 +22,45 @@ function nativeTarget(): string {
   }
   throw new Error(`Unsupported native test target ${process.platform}`);
 }
+function installPriorManagedTestRelease(scratch: string, dataHome: string, targetId: string): string {
+  const priorVersion = "3.2.9";
+  const releaseRoot = join(dataHome, "bounded", "releases");
+  const priorRoot = join(releaseRoot, `v${priorVersion}`, targetId);
+  cpSync(join(releaseRoot, `v${VERSION}`, targetId), priorRoot, { recursive: true });
+  const entry = join(scratch, "prior-managed-entry.ts");
+  writeFileSync(entry, `import { dispatchStandalone } from ${JSON.stringify(join(REPO, "src", "standalone-dispatch.ts"))};\nconst version = ${JSON.stringify(priorVersion)};\nconst args = process.argv.slice(2);\nconst dispatched = await dispatchStandalone(args, version);\nif (!dispatched.answered) { if (args[0] === "--version") console.log(version); else { const { runStandaloneRuntime } = await import(${JSON.stringify(join(REPO, "src", "standalone-runtime.ts"))}); await runStandaloneRuntime(args, version, dispatched.hostProjectRoot); } }\n`);
+  const binary = join(priorRoot, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
+  rmSync(binary);
+  const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
+  const typeEnvironment = join(REPO, "src", "dist", "standalone", "bounded-type-environment-bytes.bin");
+  successful([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
+    "--asset", join(wasm, "tree-sitter-bash.wasm"), "--asset", typeEnvironment, "--outfile", binary], REPO);
+  if (process.platform !== "win32") chmodSync(binary, 0o755);
+  const identified = Bun.spawnSync([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
+  expect({ exitCode: identified.exitCode, version: identified.stdout.toString().trim() }).toEqual({ exitCode: 0, version: priorVersion });
+  const currentReceipt = JSON.parse(readFileSync(join(dataHome, "bounded", "receipts", `v${VERSION}`, targetId, "receipt-v1.json"), "utf8")) as { manifestSha256: string };
+  const currentManifestPath = join(dataHome, "bounded", "receipts", `v${VERSION}`, targetId, "manifests", `${currentReceipt.manifestSha256}.json`);
+  const manifest = JSON.parse(readFileSync(currentManifestPath, "utf8")) as Parameters<typeof verifyReleaseArchive>[0];
+  const identityPath = join(priorRoot, "release.json");
+  const identity = JSON.parse(readFileSync(identityPath, "utf8")) as Record<string, unknown>;
+  writeFileSync(identityPath, `${JSON.stringify({ ...identity, version: priorVersion })}\n`);
+  const currentArchive = manifest.targets[targetId];
+  if (currentArchive === undefined) throw new Error("Current release lacks native target");
+  const changedManifest = { ...manifest, version: priorVersion, targets: { ...manifest.targets, [targetId]: {
+    ...currentArchive,
+    archive: { ...currentArchive.archive, name: currentArchive.archive.name.replace(`v${VERSION}`, `v${priorVersion}`) },
+    executable: { ...currentArchive.executable, size: readFileSync(binary).byteLength, sha256: digest(readFileSync(binary)) },
+    files: currentArchive.files.map((file) => file.path === "release.json"
+      ? { ...file, size: readFileSync(identityPath).byteLength, sha256: digest(readFileSync(identityPath)) } : file),
+  } } };
+  const stableManifest = Buffer.from(`${JSON.stringify(changedManifest)}\n`);
+  const manifestSha256 = digest(stableManifest);
+  const receiptRoot = join(dataHome, "bounded", "receipts", `v${priorVersion}`, targetId);
+  mkdirSync(join(receiptRoot, "manifests"), { recursive: true });
+  writeFileSync(join(receiptRoot, "manifests", `${manifestSha256}.json`), stableManifest);
+  writeFileSync(join(receiptRoot, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version: priorVersion, target: targetId, manifestSha256 })}\n`);
+  return binary;
+}
 function successful(command: readonly string[], cwd: string): void {
   const [program, ...args] = command;
   if (program === undefined) throw new Error("missing test build command");
@@ -93,10 +132,11 @@ process.exit(0);
 /** Add a second pack to the cloned publication fixture, with its adapter on a declared export path. */
 function addPortBackedPublishedFixture(packageRoot: string): void {
   const manifestPath = join(packageRoot, "package.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown> & { exports: Record<string, unknown>; bounded: { catalog: string; packs: Record<string, string> } };
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown> & { exports: Record<string, unknown>; bounded: { catalog: string; packs: Record<string, string> }; peerDependencies: Record<string, string> };
   manifest.exports["./port-backed"] = { bun: "./packs/port-backed/index.ts", types: "./dist/types/packs/port-backed/index.d.ts", default: "./dist/packs/port-backed/index.js" };
   manifest.exports["./port-backed-adapter"] = { bun: "./packs/port-backed/adapter.ts", types: "./dist/types/packs/port-backed/adapter.d.ts", default: "./dist/packs/port-backed/adapter.js" };
   manifest.bounded.packs["./port-backed"] = "packs/port-backed";
+  manifest.peerDependencies.bounded = ">=3.2.9 <4";
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const directory = join(packageRoot, "packs", "port-backed");
   mkdirSync(directory, { recursive: true });
@@ -173,7 +213,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
         const tarball = `${registryUrl}/bounded-example/-/bounded-example-0.1.0.tgz`;
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ name: "bounded-example", versions: { "0.1.0": { name: "bounded-example", version: "0.1.0",
-          dependencies: {}, peerDependencies: { bounded: "~3.3.0" }, dist: { tarball, integrity: sha512Integrity(artifact) } } } }));
+          dependencies: {}, peerDependencies: { bounded: ">=3.2.9 <4" }, dist: { tarball, integrity: sha512Integrity(artifact) } } } }));
       } else if (request.url === "/bounded-example/-/bounded-example-0.1.0.tgz") {
         response.writeHead(200, { "content-type": "application/octet-stream" }); response.end(artifact);
       } else { response.writeHead(404); response.end("missing"); }
@@ -230,6 +270,33 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     await new Response(piAdded.stdout).text();
     const piAddError = await new Response(piAdded.stderr).text();
     expect({ exitCode: await piAdded.exited, stderr: piAddError }).toEqual({ exitCode: 0, stderr: "" });
+    const priorBinary = installPriorManagedTestRelease(scratch, dataHome, targetId);
+    const priorProject = join(scratch, "prior-managed-project");
+    mkdirSync(join(priorProject, ".pi"), { recursive: true });
+    const priorEnvironment = { ...environment, CLAUDE_PROJECT_DIR: priorProject };
+    const priorInit = Bun.spawnSync([priorBinary, "init", "--host", "claude-code", "--host", "pi"],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorInit.exitCode, stderr: priorInit.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe("3.2.9");
+    const priorAdd = Bun.spawn([priorBinary, "add", "bounded-example@0.1.0", "--registry", registryUrl],
+      { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    await new Response(priorAdd.stdout).text();
+    const priorAddError = await new Response(priorAdd.stderr).text();
+    expect({ exitCode: await priorAdd.exited, stderr: priorAddError }).toEqual({ exitCode: 0, stderr: "" });
+    const priorConfig = 'import { defineConfig } from "bounded/domain";\nimport { refusedToolsPack } from "bounded-example";\nexport default defineConfig({ packs: [refusedToolsPack] });\n';
+    writeFileSync(join(priorProject, "bounded.config.ts"), priorConfig);
+    const priorCheck = Bun.spawnSync([priorBinary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: priorCheck.exitCode, stderr: priorCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const priorLock = JSON.parse(readFileSync(join(priorProject, ".bounded", "packs.lock.json"), "utf8")) as { boundedVersion: string };
+    expect(priorLock.boundedVersion).toBe("3.2.9");
+    const targetUpdate = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: targetUpdate.exitCode, stderr: targetUpdate.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(readFileSync(join(priorProject, ".bounded", "version.json"), "utf8")).version).toBe(VERSION);
+    const targetLock = JSON.parse(readFileSync(join(priorProject, ".bounded", "packs.lock.json"), "utf8")) as { boundedVersion: string };
+    expect(targetLock.boundedVersion).toBe(VERSION);
+    expect(readFileSync(join(priorProject, "bounded.config.ts"), "utf8")).toBe(priorConfig);
+    const targetCheck = Bun.spawnSync([binary, "check"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: targetCheck.exitCode, stderr: targetCheck.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
     await stopRegistry();
     stopRegistry = undefined;
 
