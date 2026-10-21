@@ -462,6 +462,65 @@ console.log(JSON.stringify({ first, second }));`);
   expect(answer.second?.reason).toMatch(/projection|journal|restart|changed/i);
 }, 240_000);
 
+test("an already running Pi worker refuses calls and results when an update becomes pending", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before-update", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+const logPath = ".bounded/log.jsonl";
+const beforeLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+fs.writeFileSync(".bounded/update-journal.json", "{pending}");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "during-update", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const resultAfterMarker = await handlers.get("tool_result")({ type: "tool_result", toolCallId: "before-update", toolName: "read", input: { path: "main.py" }, content: [{ type: "text", text: "done" }], isError: false }, { cwd: process.cwd() });
+const afterLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+fs.unlinkSync(".bounded/update-journal.json");
+const third = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "after-update", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second, resultAfterMarker, third, beforeLog, afterLog }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as {
+    first?: { block?: boolean }; second?: { block?: boolean; reason?: string };
+    resultAfterMarker?: { isError?: boolean; content?: unknown[] }; third?: { block?: boolean; reason?: string };
+    beforeLog: string; afterLog: string;
+  };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/update|journal/i);
+  expect(answer.resultAfterMarker?.isError).toBe(true);
+  expect(JSON.stringify(answer.resultAfterMarker?.content)).toMatch(/update|journal/i);
+  expect(answer.third?.block).toBe(true);
+  expect(answer.third?.reason).toMatch(/update|journal|new Pi session/i);
+  expect(answer.afterLog).toBe(answer.beforeLog);
+}, 240_000);
+
+test("a Pi worker refuses a pending update before session start even when its marker is not a file", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  mkdirSync(join(root, ".bounded", "update-journal.json"));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "pending-at-start", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+const logPath = ".bounded/log.jsonl";
+const beforeLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+fs.rmdirSync(".bounded/update-journal.json");
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "marker-cleared", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const afterLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+console.log(JSON.stringify({ first, second, beforeLog, afterLog }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as {
+    first?: { block?: boolean; reason?: string }; second?: { block?: boolean; reason?: string };
+    beforeLog: string; afterLog: string;
+  };
+  expect(answer.first?.block).toBe(true);
+  expect(answer.first?.reason).toMatch(/update|journal/i);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/update|journal|new Pi session/i);
+  expect(answer.beforeLog).toBe("");
+  expect(answer.afterLog).toBe("");
+}, 240_000);
+
 test("real Pi loader registers a blocking handler even when the installed executable is missing", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
