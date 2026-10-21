@@ -112,7 +112,7 @@ async function managedCrossVersionJournal(project: string, dataHome: string, pri
   const pin = file(".bounded/version.json", readFileSync(pinPath), Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: VERSION })}\n`),
     lstatSync(pinPath).mode & 0o777, lstatSync(pinPath).mode & 0o777);
   const journal = JSON.stringify({ schema: "bounded-update-journal/1", source: { kind: "standalone", version: "3.2.9" }, targetVersion: VERSION,
-    sourceFiles: { [resolve(join(project, "bounded.config.ts"))]: digest(readFileSync(join(project, "bounded.config.ts"))) },
+    sourceFiles: { [realpathSync(join(project, "bounded.config.ts"))]: digest(readFileSync(join(project, "bounded.config.ts"))) },
     managed: { oldOwnedDirectories: projection.value.oldOwnedDirectories, newOwnedDirectories: projection.value.newOwnedDirectories },
     files: [...hostFiles, ...managedFiles, pin] });
   return { journal: `${journal}\n`, priorOwnedFiles: projection.value.oldOwnedFiles,
