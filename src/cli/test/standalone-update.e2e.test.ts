@@ -650,5 +650,44 @@ test("a published npm installation migrates to the archive executable without ch
     expect(JSON.parse(readFileSync(join(f.project, ".bounded", "version.json"), "utf8"))).toEqual({ schema: "bounded-project-version/1", version: f.version });
     expect(run(f, ["check"]).exitCode).toBe(0);
     expect(existsSync(f.managerLog)).toBe(false);
+
+    const owned = [join(f.project, ".claude", "settings.json"), join(f.project, ".pi", "extensions", "bounded", "index.ts"),
+      join(f.project, ".bounded", "version.json")];
+    const current = owned.map((path) => ({ bytes: readFileSync(path), mode: lstatSync(path).mode & 0o777 }));
+    const rollbackRecordPath = join(f.project, ".bounded", "update-rollback.json");
+    const rollbackRecord = readFileSync(rollbackRecordPath);
+    const nodeShim = join(f.root, "fake-bin", process.platform === "win32" ? "node.cmd" : "node");
+    writeFileSync(nodeShim, process.platform === "win32" ? "@echo off\r\nexit /b 83\r\n" : "#!/bin/sh\nexit 83\n");
+    if (process.platform !== "win32") chmodSync(nodeShim, 0o755);
+    const withoutNode = run(f, ["update", "--rollback"]);
+    expect(withoutNode.exitCode).toBe(2);
+    expect(withoutNode.stderr).toContain("Node");
+    for (const [index, path] of owned.entries()) {
+      const beforeAttempt = current[index];
+      if (beforeAttempt === undefined) throw new Error(`Missing target snapshot for ${path}`);
+      expect(readFileSync(path)).toEqual(beforeAttempt.bytes);
+      expect(lstatSync(path).mode & 0o777).toBe(beforeAttempt.mode);
+    }
+    expect(readFileSync(rollbackRecordPath)).toEqual(rollbackRecord);
+    expect(existsSync(join(f.project, ".bounded", "update-journal.json"))).toBe(false);
+
+    makePriorNodeAvailable(f);
+    const rolledBack = run(f, ["update", "--rollback"]);
+    expect(rolledBack.exitCode).toBe(0);
+    expect(readFileSync(join(f.project, ".claude", "settings.json"), "utf8")).toBe(oldSettings);
+    expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"), "utf8")).toBe(oldLoader);
+    expect(existsSync(join(f.project, ".bounded", "version.json"))).toBe(false);
+    expect(existsSync(rollbackRecordPath)).toBe(false);
+    expect(readFileSync(join(f.project, "bounded.config.ts"))).toEqual(config);
+    expect(readFileSync(join(f.project, "package.json"))).toEqual(manifest);
+    expect(readFileSync(join(f.project, "package-lock.json"))).toEqual(lock);
+    const node = Bun.which(process.platform === "win32" ? "node.exe" : "node");
+    if (node === null) throw new Error("The published npm rollback fixture requires Node");
+    const oldRuntime = Bun.spawnSync([node, "--input-type=module", "-e", "import('bounded/hosts/pi').then(() => console.log('loaded'))"], {
+      cwd: f.project, stdout: "pipe", stderr: "pipe", env: process.env,
+    });
+    expect(oldRuntime.exitCode).toBe(0);
+    expect(oldRuntime.stdout.toString()).toContain("loaded");
+    if (existsSync(f.managerLog)) expect(readFileSync(f.managerLog, "utf8").trim().split("\n").every((name) => name === "node")).toBe(true);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
