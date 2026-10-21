@@ -360,17 +360,23 @@ async function checkProposedRuntimeGraphBounds(lock: PackLock, contents: string,
 }
 
 /** Reads a complete pinned graph without network access or running package code. */
-async function verifyManagedPackLockDetailed(input: VerifyInput, limits?: typeof runtimeGraphLimits): Promise<Result<{ readonly lock: PackLock; readonly lockBytes: Uint8Array; readonly stored: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>>; readonly manifest: ArchiveManifest }> }>> {
+async function verifyManagedPackLockDetailed(input: VerifyInput, limits?: typeof runtimeGraphLimits, proposedLockBytes?: Uint8Array): Promise<Result<{ readonly lock: PackLock; readonly lockBytes: Uint8Array; readonly stored: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>>; readonly manifest: ArchiveManifest }> }>> {
   const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
   const safeLock = await noLinkedComponents(lockPath);
   if (!safeLock.ok) return safeLock;
   let lockBytes: Uint8Array;
   try {
-    const lockInfo = await lstat(lockPath);
-    if (!lockInfo.isFile()) return refusal(`Project pack lock ${lockPath} is not a regular file; re-add the packs`);
-    if (limits !== undefined && lockInfo.size > limits.lockBytes)
-      return refusal(`Managed pack lock byte bound exceeds ${limits.lockBytes}; reduce the dependency closure`);
-    lockBytes = await readFile(lockPath);
+    if (proposedLockBytes === undefined) {
+      const lockInfo = await lstat(lockPath);
+      if (!lockInfo.isFile()) return refusal(`Project pack lock ${lockPath} is not a regular file; re-add the packs`);
+      if (limits !== undefined && lockInfo.size > limits.lockBytes)
+        return refusal(`Managed pack lock byte bound exceeds ${limits.lockBytes}; reduce the dependency closure`);
+      lockBytes = await readFile(lockPath);
+    } else {
+      if (limits !== undefined && proposedLockBytes.byteLength > limits.lockBytes)
+        return refusal(`Managed pack lock byte bound exceeds ${limits.lockBytes}; reduce the dependency closure`);
+      lockBytes = proposedLockBytes;
+    }
   } catch (error) { return refusal(`Cannot read project pack lock ${lockPath}: ${errorText(error)}; re-add the packs`); }
   const parsed = json(lockBytes, "Project pack lock");
   if (!parsed.ok) return parsed;
@@ -1008,6 +1014,7 @@ function verifyDeclarationImports(
   boundedExportPaths: readonly string[],
   lock: PackLock,
   storeRoot: string,
+  verifiedStored?: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>> }>,
 ): Result<void> {
   for (const [path, bytes] of Object.entries(files)) {
     if (!path.endsWith(".d.ts")) continue;
@@ -1042,22 +1049,32 @@ function verifyDeclarationImports(
       const exportPath = specifier === dependencyName ? "." : `.${specifier.slice(dependencyName.length)}`;
       try {
         const childRoot = join(storeRoot, child.sha256, "package");
-        const raw: unknown = JSON.parse(readFileSync(join(childRoot, "package.json"), "utf8"));
+        const childFiles = verifiedStored?.get(childId)?.files;
+        if (verifiedStored !== undefined && childFiles === undefined)
+          return refusal(`${node.name} declaration ${path} imports missing verified ${specifier}`);
+        const packageBytes = childFiles?.["package.json"] ?? readFileSync(join(childRoot, "package.json"));
+        const raw: unknown = JSON.parse(new TextDecoder().decode(packageBytes));
         const entry = record(raw) && record(raw.exports) ? raw.exports[exportPath] : undefined;
         const types = record(entry) ? entry.types : undefined;
         if (typeof types !== "string" || !types.startsWith("./") || !types.endsWith(".d.ts") || !isSafeRelative(types.slice(2)))
           return refusal(`${node.name} declaration ${path} imports ${specifier}, which has no typed export`);
-        const declaration = join(childRoot, types.slice(2));
-        syncSafe(declaration);
-        if (!existsSync(declaration) || !lstatSync(declaration).isFile())
-          return refusal(`${node.name} declaration ${path} imports ${specifier}, whose declaration is missing`);
+        if (childFiles !== undefined) {
+          if (childFiles[types.slice(2)] === undefined)
+            return refusal(`${node.name} declaration ${path} imports ${specifier}, whose declaration is missing`);
+        } else {
+          const declaration = join(childRoot, types.slice(2));
+          syncSafe(declaration);
+          if (!existsSync(declaration) || !lstatSync(declaration).isFile())
+            return refusal(`${node.name} declaration ${path} imports ${specifier}, whose declaration is missing`);
+        }
       } catch (error) { return refusal(`${node.name} declaration ${path} cannot verify ${specifier}: ${projectionError(error)}`); }
     }
     if (references.typeReferenceDirectives.length > 0) return refusal(`${node.name} declaration ${path} has ambient type references; bundle declarations into the package`);
   }
   return { ok: true, value: undefined };
 }
-function desiredProjection(input: ProjectionVerifyInput, lock: PackLock): Result<{ packages: readonly string[]; files: Readonly<Record<string, Uint8Array>> }> {
+function desiredProjection(input: ProjectionVerifyInput, lock: PackLock,
+  verifiedStored?: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>> }>): Result<{ packages: readonly string[]; files: Readonly<Record<string, Uint8Array>> }> {
   let release: Readonly<Record<string, Uint8Array>>;
   try { release = releaseTypes(input); } catch (error) { return refusal(projectionError(error)); }
   const result: Record<string, Uint8Array> = {};
@@ -1082,14 +1099,16 @@ function desiredProjection(input: ProjectionVerifyInput, lock: PackLock): Result
     if (node === undefined) return refusal(`Projection package node ${id} is missing`);
     let stored: Readonly<Record<string, Uint8Array>>;
     try {
+      const locked = verifiedStored?.get(id);
+      if (verifiedStored !== undefined && locked === undefined) return refusal(`Projection has no verified files for ${id}`);
       const store = join(input.storeRoot, node.sha256, "package");
-      stored = Object.fromEntries(Object.keys(fileSet(store))
+      stored = locked?.files ?? Object.fromEntries(Object.keys(fileSet(store))
         .map((name) => [name, readFileSync(join(store, name))]));
     } catch (error) { return refusal(`Projection cannot read verified ${id}: ${projectionError(error)}`); }
     let raw: unknown;
     try { raw = JSON.parse(new TextDecoder().decode(stored["package.json"])); } catch { return refusal(`${id} package.json is malformed`); }
     if (!record(raw)) return refusal(`${id} package.json is malformed`);
-    const declarationImports = verifyDeclarationImports(node, stored, input.boundedExportPaths, lock, input.storeRoot);
+    const declarationImports = verifyDeclarationImports(node, stored, input.boundedExportPaths, lock, input.storeRoot, verifiedStored);
     if (!declarationImports.ok) return declarationImports;
     const selected = packageExportsTypes(raw.exports, stored, node.name);
     if (!selected.ok) return selected;
@@ -1366,6 +1385,148 @@ export async function recoverManagedPackProjection(input: ProjectionVerifyInput 
     return await verifyManagedPackProjection(input);
   } catch (error) { return refusal(`Cannot recover projection journal or backup: ${projectionError(error)}`); }
   finally { await writer.value(); }
+}
+
+/** The update command holds this lease throughout preparation and publication. */
+export interface ManagedPackWriter { readonly release: () => Promise<void> }
+const managedPackWriterLeases = new WeakMap<ManagedPackWriter, { readonly projectRoot: string; active: boolean }>();
+
+export async function acquireManagedPackWriter(projectRoot: string): Promise<Result<ManagedPackWriter>> {
+  const lockPath = projectionPaths(projectRoot).lock;
+  const acquired = await acquireProjectWriter(lockPath);
+  if (!acquired.ok) return acquired;
+  const state = { projectRoot: resolve(projectRoot), active: true };
+  const writer: ManagedPackWriter = { release: async () => {
+    if (!state.active) throw new Error("Managed pack writer has already been released");
+    await acquired.value();
+    state.active = false;
+  } };
+  managedPackWriterLeases.set(writer, state);
+  return { ok: true, value: writer };
+}
+
+export type ManagedPackReleaseTypes = Pick<ProjectionVerifyInput, "boundedVersion" | "boundedExportPaths" | "releaseTypesRoot" | "releaseTypeFilesFromVerifiedManifest">;
+export interface ManagedPackOwnedFile { readonly bytes: Uint8Array; readonly mode: number }
+export interface ManagedPackTargetProjection {
+  readonly oldOwnedFiles: Readonly<Record<string, ManagedPackOwnedFile>>;
+  readonly newOwnedFiles: Readonly<Record<string, ManagedPackOwnedFile>>;
+  readonly oldOwnedDirectories: readonly string[];
+  readonly newOwnedDirectories: readonly string[];
+  readonly targetLockBytes: Uint8Array;
+  readonly targetReceiptBytes: Uint8Array;
+  /** Usable for semantic preflight while the source lock is active; discard before publishing. */
+  readonly targetGraph: ManagedPackRuntimeGraph;
+  readonly sourceLockSha256: string;
+  readonly targetLockSha256: string;
+}
+
+/** Validate a target release and copy the complete owned projection without publishing it. */
+export async function prepareManagedPackTargetProjectionUnderWriter(input: {
+  readonly writer: ManagedPackWriter;
+  readonly projectRoot: string;
+  readonly storeRoot: string;
+  /** Test-only fault seam between source verification and rollback-byte capture. */
+  readonly afterSourceVerified?: () => Promise<void>;
+  readonly source: ManagedPackReleaseTypes;
+  readonly target: ManagedPackReleaseTypes;
+}): Promise<Result<ManagedPackTargetProjection>> {
+  const lease = managedPackWriterLeases.get(input.writer);
+  if (lease === undefined || !lease.active || lease.projectRoot !== resolve(input.projectRoot))
+    return refusal("An active managed pack writer for this project is required");
+  const paths = projectionPaths(input.projectRoot);
+  const sourceInput = { ...input.source, projectRoot: input.projectRoot, storeRoot: input.storeRoot };
+  const targetInput = { ...input.target, projectRoot: input.projectRoot, storeRoot: input.storeRoot };
+  try {
+    syncSafe(paths.journal);
+    if (existsSync(paths.journal)) return refusal(`Projection journal ${paths.journal} requires recovery before update`);
+    const sourceVerified = await verifyProjectionState(sourceInput, false, runtimeGraphLimits);
+    if (!sourceVerified.ok) return sourceVerified;
+    const sourceLock = await verifyManagedPackLockDetailed(sourceInput, runtimeGraphLimits);
+    if (!sourceLock.ok) return sourceLock;
+    const sourceGraph = await captureManagedPackRuntimeGraph(sourceInput);
+    if (!sourceGraph.ok) return sourceGraph;
+    await input.afterSourceVerified?.();
+    const sourceLockBytes = Uint8Array.from(sourceLock.value.lockBytes);
+    const sourceReceiptBytes = Uint8Array.from(readFileSync(paths.receipt));
+    if (sha256(sourceReceiptBytes) !== sha256(readFileSync(paths.receipt)) || sha256(sourceLockBytes) !== sha256(readFileSync(paths.lock)))
+      return refusal("Managed pack source lock or receipt changed during update preparation");
+
+    const candidateLockBytes = utf8(`${JSON.stringify({ ...sourceLock.value.lock, boundedVersion: input.target.boundedVersion })}\n`);
+    const targetVerified = await verifyManagedPackLockDetailed(targetInput, runtimeGraphLimits, candidateLockBytes);
+    if (!targetVerified.ok) return targetVerified;
+    const targetProjection = desiredProjection(targetInput, targetVerified.value.lock, targetVerified.value.stored);
+    if (!targetProjection.ok) return targetProjection;
+    const targetReceipt = receiptFor(new TextDecoder().decode(candidateLockBytes), targetProjection.value);
+    const candidateReceiptBytes = utf8(`${JSON.stringify(targetReceipt)}\n`);
+
+    const oldPackages = sourceVerified.value.packages;
+    const newPackages = targetProjection.value.packages;
+    for (const name of newPackages) {
+      const packagePath = join(paths.modules, name);
+      syncSafe(packagePath);
+      if (existsSync(packagePath) && !oldPackages.includes(name))
+        return refusal(`Unowned package collision at ${packagePath}; move it manually before update`);
+    }
+    const oldOwnedFiles: Record<string, ManagedPackOwnedFile> = {
+      ".bounded/packs.lock.json": { bytes: sourceLockBytes, mode: lstatSync(paths.lock).mode & 0o777 },
+      ".bounded/types-receipt.json": { bytes: sourceReceiptBytes, mode: lstatSync(paths.receipt).mode & 0o777 },
+    };
+    const oldDirectories = new Set<string>();
+    for (const name of oldPackages) {
+      const packageRoot = join(paths.modules, name);
+      oldDirectories.add(`node_modules/${name}`);
+      for (const directory of directorySet(packageRoot)) oldDirectories.add(`node_modules/${name}/${directory}`);
+    }
+    for (const directory of impliedDirectories(sourceVerified.value.files)) if (directory !== "node_modules") oldDirectories.add(directory);
+    for (const name of Object.keys(sourceVerified.value.files)) {
+      const filePath = join(input.projectRoot, name);
+      oldOwnedFiles[name] = { bytes: Uint8Array.from(readFileSync(filePath)), mode: lstatSync(filePath).mode & 0o777 };
+    }
+    const newOwnedFiles: Record<string, ManagedPackOwnedFile> = {
+      ".bounded/packs.lock.json": { bytes: Uint8Array.from(candidateLockBytes), mode: oldOwnedFiles[".bounded/packs.lock.json"]?.mode ?? 0o644 },
+      ".bounded/types-receipt.json": { bytes: Uint8Array.from(candidateReceiptBytes), mode: oldOwnedFiles[".bounded/types-receipt.json"]?.mode ?? 0o644 },
+    };
+    for (const [name, bytes] of Object.entries(targetProjection.value.files)) newOwnedFiles[name] = { bytes: Uint8Array.from(bytes), mode: 0o644 };
+    const newDirectories = new Set<string>();
+    for (const name of newPackages) newDirectories.add(`node_modules/${name}`);
+    for (const directory of impliedDirectories(targetReceipt.files)) if (directory !== "node_modules") newDirectories.add(directory);
+
+    const nodes: Record<string, ManagedPackRuntimeNode> = {};
+    for (const [id, data] of targetVerified.value.stored) {
+      const node = targetVerified.value.lock.nodes[id];
+      if (node === undefined) return refusal(`Managed pack graph lost node ${id}`);
+      const files = Object.fromEntries(Object.entries(data.files).map(([name, bytes]) => [name, Uint8Array.from(bytes)]));
+      let catalogue: ManagedPackRuntimeNode["catalogue"] = null;
+      if (data.manifest.bounded !== undefined) {
+        const manifest = PackageManifest.parse({ name: node.name, version: node.version, bounded: data.manifest.bounded });
+        if (!manifest.ok) return refusal(`${id} has invalid pack manifest: ${manifest.error}`);
+        const catalogueBytes = files[manifest.value.catalogPath];
+        if (catalogueBytes === undefined) return refusal(`${id} has no locked catalogue`);
+        const parsed = json(catalogueBytes, `${id} catalogue`);
+        if (!parsed.ok) return parsed;
+        const selected = PackageCatalog.parse(parsed.value);
+        if (!selected.ok) return selected;
+        catalogue = selected.value;
+      }
+      nodes[id] = { id, name: node.name, version: node.version, dependencies: node.dependencies,
+        exports: data.manifest.exports, files, catalogue };
+    }
+    const boundary = await sourceGraph.value.recheckBoundary();
+    if (!boundary.ok) return boundary;
+    if (sha256(readFileSync(paths.lock)) !== sha256(sourceLockBytes) || sha256(readFileSync(paths.receipt)) !== sha256(sourceReceiptBytes))
+      return refusal("Managed pack source lock or receipt changed during update preparation");
+    for (const [name, expected] of Object.entries(sourceVerified.value.files)) {
+      const bytes = oldOwnedFiles[name]?.bytes;
+      if (bytes === undefined || sha256(bytes) !== expected)
+        return refusal(`Managed pack owned projection ${name} changed after source verification`);
+    }
+    verifyOwnedProjection(sourceInput, sourceVerified.value, sourceLockBytes);
+    return { ok: true, value: { oldOwnedFiles, newOwnedFiles,
+      oldOwnedDirectories: [...oldDirectories].sort(), newOwnedDirectories: [...newDirectories].sort(),
+      targetLockBytes: Uint8Array.from(candidateLockBytes), targetReceiptBytes: Uint8Array.from(candidateReceiptBytes),
+      targetGraph: { roots: targetVerified.value.lock.roots, nodes, recheckBoundary: sourceGraph.value.recheckBoundary },
+      sourceLockSha256: sha256(sourceLockBytes), targetLockSha256: sha256(candidateLockBytes) } };
+  } catch (error) { return refusal(`Cannot prepare managed pack target projection: ${projectionError(error)}`); }
 }
 
 /** Prepare and validate under one writer, then publish the projection, receipt and lock. */
