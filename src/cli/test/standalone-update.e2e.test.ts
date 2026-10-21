@@ -214,6 +214,30 @@ test("one-generation rollback restores the verified prior standalone release and
     const recordedRollback = readFileSync(rollbackRecord);
     const targetPaths = [settingsPath, loaderPath, pinPath, join(f.project, "bounded.config.ts")];
     const targetFiles = targetPaths.map((path) => readFileSync(path));
+    const recorded = JSON.parse(recordedRollback.toString("utf8")) as {
+      source: { kind: string; version: string }; targetVersion: string; sourceFiles: Record<string, string>;
+      files: { path: string; before: { content: string | null; mode: number | null }; after: { content: string | null; mode: number | null } }[];
+    };
+    const rollbackJournal = { ...recorded, intent: "rollback", source: { kind: "standalone", version: f.version },
+      targetVersion: prior.version,
+      files: recorded.files.map((file) => ({ path: file.path, before: file.after, after: file.before })),
+      rollbackRecordBefore: { content: recordedRollback.toString("base64"), mode: lstatSync(rollbackRecord).mode & 0o777 } };
+    const updateMarker = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(updateMarker, `${JSON.stringify(rollbackJournal)}\n`);
+    const priorSettings = previous[0];
+    if (priorSettings === undefined) throw new Error("Missing previous Claude hook snapshot");
+    writeFileSync(settingsPath, priorSettings.bytes);
+    const recoveredRollback = run(f, ["update"]);
+    expect(recoveredRollback.exitCode).toBe(2);
+    expect(recoveredRollback.stderr).toContain("restored the previous project state");
+    expect(existsSync(updateMarker)).toBe(false);
+    for (const [index, path] of targetPaths.entries()) {
+      const original = targetFiles[index];
+      if (original === undefined) throw new Error(`Missing target update file ${path}`);
+      expect(readFileSync(path)).toEqual(original);
+    }
+    expect(readFileSync(rollbackRecord)).toEqual(recordedRollback);
+    expect(run(f, ["check"]).exitCode).toBe(0);
     for (const [index, path] of targetPaths.entries()) {
       const original = targetFiles[index];
       if (original === undefined) throw new Error(`Missing target update file ${path}`);
