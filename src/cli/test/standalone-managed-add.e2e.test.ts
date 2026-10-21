@@ -357,9 +357,14 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const updateJournalPath = join(priorProject, ".bounded", "update-journal.json");
     const priorDirectoryInventory = directoryInventory(priorProject, staged.priorOwnedDirectories);
     const forged = JSON.parse(staged.journal) as { files: { path: string; before: { content: string | null } }[] };
-    const forgedOwnedFile = forged.files.find((file) => file.path.startsWith("node_modules/") && file.before.content !== null);
-    if (forgedOwnedFile === undefined) throw new Error("Managed update fixture has no projected file to forge");
-    forgedOwnedFile.before.content = Buffer.from("forged old projection bytes").toString("base64");
+    const forgedLock = forged.files.find((file) => file.path === ".bounded/packs.lock.json" && file.before.content !== null);
+    if (forgedLock?.before.content === null || forgedLock === undefined) throw new Error("Managed update fixture has no source pack lock");
+    const alteredLock = JSON.parse(Buffer.from(forgedLock.before.content, "base64").toString("utf8")) as {
+      nodes: Record<string, { sha256: string }> };
+    const firstNode = Object.values(alteredLock.nodes)[0];
+    if (firstNode === undefined) throw new Error("Managed update fixture has no stored pack node");
+    firstNode.sha256 = "0".repeat(64);
+    forgedLock.before.content = Buffer.from(`${JSON.stringify(alteredLock)}\n`).toString("base64");
     const originalClaude = readFileSync(join(priorProject, ".claude", "settings.json"));
     const originalClaudeMode = lstatSync(join(priorProject, ".claude", "settings.json")).mode & 0o777;
     const originalPi = readFileSync(join(priorProject, ".pi", "extensions", "bounded", "index.ts"));
@@ -367,12 +372,13 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const originalPin = readFileSync(join(priorProject, ".bounded", "version.json"));
     const originalPinMode = lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777;
     writeFileSync(updateJournalPath, `${JSON.stringify(forged)}\n`);
+    writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), staged.targetLock);
     const refusedForged = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
     expect(refusedForged.exitCode).toBe(2);
     expect(refusedForged.stderr.toString()).toMatch(/snapshot|owned file/i);
     expect(existsSync(updateJournalPath)).toBe(true);
     for (const [path, owned] of Object.entries(staged.priorOwnedFiles)) {
-      expect(readFileSync(join(priorProject, path))).toEqual(Buffer.from(owned.bytes));
+      expect(readFileSync(join(priorProject, path))).toEqual(path === ".bounded/packs.lock.json" ? Buffer.from(staged.targetLock) : Buffer.from(owned.bytes));
       expect(lstatSync(join(priorProject, path)).mode & 0o777).toBe(owned.mode);
     }
     expect(readFileSync(join(priorProject, ".claude", "settings.json"))).toEqual(originalClaude);
@@ -383,6 +389,9 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(lstatSync(join(priorProject, ".bounded", "version.json")).mode & 0o777).toBe(originalPinMode);
     expect(directoryInventory(priorProject, staged.priorOwnedDirectories)).toEqual(priorDirectoryInventory);
     rmSync(updateJournalPath);
+    const sourceLock = staged.priorOwnedFiles[".bounded/packs.lock.json"];
+    if (sourceLock === undefined) throw new Error("Managed update fixture lost its source pack lock");
+    writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), sourceLock.bytes);
     writeFileSync(updateJournalPath, staged.journal);
     writeFileSync(join(priorProject, ".bounded", "packs.lock.json"), staged.targetLock);
     const recovered = Bun.spawnSync([binary, "update"], { cwd: priorProject, env: priorEnvironment, stdout: "pipe", stderr: "pipe" });
