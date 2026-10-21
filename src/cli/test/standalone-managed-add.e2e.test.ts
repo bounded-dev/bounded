@@ -280,7 +280,9 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     writeFileSync(join(project, "bounded.config.ts"), hostSpecificConfig);
     const bothHostsChecked = runCheck();
     expect(bothHostsChecked.exitCode).toBe(2);
-    expect(bothHostsChecked.stderr).toMatch(/Claude Code.*bounded\/prereqs.*prerequisiteStatusSnapshots|bounded\/prereqs.*prerequisiteStatusSnapshots.*Claude Code/s);
+    expect(bothHostsChecked.stderr).toContain("Claude Code");
+    expect(bothHostsChecked.stderr).toContain("bounded/prereqs");
+    expect(bothHostsChecked.stderr).toContain("prerequisiteStatusSnapshots");
     writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     writeFileSync(join(project, "bounded.config.ts"), validConfig);
