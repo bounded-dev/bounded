@@ -60,7 +60,7 @@ test("an oversized managed update journal is refused before any recovery callbac
       async committedTarget() { callbackCount += 1; return { ok: true, value: undefined }; },
     });
     expect(verified.ok).toBe(false);
-    expect(verified.ok ? "" : verified.error).toMatch(/journal.*(?:bound|limit)/i);
+    expect(verified.ok ? "" : verified.error).toContain("update journal exceeds file-count bound");
     expect(callbackCount).toBe(0);
     expect(readFileSync(markerPath, "utf8")).toBe(`${JSON.stringify(journal)}\n`);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
