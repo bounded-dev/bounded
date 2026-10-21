@@ -58,6 +58,33 @@ function hookPayload(project: string, tool: string): Uint8Array {
     cwd: project, session_id: "managed-add-test", tool_use_id: `call-${tool}` }));
 }
 
+function invokeInstalledPi(project: string, environment: Record<string, string | undefined>): { readonly exitCode: number; readonly stdout: string; readonly stderr: string } {
+  const piPackage = "@earendil-works/pi-coding-agent";
+  const fixture = join(REPO, "src", "hosts", "pi", "test", "fixtures", "pi-runtime");
+  const piRoot = process.env.PI_CODING_AGENT_DIR ?? join(fixture, "node_modules", piPackage);
+  if (!existsSync(join(piRoot, "package.json")) && process.env.PI_CODING_AGENT_DIR === undefined) {
+    const npm = Bun.which(process.platform === "win32" ? "npm.cmd" : "npm");
+    if (npm === null) throw new Error("Pinned Pi fixture requires npm during CI setup");
+    successful([npm, "ci", "--prefix", fixture, "--ignore-scripts", "--no-audit", "--no-fund"], REPO);
+  }
+  const node = process.env.PI_NODE_BINARY ?? Bun.which("node");
+  if (node === null) throw new Error("Pinned Pi runtime requires Node for Pi itself");
+  const script = join(project, "pi-published-port.mjs");
+  writeFileSync(script, `import { pathToFileURL } from "node:url";
+const piLoader = await import(pathToFileURL(${JSON.stringify(join(piRoot, "dist", "core", "extensions", "loader.js"))}).href);
+const piBus = await import(pathToFileURL(${JSON.stringify(join(piRoot, "dist", "core", "event-bus.js"))}).href);
+const loaded = await piLoader.loadExtensions([${JSON.stringify(join(project, ".pi", "extensions", "bounded", "index.ts"))}], process.cwd(), piBus.createEventBus());
+if (loaded.errors.length !== 0 || loaded.extensions.length !== 1) throw new Error(JSON.stringify(loaded.errors));
+const handlers = new Map([...loaded.extensions[0].handlers].map(([name, values]) => [name, values[0]]));
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const answer = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "published-port-read", toolName: "read", input: { path: "README.md" } }, { cwd: process.cwd() });
+console.log(JSON.stringify(answer));
+process.exit(0);
+`);
+  const run = Bun.spawnSync([node, script], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+  return { exitCode: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
+}
+
 /** Add a second pack to the cloned publication fixture, with its adapter on a declared export path. */
 function addPortBackedPublishedFixture(packageRoot: string): void {
   const manifestPath = join(packageRoot, "package.json");
@@ -153,9 +180,10 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     stopRegistry = () => new Promise<void>((resolveStop, rejectStop) => server.close((error) => error ? rejectStop(error) : resolveStop()));
 
     const project = join(scratch, "python-project"); mkdirSync(project);
+    mkdirSync(join(project, ".pi"));
     const environment = { ...process.env, PATH: join(scratch, "empty-path"), XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome,
       NODE_EXTRA_CA_CERTS: certificate, SSL_CERT_FILE: certificate, CLAUDE_PROJECT_DIR: project, XDG_STATE_HOME: join(scratch, "state") };
-    const initialized = Bun.spawnSync([binary, "init", "--host", "claude-code"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    const initialized = Bun.spawnSync([binary, "init", "--host", "claude-code", "--host", "pi"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     expect({ exitCode: initialized.exitCode, stderr: initialized.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
     const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
     writeFileSync(join(project, "bounded.config.ts"), originalConfig);
@@ -187,6 +215,16 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const decisions = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
       .map((line) => JSON.parse(line) as { verdict: { kind: string } });
     expect(decisions.map((decision) => decision.verdict.kind)).toEqual(["refuse", "allow"]);
+    const piProject = join(scratch, "pi-only-python-project"); mkdirSync(piProject);
+    mkdirSync(join(piProject, ".pi"));
+    const piEnvironment = { ...environment, CLAUDE_PROJECT_DIR: piProject };
+    const piInitialized = Bun.spawnSync([binary, "init", "--host", "pi"], { cwd: piProject, env: piEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: piInitialized.exitCode, stderr: piInitialized.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const piAdded = Bun.spawn([binary, "add", "bounded-example@0.1.0", "--registry", registryUrl],
+      { cwd: piProject, env: piEnvironment, stdout: "pipe", stderr: "pipe" });
+    await new Response(piAdded.stdout).text();
+    const piAddError = await new Response(piAdded.stderr).text();
+    expect({ exitCode: await piAdded.exited, stderr: piAddError }).toEqual({ exitCode: 0, stderr: "" });
     await stopRegistry();
     stopRegistry = undefined;
 
@@ -204,8 +242,40 @@ test("a compiled archive adds and executes a published pack with no ambient pack
       stdin: hookPayload(project, "Read"), stdout: "pipe", stderr: "pipe" });
     expect(portJudged.exitCode).toBe(0);
     expect(portJudged.stdout.toString()).toContain("Published port refused the call");
+    const piJudged = invokeInstalledPi(project, environment);
+    expect(piJudged.exitCode).toBe(0);
+    expect(JSON.parse(piJudged.stdout.trim())).toMatchObject({ block: true, reason: expect.stringContaining("Published port refused the call") });
     writeFileSync(join(project, "bounded.config.ts"), portConfig.replace("new PublishedNotes(root)", '(() => { throw new Error("factory opened during check"); })() as PublishedNotes'));
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    writeFileSync(join(project, "bounded.config.ts"), portConfig);
+    const lock = JSON.parse(readFileSync(join(project, ".bounded", "packs.lock.json"), "utf8")) as {
+      roots: Record<string, string>; nodes: Record<string, { sha256: string }> };
+    const publishedRoot = lock.roots["bounded-example"];
+    const publishedNode = publishedRoot === undefined ? undefined : lock.nodes[publishedRoot];
+    if (publishedNode === undefined) throw new Error("Published pack has no stored artifact node");
+    const storedPackage = join(dataHome, "bounded", "packs", "store", publishedNode.sha256, "package");
+    const adapterPath = join(storedPackage, "packs", "port-backed", "adapter.ts");
+    const adapterBytes = readFileSync(adapterPath, "utf8");
+    writeFileSync(adapterPath, `${adapterBytes}\n// changed installed adapter\n`);
+    const changedAdapter = runCheck();
+    expect(changedAdapter.exitCode).toBe(2);
+    expect(changedAdapter.stderr).toMatch(/adapter\.ts.*(?:changed|modified|differs)|(?:changed|modified).*adapter\.ts/s);
+    writeFileSync(adapterPath, adapterBytes);
+    const packSourcePath = join(storedPackage, "packs", "port-backed", "port-backed.pack.ts");
+    const packSourceBytes = readFileSync(packSourcePath, "utf8");
+    writeFileSync(packSourcePath, `${packSourceBytes}\n// changed installed pack source\n`);
+    const changedPackSource = runCheck();
+    expect(changedPackSource.exitCode).toBe(2);
+    expect(changedPackSource.stderr).toMatch(/port-backed\.pack\.ts.*(?:changed|modified|differs)|(?:changed|modified).*port-backed\.pack\.ts/s);
+    writeFileSync(packSourcePath, packSourceBytes);
+    const hostSpecificConfig = 'import { defineConfig, Ports } from "bounded/domain";\nimport { prereqs } from "bounded/prereqs";\nimport { FileSystemPrerequisiteStatusSnapshots } from "bounded/prereqs/adapters";\nimport { portBackedPack } from "bounded-example/port-backed";\nimport { PublishedNotes } from "bounded-example/port-backed-adapter";\nexport default defineConfig({ packs: [portBackedPack, prereqs], ports: [Ports.provide(portBackedPack.ports.notes, root => new PublishedNotes(root)), Ports.provide(prereqs.optionalPorts.prerequisiteStatusSnapshots, root => new FileSystemPrerequisiteStatusSnapshots(root))] });\n';
+    writeFileSync(join(piProject, "bounded.config.ts"), hostSpecificConfig);
+    const piOnlyChecked = Bun.spawnSync([binary, "check"], { cwd: piProject, env: piEnvironment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: piOnlyChecked.exitCode, stderr: piOnlyChecked.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    writeFileSync(join(project, "bounded.config.ts"), hostSpecificConfig);
+    const bothHostsChecked = runCheck();
+    expect(bothHostsChecked.exitCode).toBe(2);
+    expect(bothHostsChecked.stderr).toMatch(/Claude Code.*bounded\/prereqs.*prerequisiteStatusSnapshots|bounded\/prereqs.*prerequisiteStatusSnapshots.*Claude Code/s);
     writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
     writeFileSync(join(project, "bounded.config.ts"), validConfig);
