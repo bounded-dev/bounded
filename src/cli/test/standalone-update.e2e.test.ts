@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -116,6 +116,33 @@ test("update refuses a configuration type error before changing any installed ho
     expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(loader);
     expect(readFileSync(join(f.project, ".bounded", "version.json"))).toEqual(pin);
     expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("update preflights each installed host's ports and names the host whose wiring conflicts", async () => {
+  const f = await fixture();
+  try {
+    const hostSpecificConfig = 'import { defineConfig, Ports } from "bounded/domain";\nimport { prereqs } from "bounded/prereqs";\nimport { FileSystemPrerequisiteStatusSnapshots } from "bounded/prereqs/adapters";\nexport default defineConfig({ packs: [prereqs], ports: [Ports.provide(prereqs.optionalPorts.prerequisiteStatusSnapshots, root => new FileSystemPrerequisiteStatusSnapshots(root))] });\n';
+    rmSync(join(f.project, ".claude"), { recursive: true, force: true });
+    expect(run(f, ["init", "--host", "pi"]).exitCode).toBe(0);
+    writeFileSync(join(f.project, "bounded.config.ts"), hostSpecificConfig);
+    expect(run(f, ["update"]).exitCode).toBe(0);
+    expect(run(f, ["check"]).exitCode).toBe(0);
+    const before = readFileSync(join(f.project, ".bounded", "version.json"));
+    // Install the exact generated Claude hook set without changing the existing configuration.
+    mkdirSync(join(f.project, ".claude"));
+    const generated = await import("../../hosts/claude-code/standalone-install.ts");
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect((await prepared.value.install()).ok).toBe(true);
+    const settings = readFileSync(join(f.project, ".claude", "settings.json"));
+    const answer = run(f, ["update"]);
+    expect(answer.exitCode).not.toBe(0);
+    expect(answer.stderr).toContain("Claude Code");
+    expect(answer.stderr).toContain("prerequisiteStatusSnapshots");
+    expect(readFileSync(join(f.project, ".bounded", "version.json"))).toEqual(before);
+    expect(readFileSync(join(f.project, ".claude", "settings.json"))).toEqual(settings);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
