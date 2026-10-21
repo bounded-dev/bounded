@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -238,6 +238,20 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     expect(listed.stdout.toString()).toContain("bounded-example/refused-tools\tbounded-example@0.1.0\t");
     expect(listed.stdout.toString()).toContain("bounded-example/port-backed\tbounded-example@0.1.0\t");
     expect(listed.stdout.toString()).toContain("bounded/prereqs\tbounded@3.3.0\t");
+    const nestedProjectDirectory = join(project, "nested", "source");
+    mkdirSync(nestedProjectDirectory, { recursive: true });
+    const nestedListed = Bun.spawnSync([binary, "packs"], { cwd: nestedProjectDirectory, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: nestedListed.exitCode, stderr: nestedListed.stderr.toString(), stdout: nestedListed.stdout.toString() })
+      .toEqual({ exitCode: 0, stderr: "", stdout: listed.stdout.toString() });
+    const linkedProject = join(scratch, "linked-python-project");
+    const linkedBoundary = join(scratch, "linked-boundary");
+    mkdirSync(linkedProject);
+    mkdirSync(linkedBoundary);
+    symlinkSync(linkedBoundary, join(linkedProject, ".bounded"), process.platform === "win32" ? "junction" : "dir");
+    const linkedListed = Bun.spawnSync([binary, "packs"], { cwd: linkedProject, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect(linkedListed.exitCode).not.toBe(0);
+    expect(linkedListed.stdout.toString()).toBe("");
+    expect(linkedListed.stderr.toString()).toMatch(/linked|symlink|boundary|version/i);
     for (const args of [["packs", "show"], ["packs", "show", "bounded-example/refused-tools", "extra"], ["packs", "extra"]]) {
       const invalid = Bun.spawnSync([binary, ...args], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
       expect(invalid.exitCode).not.toBe(0);

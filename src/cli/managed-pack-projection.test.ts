@@ -859,6 +859,34 @@ describe("managed pack type-only projection and publication", () => {
     expect(readFileSync(catalogPath, "utf8")).toContain("Tampered tool rules");
   });
 
+  test("offline discovery refuses an update journal that appears after managed capture", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "bounded-discovery-update-boundary-"));
+    roots.push(projectRoot);
+    mkdirSync(join(projectRoot, ".bounded"));
+    const captured = { recheckBoundary: async (): Promise<Result<void>> => ({ ok: true, value: undefined }) };
+    writeFileSync(join(projectRoot, ".bounded", "update-journal.json"), "{}\n");
+    const verifyBoundary = (standaloneRuntimeModule as unknown as { readonly verifyStandalonePackDiscoveryBoundary:
+      (root: string, graph: typeof captured) => Promise<Result<void>> }).verifyStandalonePackDiscoveryBoundary;
+    const verified = await verifyBoundary(projectRoot, captured);
+    expect(verified.ok).toBe(false);
+    if (!verified.ok) expect(verified.error).toMatch(/update.*journal|recover/i);
+  });
+
+  test("offline list refuses control characters in catalogue ids and summaries", () => {
+    const render = (standaloneRuntimeModule as unknown as { readonly renderStandalonePackDiscovery:
+      (includedCatalogue: CataloguedPackage, graph: RuntimeGraph | undefined) => Result<string> }).renderStandalonePackDiscovery;
+    for (const [id, summary] of [["bounded/refused-tools", "First row\nforged/row\tforeign@9.9.9"],
+      ["bounded/first\tforeign@9.9.9\nforged/row", "Safe summary"]] as const) {
+      const base = catalogue("bounded", "3.3.0");
+      const parsed = PackageCatalog.parse({ ...base, packs: [{ ...base.packs[0], id, summary }] });
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) continue;
+      const listed = render(parsed.value, undefined);
+      expect(listed.ok).toBe(false);
+      if (!listed.ok) expect(listed.error).toMatch(/control|line|tab|safe|newline/i);
+    }
+  });
+
   test("capture refuses an overbound graph before opening any store", async () => {
     const given = fixture();
     expect((await given.run()).ok).toBe(true);
