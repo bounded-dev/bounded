@@ -47,6 +47,7 @@ type PreparedTarget = { readonly oldOwnedFiles: Readonly<Record<string, { readon
   readonly targetLockBytes: Uint8Array; readonly targetReceiptBytes: Uint8Array;
   readonly targetGraph: RuntimeGraph; readonly sourceLockSha256: string; readonly targetLockSha256: string };
 type PrepareTarget = (input: { readonly writer: Writer; readonly projectRoot: string; readonly storeRoot: string;
+  readonly afterSourceVerified?: () => Promise<void>;
   readonly source: Release; readonly target: Release }) => Promise<Result<PreparedTarget>>;
 const acquireWriter = (projectionModule as unknown as { readonly acquireManagedPackWriter: (projectRoot: string) => Promise<Result<Writer>> }).acquireManagedPackWriter;
 const prepareTarget = (projectionModule as unknown as { readonly prepareManagedPackTargetProjectionUnderWriter: PrepareTarget }).prepareManagedPackTargetProjectionUnderWriter;
@@ -316,6 +317,26 @@ describe("managed pack type-only projection and publication", () => {
       expect(capturedNode.files["dist/index.js"]).toEqual(original);
       writeFileSync(given.journalPath, "{}\n");
       expect((await (prepared.value.targetGraph as RuntimeGraph & { recheckBoundary: () => Promise<Result<void>> }).recheckBoundary()).ok).toBe(false);
+    } finally { await writer.value.release(); }
+  });
+
+  test("update refuses an owned declaration changed after source verification before capturing rollback bytes", async () => {
+    const given = fixture();
+    expect((await given.run()).ok).toBe(true);
+    const release = { boundedVersion: "3.3.0", boundedExportPaths: ["./domain"], releaseTypesRoot: given.releaseTypesRoot,
+      releaseTypeFilesFromVerifiedManifest: given.releaseTypeFilesFromVerifiedManifest };
+    const declaration = join(given.projectRoot, "node_modules", "bounded", "core", "domain", "index.d.ts");
+    const original = readFileSync(declaration);
+    const writer = await acquireWriter(given.projectRoot);
+    expect(writer.ok).toBe(true);
+    if (!writer.ok) return;
+    try {
+      const prepared = await prepareTarget({ writer: writer.value, projectRoot: given.projectRoot, storeRoot: given.storeRoot,
+        source: release, target: release, afterSourceVerified: async () => { writeFileSync(declaration, "export declare const tampered: true;\n"); } });
+      expect(prepared.ok).toBe(false);
+      if (!prepared.ok) expect(prepared.error).toMatch(/projection|receipt|changed|owned/i);
+      expect(readFileSync(declaration)).not.toEqual(original);
+      expect(existsSync(given.journalPath)).toBe(false);
     } finally { await writer.value.release(); }
   });
   test("an overbound proposed runtime graph refuses before publishing lock, receipt or projection", async () => {
