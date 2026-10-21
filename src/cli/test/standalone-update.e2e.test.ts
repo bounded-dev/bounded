@@ -452,6 +452,34 @@ for (const recoveryPhase of ["restored source", "committed target"] as const) {
   }, 240_000);
 }
 
+test("recovery commits a same-version host refresh when every file matches its target snapshot", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    const compactPriorSettings = `${JSON.stringify(JSON.parse(readFileSync(settingsPath, "utf8")))}\n`;
+    writeFileSync(settingsPath, compactPriorSettings);
+    const generated = await import("../../hosts/claude-code/standalone-install.ts");
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
+      { recognizedPriorExecutable: realpathSync(f.binary) });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(prepared.value.nextBytes).not.toBe(compactPriorSettings);
+    const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+    const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+    if (claude === undefined) throw new Error("journal lacks Claude settings");
+    claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    writeFileSync(settingsPath, prepared.value.nextBytes);
+    const journalPath = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).toBe(0);
+    expect(existsSync(journalPath)).toBe(false);
+    expect(readFileSync(settingsPath, "utf8")).toBe(prepared.value.nextBytes);
+    expect(run(f, ["check"]).exitCode).toBe(0);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
 test("a published npm installation migrates to the archive executable without changing config or npm bytes", async () => {
   const f = await fixture();
   try {
