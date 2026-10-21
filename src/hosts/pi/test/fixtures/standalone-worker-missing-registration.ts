@@ -17,7 +17,6 @@ mock.module("../../extension.ts", () => ({
   },
 }));
 
-// @ts-ignore The worker is introduced after this test-only red commit.
 const { runStandalonePiWorker } = await import("../../standalone-worker.ts");
 await runStandalonePiWorker(projectRoot, version, {
   capture: async () => ({ modulePath: "fixture", digest: "fixture" }),

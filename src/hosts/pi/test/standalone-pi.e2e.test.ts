@@ -141,8 +141,8 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     continue;
   }
   const result = kind === "invalid-result" && frame.event === "tool_call" ? {} : null;
-  process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
-  if (kind === "duplicate" && frame.event === "tool_call") process.stdout.write(JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n");
+  const replyLine = JSON.stringify({ protocol: 1, id: frame.id, event: frame.event, result }) + "\\n";
+  process.stdout.write(kind === "duplicate" && frame.event === "tool_call" ? replyLine + replyLine : replyLine);
 }
 `);
   const built = Bun.spawnSync([process.execPath, "build", "--compile", source, "--outfile", executable],

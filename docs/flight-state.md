@@ -228,8 +228,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
   hooks from the same executable, replacing recognized older Node hooks
   while preserving other settings. It writes configuration and a project
   version pin last, in a Python project without package managers
-  ([ADR 2026-037](adr/2026-037-standalone-claude-code-hooks.md)). Pi and other
-  distribution commands still refuse locally. None falls into the npm CLI.
+  ([ADR 2026-037](adr/2026-037-standalone-claude-code-hooks.md)). Pi init writes a
+  small extension that runs a pinned compiled worker; its frame protocol,
+  snapshot checks and fail-closed behavior are covered by a real Pi 0.87.1
+  archive test ([ADR 2026-041](adr/2026-041-standalone-pi-worker.md)). Unsupported
+  commands refuse locally. None falls into the npm CLI.
   The published Node CLI remains available for npm projects. The executable
   running a same-version hook is not rehashed from an installation receipt
   on every invocation; a different pinned version uses the verified locator.
@@ -255,8 +258,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   exports must match the locked catalogue before composition. The compiled
   archive test installs a real published no-port pack in a Python project,
   then records its refusal and allowance with no Node, Bun or npm on the
-  executable's path. `bounded check`, standalone pi hooks and project-supplied
-  third-party port provisions remain unavailable. A selected pack whose
+  executable's path. `bounded check` verifies the installed release, managed
+  projection and captured project source, reports TypeScript diagnostics from
+  embedded declarations, then validates selected pack and installed Claude Code
+  host wiring without running lifecycle callbacks (ADR 2026-040). Check also
+  validates Pi-only and combined host wiring, including the exact generated
+  Pi loader. Project-supplied third-party port provisions remain unavailable. A selected pack whose
   required port has no provision refuses rather than loading an adapter
   automatically.
 - **The native release gate** ([ADR 2026-036](adr/2026-036-native-release-gate.md))

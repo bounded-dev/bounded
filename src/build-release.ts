@@ -98,6 +98,50 @@ async function declarationFiles(): Promise<Record<string, Uint8Array>> {
   return files;
 }
 
+interface TypeEnvironmentManifest {
+  readonly schema: "bounded-type-environment/1";
+  readonly typescriptVersion: "5.9.3";
+  readonly nodeTypesVersion: "26.6.4";
+  readonly undiciTypesVersion: "8.9.0";
+  readonly treeSitterTypesVersion: "0.3.1";
+  readonly standardLibraries: Readonly<Record<string, string>>;
+  readonly externalDeclarations: Readonly<Record<string, string>>;
+}
+async function typeEnvironment(): Promise<{ readonly asset: Uint8Array; readonly manifest: Uint8Array }> {
+  const standardLibraries: Record<string, Uint8Array> = {};
+  const externalDeclarations: Record<string, Uint8Array> = {};
+  const collect = async (root: string, prefix: string, output: Record<string, Uint8Array>): Promise<void> => {
+    const visit = async (directory: string, relativePath = ""): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = relativePath === "" ? entry.name : `${relativePath}/${entry.name}`;
+        if (entry.isDirectory()) await visit(join(directory, entry.name), path);
+        else if (entry.isFile() && path.endsWith(".d.ts")) output[`${prefix}${path}`] = readFileSync(join(directory, entry.name));
+      }
+    };
+    await visit(root);
+  };
+  const dependencies = join(HERE, "..", "node_modules");
+  const version = (path: string): string => (JSON.parse(readFileSync(path, "utf8")) as { version: string }).version;
+  if (version(join(dependencies, "typescript", "package.json")) !== "5.9.3"
+    || version(join(dependencies, "@types", "node", "package.json")) !== "26.6.4"
+    || version(join(dependencies, "undici-types", "package.json")) !== "8.9.0"
+    || version(join(dependencies, "@vscode", "tree-sitter-wasm", "package.json")) !== "0.3.1")
+    throw new Error("the standalone TypeScript declaration build inputs differ from their pinned versions");
+  await collect(join(dependencies, "typescript", "lib"), "", standardLibraries);
+  await collect(join(dependencies, "@types", "node"), "@types/node/", externalDeclarations);
+  await collect(join(dependencies, "undici-types"), "undici-types/", externalDeclarations);
+  externalDeclarations["@vscode/tree-sitter-wasm/wasm/web-tree-sitter.d.ts"] = readFileSync(join(dependencies, "@vscode", "tree-sitter-wasm", "wasm", "web-tree-sitter.d.ts"));
+  const hashes = (files: Record<string, Uint8Array>): Record<string, string> => Object.fromEntries(Object.entries(files)
+    .sort(([left], [right]) => left.localeCompare(right)).map(([path, bytes]) => [path, digest(bytes)]));
+  const manifest: TypeEnvironmentManifest = { schema: "bounded-type-environment/1", typescriptVersion: "5.9.3",
+    nodeTypesVersion: "26.6.4", undiciTypesVersion: "8.9.0", treeSitterTypesVersion: "0.3.1",
+    standardLibraries: hashes(standardLibraries), externalDeclarations: hashes(externalDeclarations) };
+  const encoded = (files: Record<string, Uint8Array>): Record<string, string> => Object.fromEntries(Object.entries(files)
+    .sort(([left], [right]) => left.localeCompare(right)).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]));
+  return { manifest: Buffer.from(`${JSON.stringify(manifest)}\n`),
+    asset: Buffer.from(`${JSON.stringify({ standardLibraries: encoded(standardLibraries), externalDeclarations: encoded(externalDeclarations) })}\n`) };
+}
+
 function tarGzip(files: Readonly<Record<string, Uint8Array>>, root: string): Promise<Uint8Array> {
   return new Promise((resolveArchive, reject) => {
     const pack = tar.pack();
@@ -153,11 +197,15 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
   const executablePath = join(HERE, "dist", "standalone", executableName);
   const treeSitterWasm = join(HERE, "..", "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
   await mkdir(join(HERE, "dist", "standalone"), { recursive: true });
+  const bundledTypeEnvironment = await typeEnvironment();
+  const typeEnvironmentAsset = join(HERE, "dist", "standalone", "bounded-type-environment-bytes.bin");
+  if (macStage !== "package-signed") writeFileSync(typeEnvironmentAsset, bundledTypeEnvironment.asset);
   if (macStage !== "package-signed") {
     const compiled = Bun.spawnSync([
     process.execPath, "build", join(HERE, "standalone-main.ts"), "--compile", "--target", target.bun,
     "--asset", join(treeSitterWasm, "tree-sitter.wasm"),
     "--asset", join(treeSitterWasm, "tree-sitter-bash.wasm"),
+    "--asset", typeEnvironmentAsset,
     "--outfile", executablePath,
   ], { cwd: join(HERE, "dist", "standalone"), stdout: "pipe", stderr: "pipe" });
     if (compiled.exitCode !== 0) throw new Error(`standalone compilation failed:\n${compiled.stdout.toString()}${compiled.stderr.toString()}`);
@@ -174,6 +222,7 @@ export async function buildRelease(targetId: string, outputDirectory: string, sm
     [`bin/${executableName}`]: readFileSync(executablePath),
     LICENSE: readFileSync(join(HERE, "LICENSE")),
     "release.json": Buffer.from(`${JSON.stringify({ version: packageManifest.version, target: targetId, sourceCommit: commit, protocolVersion: 1 })}\n`),
+    "share/typescript/type-environment.json": bundledTypeEnvironment.manifest,
     ...await declarationFiles(),
   };
   const pluginRoot = join(HERE, "hosts", "claude-code", "prereqs-status-band");

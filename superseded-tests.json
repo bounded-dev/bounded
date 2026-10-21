@@ -6820,6 +6820,15 @@
   },
   {
     "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+    "case": "standalone Pi init replaces only the exact generated npm loader and publishes the version pin last",
+    "successor": {
+      "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
+      "case": "standalone Pi init migrates only the exact generated npm loader and preserves user edits"
+    },
+    "reason": "the same migration and user-edit assertions remain; the new title no longer claims pin-write ordering that this case does not observe"
+  },
+  {
+    "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
     "case": "a second Pi session replaces the prior compiled worker process",
     "successor": {
       "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
@@ -6828,12 +6837,12 @@
     "reason": "the successor retains distinct worker starts and verifies the prior native worker exits before the second session proceeds"
   },
   {
-    "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
-    "case": "standalone Pi init replaces only the exact generated npm loader and publishes the version pin last",
+    "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+    "case": "archive-only executable routes each distribution command locally or refuses before npm CLI and project mutation",
     "successor": {
-      "file": "src/hosts/pi/test/standalone-pi.e2e.test.ts",
-      "case": "standalone Pi init migrates only the exact generated npm loader and preserves user edits"
+      "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+      "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
     },
-    "reason": "the same migration and user-edit assertions remain; the new title no longer claims pin-write ordering that this case does not observe"
+    "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
   }
 ]
