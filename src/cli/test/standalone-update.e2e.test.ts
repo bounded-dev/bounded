@@ -211,6 +211,31 @@ test("one-generation rollback restores the verified prior standalone release and
     expect(JSON.parse(readFileSync(pinPath, "utf8")).version).toBe(f.version);
     const rollbackRecord = join(f.project, ".bounded", "update-rollback.json");
     expect(existsSync(rollbackRecord)).toBe(true);
+    const recordedRollback = readFileSync(rollbackRecord);
+    const targetPaths = [settingsPath, loaderPath, pinPath, join(f.project, "bounded.config.ts")];
+    const targetFiles = targetPaths.map((path) => readFileSync(path));
+    for (const [index, path] of targetPaths.entries()) {
+      const original = targetFiles[index];
+      if (original === undefined) throw new Error(`Missing target update file ${path}`);
+      const edited = Buffer.concat([original, Buffer.from(index === 3 ? "\n// user edit\n" : "\n ")]);
+      writeFileSync(path, edited);
+      const refused = run(f, ["update", "--rollback"]);
+      expect(refused.exitCode).toBe(2);
+      expect(readFileSync(path)).toEqual(edited);
+      expect(readFileSync(rollbackRecord)).toEqual(recordedRollback);
+      expect(existsSync(join(f.project, ".bounded", "update-journal.json"))).toBe(false);
+      writeFileSync(path, original);
+    }
+    renameSync(prior.binary, `${prior.binary}.missing`);
+    const missingPrior = run(f, ["update", "--rollback"]);
+    expect(missingPrior.exitCode).toBe(2);
+    expect(readFileSync(rollbackRecord)).toEqual(recordedRollback);
+    for (const [index, path] of targetPaths.entries()) {
+      const original = targetFiles[index];
+      if (original === undefined) throw new Error(`Missing target update file ${path}`);
+      expect(readFileSync(path)).toEqual(original);
+    }
+    renameSync(`${prior.binary}.missing`, prior.binary);
     const rolledBack = run(f, ["update", "--rollback"]);
     expect({ exitCode: rolledBack.exitCode, stderr: rolledBack.stderr }).toEqual({ exitCode: 0, stderr: "" });
     for (const [index, path] of [settingsPath, loaderPath, pinPath].entries()) {
