@@ -370,6 +370,26 @@ console.log(JSON.stringify({ first, second }));`);
   } finally { writeFileSync(receipt, original); }
 }, 240_000);
 
+test("Pi worker refuses a linked project state directory introduced between guarded calls", () => {
+  const root = project();
+  expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
+  const outside = mkdtempSync(join(archive.root, "outside-state-"));
+  const result = invokeUnderPi(root, `
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, { cwd: process.cwd() });
+const first = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "before-linked-state", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+const fs = await import("node:fs");
+fs.writeFileSync(${JSON.stringify(join(outside, "version.json"))}, fs.readFileSync(".bounded/version.json"));
+fs.renameSync(".bounded", ".bounded-original");
+fs.symlinkSync(${JSON.stringify(outside)}, ".bounded", ${JSON.stringify(process.platform === "win32" ? "junction" : "dir")});
+const second = await handlers.get("tool_call")({ type: "tool_call", toolCallId: "after-linked-state", toolName: "read", input: { path: "main.py" } }, { cwd: process.cwd() });
+console.log(JSON.stringify({ first, second }));`);
+  expect(result.code).toBe(0);
+  const answer = JSON.parse(result.stdout.trim()) as { first?: { block?: boolean }; second?: { block?: boolean; reason?: string } };
+  expect(answer.first?.block).not.toBe(true);
+  expect(answer.second?.block).toBe(true);
+  expect(answer.second?.reason).toMatch(/\.bounded|linked|state directory|restart/i);
+}, 240_000);
+
 test("Pi worker refuses a duplicate accepted tool call ID in one session", () => {
   const root = project();
   expect(bounded(root, ["init", "--host", "pi"]).code).toBe(0);
