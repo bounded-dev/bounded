@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { readReleaseManifest, type ReleaseFile } from "./cli/release-manifest.ts";
 
-type Located = { readonly ok: true; readonly executable: string; readonly releaseRoot: string; readonly verifiedFiles: readonly ReleaseFile[] } | { readonly ok: false; readonly error: string };
+type Located = { readonly ok: true; readonly executable: string; readonly releaseRoot: string; readonly manifestSha256: string; readonly verifiedFiles: readonly ReleaseFile[] } | { readonly ok: false; readonly error: string };
 const digest = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const exactVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
 const sha256 = /^[a-f0-9]{64}$/;
@@ -105,7 +105,7 @@ export function locateInstalledRelease(version: string, env: NodeJS.ProcessEnv =
       return { ok: false, error: `Bounded ${version} release.json does not match the installation manifest; reinstall that version` };
     }
     const executable = join(release, target.executable.path);
-    return { ok: true, executable, releaseRoot: release, verifiedFiles: expectedFiles };
+    return { ok: true, executable, releaseRoot: release, manifestSha256: rawReceipt.manifestSha256, verifiedFiles: expectedFiles };
   } catch (error) {
     return { ok: false, error: `Cannot verify installed Bounded ${version}: ${error instanceof Error ? error.message : String(error)}. Reinstall that version` };
   }

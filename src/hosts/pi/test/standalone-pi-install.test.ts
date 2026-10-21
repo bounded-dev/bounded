@@ -11,7 +11,6 @@ interface Prepared {
 
 // The module is introduced by this slice; the red commit deliberately has no installer yet.
 async function prepare(projectRoot: string): Promise<Prepared> {
-  // @ts-ignore The installer is intentionally absent at this test-only red commit.
   const module: unknown = await import("../standalone-install.ts");
   if (typeof module !== "object" || module === null || !("prepareStandalonePiExtension" in module)) throw new Error("Pi installer is absent");
   const installer = module as { prepareStandalonePiExtension(root: string, executable: string): Promise<Prepared> };

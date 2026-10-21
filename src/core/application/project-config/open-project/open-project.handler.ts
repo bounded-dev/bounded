@@ -1,9 +1,10 @@
-import { AdapterRefusal, AgentRunFinished, type Composition, Decision, DecisionTime, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
+import { AdapterRefusal, AgentRunFinished, Decision, DecisionTime, ToolResult, Verdict } from "bounded/domain";
 import type { AdapterRefusalInput, JudgeEvent } from "../../bounded-log/judge-event/judge-event.contract.ts";
 import { defaultDecisionIds, JudgeEventHandler, nextDecisionId } from "../../bounded-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import type { Clock, DecisionIds, BoundedLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectBoundedLogs, ProjectJudge } from "./open-project.contract.ts";
+import { validateProjectWiring } from "./validate-project-wiring.ts";
 
 const NOTHING: AfterToolOutcome = Object.freeze({ message: null });
 
@@ -31,18 +32,17 @@ export class OpenProjectHandler implements OpenProject {
     try {
       const root = command.projectRoot;
       log = this.logFor(root);
-      const composition = await this.compose(root);
-      if (!composition.ok) return this.refusing(log, composition.error);
-      const ports = Ports.forProject(root, this.options.ports ?? []);
-      if (!ports.ok) return this.refusing(log, ports.error);
-      const missing = composition.value.requiredPorts().find((key) => !ports.value.provides(key));
-      if (missing !== undefined) return this.refusing(log, `${missing.owner.value} needs the port '${missing.name}', which this host does not provide: pass it to openProject({ ports })`);
-      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock, {
+      const loaded = await this.configSource.load(root);
+      if (!loaded.ok) return this.refusing(log, loaded.error);
+      const wired = validateProjectWiring(loaded.value, root, this.options.ports ?? []);
+      if (!wired.ok) return this.refusing(log, wired.error);
+      const { composition, ports } = wired.value;
+      const lifecycle = new ProjectLifecycleHandler(composition, ports, log, this.clock, {
         ...(this.options.prepareWithinMs === undefined ? {} : { prepareWithinMs: this.options.prepareWithinMs }),
         ...this.idsOption(),
       });
       await lifecycle.open({ root });
-      const handler = new JudgeEventHandler(composition.value, log, this.clock, {
+      const handler = new JudgeEventHandler(composition, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
         ...this.idsOption(),
         beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
@@ -105,14 +105,6 @@ export class OpenProjectHandler implements OpenProject {
       },
       problem,
     });
-  }
-
-  /** The project's composition, or why its configuration cannot be used. Never throws. */
-  private async compose(root: string): Promise<Result<Composition>> {
-    const loaded = await this.configSource.load(root);
-    if (!loaded.ok) return loaded;
-    const composed = loaded.value.compose();
-    return composed.ok ? composed : { ok: false, error: `its packs cannot be composed: ${composed.error}` };
   }
 
   /** The project's log; one that cannot be opened refuses every record, so nothing is allowed unrecorded. */

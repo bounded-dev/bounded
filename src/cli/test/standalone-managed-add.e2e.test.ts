@@ -121,12 +121,12 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     stopRegistry = () => new Promise<void>((resolveStop, rejectStop) => server.close((error) => error ? rejectStop(error) : resolveStop()));
 
     const project = join(scratch, "python-project"); mkdirSync(project);
-    mkdirSync(join(project, ".bounded"));
-    writeFileSync(join(project, ".bounded", "version.json"), `${JSON.stringify({ schema: "bounded-project-version/1", version: VERSION })}\n`);
-    const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
-    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     const environment = { ...process.env, PATH: join(scratch, "empty-path"), XDG_DATA_HOME: dataHome, LOCALAPPDATA: dataHome,
       NODE_EXTRA_CA_CERTS: certificate, SSL_CERT_FILE: certificate, CLAUDE_PROJECT_DIR: project, XDG_STATE_HOME: join(scratch, "state") };
+    const initialized = Bun.spawnSync([binary, "init", "--host", "claude-code"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+    expect({ exitCode: initialized.exitCode, stderr: initialized.stderr.toString() }).toEqual({ exitCode: 0, stderr: "" });
+    const originalConfig = 'import { defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [] });\n';
+    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
     const added = Bun.spawn([binary, "add", "bounded-example@0.1.0", "--registry", registryUrl], {
       cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
     const addOutput = await new Response(added.stdout).text();
@@ -155,6 +155,102 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     const decisions = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8").trim().split("\n")
       .map((line) => JSON.parse(line) as { verdict: { kind: string } });
     expect(decisions.map((decision) => decision.verdict.kind)).toEqual(["refuse", "allow"]);
+    await stopRegistry();
+    stopRegistry = undefined;
+
+    const runCheck = () => {
+      const checked = Bun.spawnSync([binary, "check"], { cwd: project, env: environment, stdout: "pipe", stderr: "pipe" });
+      expect(existsSync(source)).toBe(false);
+      expect(existsSync(join(scratch, "empty-path", "node"))).toBe(false);
+      return { exitCode: checked.exitCode, stdout: checked.stdout.toString(), stderr: checked.stderr.toString() };
+    };
+    const validConfig = readFileSync(join(project, "bounded.config.ts"), "utf8");
+    writeFileSync(join(project, "bounded.config.ts"), originalConfig);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    writeFileSync(join(project, "bounded.config.ts"), validConfig);
+    const everyPublicDeclaration = ["domain", "application", "adapters", "open-project", "prereqs", "prereqs/adapters",
+      "protected-paths", "protected-paths/adapters", "shell-command-reader"]
+      .map((path, index) => `import type * as Public${index} from "bounded/${path}";`).join("\n");
+    writeFileSync(join(project, "bounded.config.ts"), `${everyPublicDeclaration}\ntype PublishedPack = typeof import("bounded-example").refusedToolsPack;\n${validConfig}`);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const typeEnvironmentBytes = verified.value["share/typescript/type-environment.json"];
+    expect(typeEnvironmentBytes).toBeDefined();
+    if (typeEnvironmentBytes === undefined) throw new Error("release lacks its embedded TypeScript type manifest");
+    const typeEnvironment = JSON.parse(new TextDecoder().decode(typeEnvironmentBytes)) as {
+      schema: string; typescriptVersion: string; standardLibraries: Record<string, string>; externalDeclarations: Record<string, string> };
+    expect(typeEnvironment.schema).toBe("bounded-type-environment/1");
+    expect(typeEnvironment.typescriptVersion).toBe("5.9.3");
+    expect(typeEnvironment.standardLibraries["lib.es2024.full.d.ts"]).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(typeEnvironment.standardLibraries).length).toBeGreaterThan(20);
+    expect(Object.keys(typeEnvironment.externalDeclarations).some((path) => path.includes("tree-sitter-wasm"))).toBe(true);
+
+    writeFileSync(join(project, "bounded.config.ts"), validConfig.replace('redirect: "Use local docs"', 'redirect: 42'));
+    const wrongContribution = runCheck();
+    expect(wrongContribution.exitCode).not.toBe(0);
+    expect(wrongContribution.stderr).toMatch(/bounded\.config\.ts:\d+:\d+.*TS\d{4}/);
+    expect(wrongContribution.stderr).toMatch(/redirect|number|string/);
+
+    writeFileSync(join(project, "bounded.config.ts"), `import type { Absent } from "bounded-example/private";\n${validConfig}`);
+    const undeclaredSubpath = runCheck();
+    expect(undeclaredSubpath.exitCode).not.toBe(0);
+    expect(undeclaredSubpath.stderr).toMatch(/TS2307.*bounded-example\/private|bounded-example\/private.*TS2307/);
+
+    writeFileSync(join(project, "bounded.config.ts"), `import { doesNotExist } from "bounded/domain";\n${validConfig}`);
+    const missingExport = runCheck();
+    expect(missingExport.exitCode).not.toBe(0);
+    expect(missingExport.stderr).toMatch(/TS2305.*doesNotExist|doesNotExist.*TS2305/);
+
+    writeFileSync(join(project, "bounded.config.ts"), validConfig.replace("packs: [refusedToolsPack, localRule]", "packs: [localRule]"));
+    const unlistedContribution = runCheck();
+    expect(unlistedContribution.exitCode).not.toBe(0);
+    expect(unlistedContribution.stderr).toMatch(/refusedTools|bounded-example/);
+    expect(unlistedContribution.stderr).toMatch(/not.*(list|select|depend)|not assignable|TS\d{4}/i);
+
+    writeFileSync(join(project, "bounded.config.ts"), "export default { packs: [] };\n");
+    const malformedDefault = runCheck();
+    expect(malformedDefault.exitCode).not.toBe(0);
+    expect(malformedDefault.stderr).toMatch(/defineConfig|configuration|default export/i);
+
+    writeFileSync(join(project, "bounded.config.ts"), validConfig.replace("packs: [refusedToolsPack, localRule]", "packs: [refusedToolsPack, refusedToolsPack, localRule]"));
+    const duplicate = runCheck();
+    expect(duplicate.exitCode).not.toBe(0);
+    expect(duplicate.stderr).toMatch(/duplicate|listed twice|refusedToolsPack/i);
+
+    writeFileSync(join(project, "bounded.config.ts"), validConfig);
+    const journal = join(project, ".bounded", "types-journal.json");
+    writeFileSync(journal, "{}\n");
+    const interrupted = runCheck();
+    expect(interrupted.exitCode).not.toBe(0);
+    expect(interrupted.stderr).toMatch(/journal|recover/i);
+    expect(readFileSync(journal, "utf8")).toBe("{}\n");
+    rmSync(journal);
+
+    const projectedType = join(projected, "dist", "types", "packs", "refused-tools", "index.d.ts");
+    const originalType = readFileSync(projectedType);
+    writeFileSync(projectedType, Buffer.concat([originalType, Buffer.from("\n// changed\n")]));
+    const changedProjection = runCheck();
+    expect(changedProjection.exitCode).not.toBe(0);
+    expect(changedProjection.stderr).toMatch(/projection|modified|owned|re-add/i);
+    writeFileSync(projectedType, originalType);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+
+    const releaseReceipt = join(receipts, "receipt-v1.json");
+    const originalReleaseReceipt = readFileSync(releaseReceipt);
+    writeFileSync(releaseReceipt, Buffer.concat([originalReleaseReceipt, Buffer.from("changed\n")]));
+    const changedRelease = runCheck();
+    expect(changedRelease.exitCode).not.toBe(0);
+    expect(changedRelease.stderr).toMatch(/release|receipt|reinstall/i);
+    writeFileSync(releaseReceipt, originalReleaseReceipt);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    const releaseDeclaration = join(releaseRoot, "share", "types", "core", "domain", "index.d.ts");
+    const originalDeclaration = readFileSync(releaseDeclaration);
+    writeFileSync(releaseDeclaration, Buffer.concat([originalDeclaration, Buffer.from("\n// tampered declaration\n")]));
+    const changedDeclaration = runCheck();
+    expect(changedDeclaration.exitCode).not.toBe(0);
+    expect(changedDeclaration.stderr).toMatch(/release|declaration|reinstall/i);
+    writeFileSync(releaseDeclaration, originalDeclaration);
+    expect(runCheck()).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(existsSync(join(scratch, "package-manager.log"))).toBe(false);
   } finally {
     await stopRegistry?.();
     rmSync(scratch, { recursive: true, force: true });

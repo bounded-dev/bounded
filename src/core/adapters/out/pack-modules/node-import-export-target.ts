@@ -38,7 +38,7 @@ export const isInvalidPackageConfiguration = (value: unknown): value is InvalidP
 type TargetResolution = string | null | undefined;
 
 /** PACKAGE_TARGET_RESOLVE(packageURL, target, patternMatch, isImports = false, conditions), giving the package-relative target. */
-function packageTargetResolve(target: unknown, patternMatch: string | null): TargetResolution {
+function packageTargetResolve(target: unknown, patternMatch: string | null, conditions: ReadonlySet<string> = HOST_IMPORT_CONDITIONS): TargetResolution {
   // 1. A string: it starts with "./" (exports, isImports false), with no invalid segment after it.
   if (typeof target === "string") {
     if (!target.startsWith("./")) throw new InvalidPackageTarget(target);
@@ -55,7 +55,7 @@ function packageTargetResolve(target: unknown, patternMatch: string | null): Tar
     for (const item of target) {
       let resolved: TargetResolution;
       try {
-        resolved = packageTargetResolve(item, patternMatch);
+        resolved = packageTargetResolve(item, patternMatch, conditions);
       } catch (thrown) {
         if (!(thrown instanceof InvalidPackageTarget)) throw thrown;
         last = thrown;
@@ -78,8 +78,8 @@ function packageTargetResolve(target: unknown, patternMatch: string | null): Tar
   if (isRecord(target)) {
     if (Object.keys(target).some((key) => /^(0|[1-9][0-9]*)$/.test(key))) throw new InvalidPackageConfiguration("gives a condition object a numeric key");
     for (const [condition, value] of Object.entries(target)) {
-      if (condition !== "default" && !HOST_IMPORT_CONDITIONS.has(condition)) continue;
-      const resolved = packageTargetResolve(value, patternMatch);
+      if (condition !== "default" && !conditions.has(condition)) continue;
+      const resolved = packageTargetResolve(value, patternMatch, conditions);
       if (resolved === undefined) continue;
       return resolved;
     }
@@ -106,10 +106,10 @@ function patternKeyCompare(keyA: string, keyB: string): number {
 type KeyMatch = { readonly matched: false } | { readonly matched: true; readonly resolved: TargetResolution };
 
 /** PACKAGE_IMPORTS_EXPORTS_RESOLVE(matchKey, matchObj, packageURL, isImports = false, conditions). */
-function packageImportsExportsResolve(matchKey: string, matchObj: Readonly<Record<string, unknown>>): KeyMatch {
+function packageImportsExportsResolve(matchKey: string, matchObj: Readonly<Record<string, unknown>>, conditions: ReadonlySet<string>): KeyMatch {
   // 1. An exact key with no "*"; Node's implementation also passes over a key ending in "/", the folder mappings
   // it removed.
-  if (Object.hasOwn(matchObj, matchKey) && !matchKey.includes("*") && !matchKey.endsWith("/")) return { matched: true, resolved: packageTargetResolve(matchObj[matchKey], null) };
+  if (Object.hasOwn(matchObj, matchKey) && !matchKey.includes("*") && !matchKey.endsWith("/")) return { matched: true, resolved: packageTargetResolve(matchObj[matchKey], null, conditions) };
   // 2. The keys with a single "*", most specific first.
   const expansionKeys = Object.keys(matchObj)
     .filter((key) => key.indexOf("*") !== -1 && key.indexOf("*") === key.lastIndexOf("*"))
@@ -121,7 +121,7 @@ function packageImportsExportsResolve(matchKey: string, matchObj: Readonly<Recor
     const patternTrailer = expansionKey.slice(expansionKey.indexOf("*") + 1);
     if (patternTrailer.length === 0 || (matchKey.endsWith(patternTrailer) && matchKey.length >= expansionKey.length)) {
       const patternMatch = matchKey.slice(patternBase.length, matchKey.length - patternTrailer.length);
-      return { matched: true, resolved: packageTargetResolve(matchObj[expansionKey], patternMatch) };
+      return { matched: true, resolved: packageTargetResolve(matchObj[expansionKey], patternMatch, conditions) };
     }
   }
   // 4. No key matched.
@@ -129,7 +129,7 @@ function packageImportsExportsResolve(matchKey: string, matchObj: Readonly<Recor
 }
 
 /** PACKAGE_EXPORTS_RESOLVE(packageURL, subpath, exports, conditions): what it gives, keeping apart a path exports does not list from one it lists but exports nothing for. */
-export function packageExportsResolve(exports: unknown, subpath: string): { readonly listed: false } | { readonly listed: true; readonly target: string | undefined } {
+export function packageExportsResolve(exports: unknown, subpath: string, conditions: ReadonlySet<string> = HOST_IMPORT_CONDITIONS): { readonly listed: false } | { readonly listed: true; readonly target: string | undefined } {
   const keys = isRecord(exports) ? Object.keys(exports) : [];
   const hasExportPaths = keys.some((key) => key.startsWith("."));
   // 1. Export paths and conditions are not mixed.
@@ -140,11 +140,11 @@ export function packageExportsResolve(exports: unknown, subpath: string): { read
     if (typeof exports === "string" || Array.isArray(exports) || (isRecord(exports) && !hasExportPaths)) mainExport = exports;
     else if (isRecord(exports) && Object.hasOwn(exports, ".")) mainExport = exports["."];
     if (mainExport === undefined) return { listed: false };
-    return { listed: true, target: packageTargetResolve(mainExport, null) ?? undefined };
+    return { listed: true, target: packageTargetResolve(mainExport, null, conditions) ?? undefined };
   }
   // 3. A subpath, through the export paths.
   if (isRecord(exports) && hasExportPaths) {
-    const match = packageImportsExportsResolve(subpath, exports);
+    const match = packageImportsExportsResolve(subpath, exports, conditions);
     return match.matched ? { listed: true, target: match.resolved ?? undefined } : { listed: false };
   }
   // 4. Not exported.

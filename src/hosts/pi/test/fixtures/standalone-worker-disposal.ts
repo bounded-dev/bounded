@@ -1,5 +1,4 @@
 import { appendFileSync } from "node:fs";
-// @ts-ignore The worker is introduced by the production commit after this red fixture.
 import { runStandalonePiWorker } from "../../standalone-worker.ts";
 
 const [projectRoot, version, marker] = process.argv.slice(2);

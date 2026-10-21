@@ -6826,5 +6826,14 @@
       "case": "standalone Pi init migrates only the exact generated npm loader and preserves user edits"
     },
     "reason": "the same migration and user-edit assertions remain; the new title no longer claims pin-write ordering that this case does not observe"
+  },
+  {
+    "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+    "case": "archive-only executable routes each distribution command locally or refuses before npm CLI and project mutation",
+    "successor": {
+      "file": "src/cli/test/standalone-cli-routing.e2e.test.ts",
+      "case": "archive-only executable routes unsupported commands locally and check requires a project pin"
+    },
+    "reason": "the standalone check route now validates a pinned project; the successor retains unsupported-command and no-mutation assertions and checks an unpinned project separately"
   }
 ]

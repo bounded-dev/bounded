@@ -15,6 +15,7 @@ export { JudgeEventHandler } from "./bounded-log/judge-event/judge-event.handler
 export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectBoundedLogs, ProjectJudge } from "./project-config/open-project/open-project.contract.ts";
 export { OpenProjectCommand } from "./project-config/open-project/open-project.command.ts";
 export { OpenProjectHandler } from "./project-config/open-project/open-project.handler.ts";
+export { validateProjectWiring } from "./project-config/open-project/validate-project-wiring.ts";
 export type { AfterToolOutcome, ProjectLifecycle, ProjectLifecycleOptions } from "./lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 export { ProjectLifecycleHandler } from "./lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 
