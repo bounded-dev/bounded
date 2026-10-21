@@ -199,7 +199,7 @@ test("a compiled archive adds and executes a published pack with no ambient pack
     mkdirSync(join(receipts, "manifests"), { recursive: true });
     writeFileSync(join(receipts, "manifests", `${manifestDigest}.json`), stableManifestBytes);
     writeFileSync(join(receipts, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version: VERSION, target: targetId, manifestSha256: manifestDigest })}\n`);
-    const priorTypeEnvironment = join(scratch, "prior-type-environment.bin");
+    const priorTypeEnvironment = join(scratch, "bounded-type-environment-bytes.bin");
     cpSync(join(source, "src", "dist", "standalone", "bounded-type-environment-bytes.bin"), priorTypeEnvironment);
     rmSync(source, { recursive: true, force: true });
     expect(existsSync(source)).toBe(false);
