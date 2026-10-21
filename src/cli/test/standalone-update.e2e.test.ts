@@ -197,6 +197,42 @@ test("archive-only same-version update refreshes installed hosts after semantic 
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
+test("one-generation rollback restores the verified prior standalone release and generated hosts", async () => {
+  const f = await fixture();
+  try {
+    const prior = installPriorTestRelease(f);
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary).exitCode).toBe(0);
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    const loaderPath = join(f.project, ".pi", "extensions", "bounded", "index.ts");
+    const pinPath = join(f.project, ".bounded", "version.json");
+    const previous = [settingsPath, loaderPath, pinPath].map((path) => ({ bytes: readFileSync(path), mode: lstatSync(path).mode & 0o777 }));
+    const config = readFileSync(join(f.project, "bounded.config.ts"));
+    expect(run(f, ["update"]).exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(pinPath, "utf8")).version).toBe(f.version);
+    const rollbackRecord = join(f.project, ".bounded", "update-rollback.json");
+    expect(existsSync(rollbackRecord)).toBe(true);
+    const rolledBack = run(f, ["update", "--rollback"]);
+    expect({ exitCode: rolledBack.exitCode, stderr: rolledBack.stderr }).toEqual({ exitCode: 0, stderr: "" });
+    for (const [index, path] of [settingsPath, loaderPath, pinPath].entries()) {
+      const saved = previous[index];
+      if (saved === undefined) throw new Error(`Missing previous host or pin snapshot ${path}`);
+      expect(readFileSync(path)).toEqual(saved.bytes);
+      expect(lstatSync(path).mode & 0o777).toBe(saved.mode);
+    }
+    expect(readFileSync(join(f.project, "bounded.config.ts"))).toEqual(config);
+    expect(run(f, ["check"], prior.binary).exitCode).toBe(0);
+    expect(existsSync(rollbackRecord)).toBe(false);
+    const second = run(f, ["update", "--rollback"]);
+    expect(second.exitCode).toBe(2);
+    for (const [index, path] of [settingsPath, loaderPath, pinPath].entries()) {
+      const saved = previous[index];
+      if (saved === undefined) throw new Error(`Missing previous host or pin snapshot ${path}`);
+      expect(readFileSync(path)).toEqual(saved.bytes);
+    }
+    expect(existsSync(f.managerLog)).toBe(false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
 test("update refuses a configuration type error before changing any installed host or pin", async () => {
   const f = await fixture();
   try {
