@@ -362,8 +362,10 @@ async function checkProposedRuntimeGraphBounds(lock: PackLock, contents: string,
 /** Reads a complete pinned graph without network access or running package code. */
 async function verifyManagedPackLockDetailed(input: VerifyInput, limits?: typeof runtimeGraphLimits, proposedLockBytes?: Uint8Array): Promise<Result<{ readonly lock: PackLock; readonly lockBytes: Uint8Array; readonly stored: ReadonlyMap<string, { readonly files: Readonly<Record<string, Uint8Array>>; readonly manifest: ArchiveManifest }> }>> {
   const lockPath = join(input.projectRoot, ".bounded", "packs.lock.json");
-  const safeLock = await noLinkedComponents(lockPath);
-  if (!safeLock.ok) return safeLock;
+  if (proposedLockBytes === undefined) {
+    const safeLock = await noLinkedComponents(lockPath);
+    if (!safeLock.ok) return safeLock;
+  }
   let lockBytes: Uint8Array;
   try {
     if (proposedLockBytes === undefined) {
@@ -1418,6 +1420,58 @@ export interface ManagedPackTargetProjection {
   readonly targetGraph: ManagedPackRuntimeGraph;
   readonly sourceLockSha256: string;
   readonly targetLockSha256: string;
+}
+
+/** Recompute an update journal's owned projection from pinned bytes, without reading mixed live project state. */
+export async function verifyManagedPackUpdateProjectionSnapshot(input: {
+  readonly projectRoot: string;
+  readonly storeRoot: string;
+  readonly release: ManagedPackReleaseTypes;
+  readonly lockBytes: Uint8Array;
+  readonly receiptBytes: Uint8Array;
+  readonly ownedFiles: Readonly<Record<string, ManagedPackOwnedFile>>;
+  readonly ownedDirectories: readonly string[];
+}): Promise<Result<void>> {
+  if (!(input.lockBytes instanceof Uint8Array) || !(input.receiptBytes instanceof Uint8Array))
+    return refusal("Managed update snapshot lock and receipt must be bytes");
+  const releaseInput = { ...input.release, projectRoot: input.projectRoot, storeRoot: input.storeRoot };
+  const verified = await verifyManagedPackLockDetailed(releaseInput, runtimeGraphLimits, input.lockBytes);
+  if (!verified.ok) return verified;
+  const projected = desiredProjection(releaseInput, verified.value.lock, verified.value.stored);
+  if (!projected.ok) return projected;
+  const expectedReceipt = receiptFor(new TextDecoder().decode(input.lockBytes), projected.value);
+  let recordedReceipt: ProjectionReceipt;
+  try { recordedReceipt = parseReceiptBytes(input.receiptBytes); }
+  catch (error) { return refusal(`Managed update snapshot receipt is malformed: ${projectionError(error)}`); }
+  if (Object.keys(recordedReceipt).sort().join() !== "files,lockSha256,packages,schema"
+    || recordedReceipt.schema !== expectedReceipt.schema || recordedReceipt.lockSha256 !== expectedReceipt.lockSha256
+    || JSON.stringify(recordedReceipt.packages) !== JSON.stringify(expectedReceipt.packages)
+    || !sameStringMap(recordedReceipt.files, expectedReceipt.files))
+    return refusal("Managed update snapshot receipt differs from verified lock, store or release declarations");
+
+  const expectedFiles: Record<string, Uint8Array> = {
+    ".bounded/packs.lock.json": input.lockBytes,
+    ".bounded/types-receipt.json": input.receiptBytes,
+    ...projected.value.files,
+  };
+  const actualPaths = Object.keys(input.ownedFiles).sort();
+  const expectedPaths = Object.keys(expectedFiles).sort();
+  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths))
+    return refusal("Managed update snapshot owned file paths differ from the verified projection");
+  for (const path of expectedPaths) {
+    const actual = input.ownedFiles[path];
+    const expected = expectedFiles[path];
+    if (actual === undefined || expected === undefined || !(actual.bytes instanceof Uint8Array)
+      || !Buffer.from(actual.bytes).equals(Buffer.from(expected)))
+      return refusal(`Managed update snapshot owned file ${path} differs from verified bytes`);
+    if (!Number.isInteger(actual.mode) || actual.mode < 0 || actual.mode > 0o777
+      || (actual.mode & 0o400) === 0 || (actual.mode & 0o022) !== 0)
+      return refusal(`Managed update snapshot owned file ${path} has an unsafe recorded mode`);
+  }
+  const expectedDirectories = impliedDirectories(expectedReceipt.files).filter((path) => path !== "node_modules");
+  if (JSON.stringify([...input.ownedDirectories].sort()) !== JSON.stringify(expectedDirectories))
+    return refusal("Managed update snapshot owned directories differ from the verified projection");
+  return { ok: true, value: undefined };
 }
 
 /** Validate a target release and copy the complete owned projection without publishing it. */
