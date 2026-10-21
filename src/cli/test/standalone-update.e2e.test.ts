@@ -73,11 +73,52 @@ async function fixture(): Promise<Fixture> {
   return { root, binary, project, dataHome, managerLog, version };
 }
 
-function run(f: Fixture, args: readonly string[]): { exitCode: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync([f.binary, ...args], { cwd: f.project, stdout: "pipe", stderr: "pipe",
+function run(f: Fixture, args: readonly string[], executable = f.binary): { exitCode: number; stdout: string; stderr: string } {
+  const result = Bun.spawnSync([executable, ...args], { cwd: f.project, stdout: "pipe", stderr: "pipe",
     env: { ...process.env, PATH: join(f.root, "fake-bin"), MANAGER_LOG: f.managerLog, XDG_DATA_HOME: f.dataHome,
       LOCALAPPDATA: f.dataHome, XDG_STATE_HOME: join(f.root, "state"), CLAUDE_PROJECT_DIR: f.project } });
   return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
+}
+
+function installPriorTestRelease(f: Fixture): { readonly binary: string; readonly version: string } {
+  const version = "3.2.9";
+  const target = targetId();
+  const currentRelease = join(f.dataHome, "bounded", "releases", `v${f.version}`, target);
+  const priorRelease = join(f.dataHome, "bounded", "releases", `v${version}`, target);
+  cpSync(currentRelease, priorRelease, { recursive: true });
+  const entry = join(f.root, "prior-standalone-entry.ts");
+  writeFileSync(entry, `import { dispatchStandalone } from ${JSON.stringify(join(REPO, "src", "standalone-dispatch.ts"))};\nconst version = ${JSON.stringify(version)};\nconst args = process.argv.slice(2);\nconst dispatched = await dispatchStandalone(args, version);\nif (!dispatched.answered) { if (args[0] === "--version") console.log(version); else { const { runStandaloneRuntime } = await import(${JSON.stringify(join(REPO, "src", "standalone-runtime.ts"))}); await runStandaloneRuntime(args, version, dispatched.hostProjectRoot); } }\n`);
+  const binary = join(priorRelease, "bin", process.platform === "win32" ? "bounded.exe" : "bounded");
+  const wasm = join(REPO, "node_modules", "@vscode", "tree-sitter-wasm", "wasm");
+  const built = Bun.spawnSync([process.execPath, "build", entry, "--compile", "--asset", join(wasm, "tree-sitter.wasm"),
+    "--asset", join(wasm, "tree-sitter-bash.wasm"), "--outfile", binary], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+  if (built.exitCode !== 0) throw new Error(`prior release build failed: ${built.stderr.toString()}`);
+  if (process.platform !== "win32") chmodSync(binary, 0o755);
+  const currentReceipt = JSON.parse(readFileSync(join(f.dataHome, "bounded", "receipts", `v${f.version}`, target, "receipt-v1.json"), "utf8")) as { manifestSha256: string };
+  const currentManifestPath = join(f.dataHome, "bounded", "receipts", `v${f.version}`, target, "manifests", `${currentReceipt.manifestSha256}.json`);
+  const manifest = JSON.parse(readFileSync(currentManifestPath, "utf8")) as Parameters<typeof verifyReleaseArchive>[0];
+  const releaseIdentityPath = join(priorRelease, "release.json");
+  const identity = JSON.parse(readFileSync(releaseIdentityPath, "utf8")) as Record<string, unknown>;
+  writeFileSync(releaseIdentityPath, `${JSON.stringify({ ...identity, version })}\n`);
+  const archive = manifest.targets[target];
+  if (archive === undefined) throw new Error("test release lacks native target");
+  const changed = {
+    ...manifest, version,
+    targets: { ...manifest.targets, [target]: {
+      ...archive,
+      archive: { ...archive.archive, name: archive.archive.name.replace(`v${f.version}`, `v${version}`) },
+      executable: { ...archive.executable, size: readFileSync(binary).byteLength, sha256: sha256(readFileSync(binary)) },
+      files: archive.files.map((file) => file.path === "release.json"
+        ? { ...file, size: readFileSync(releaseIdentityPath).byteLength, sha256: sha256(readFileSync(releaseIdentityPath)) } : file),
+    } },
+  };
+  const stable = Buffer.from(`${JSON.stringify(changed)}\n`);
+  const hash = sha256(stable);
+  const receipt = join(f.dataHome, "bounded", "receipts", `v${version}`, target);
+  mkdirSync(join(receipt, "manifests"), { recursive: true });
+  writeFileSync(join(receipt, "manifests", `${hash}.json`), stable);
+  writeFileSync(join(receipt, "receipt-v1.json"), `${JSON.stringify({ schema: "bounded-install-receipt/1", version, target, manifestSha256: hash })}\n`);
+  return { binary, version };
 }
 
 function updateJournalForCurrentProject(f: Fixture): object {
@@ -91,6 +132,12 @@ function updateJournalForCurrentProject(f: Fixture): object {
       return { path, before: state, after: state };
     }),
   };
+}
+
+interface RecoveryJournalFixture {
+  source: { kind: "standalone"; version: string };
+  targetVersion: string;
+  readonly files: { path: string; before: { content: string; mode: number }; after: { content: string; mode: number } }[];
 }
 
 test("archive-only same-version update refreshes installed hosts after semantic preflight and remains idempotent", async () => {
@@ -210,6 +257,106 @@ test("recovery refuses a linked Claude ancestor even when its target bytes match
     expect(recovered.stderr).toMatch(/link|symlink|linked/i);
     expect(existsSync(journal)).toBe(true);
     expect(readFileSync(join(outside, "settings.json"))).toEqual(outsideSettings);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("recovery restores the old host after a crash following the first host replacement", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    const oldSettings = readFileSync(settingsPath);
+    const oldLoader = readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"));
+    const generated = await import("../../hosts/claude-code/standalone-install.ts");
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, join(f.root, "interrupted-target"),
+      { recognizedPriorExecutable: realpathSync(f.binary) });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+    const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+    if (claude === undefined) throw new Error("journal lacks Claude settings");
+    claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    writeFileSync(settingsPath, prepared.value.nextBytes);
+    const journalPath = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).not.toBe(0);
+    expect(readFileSync(settingsPath)).toEqual(oldSettings);
+    expect(readFileSync(join(f.project, ".pi", "extensions", "bounded", "index.ts"))).toEqual(oldLoader);
+    expect(existsSync(journalPath)).toBe(false);
+    expect(run(f, ["check"]).exitCode).toBe(0);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("recovery keeps its marker if the recorded old Claude hook is not a valid generated set", async () => {
+  const f = await fixture();
+  try {
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"]).exitCode).toBe(0);
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    const generated = await import("../../hosts/claude-code/standalone-install.ts");
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, join(f.root, "interrupted-target"),
+      { recognizedPriorExecutable: realpathSync(f.binary) });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+    const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+    if (claude === undefined) throw new Error("journal lacks Claude settings");
+    const forged = JSON.parse(Buffer.from(claude.before.content, "base64").toString("utf8")) as {
+      hooks: Record<string, { hooks: { command: string }[] }[]>;
+    };
+    const command = forged.hooks.PreToolUse?.[0]?.hooks[0];
+    if (command === undefined) throw new Error("journal lacks old PreToolUse hook");
+    command.command += " # edited";
+    claude.before.content = Buffer.from(`${JSON.stringify(forged)}\n`).toString("base64");
+    claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    writeFileSync(settingsPath, prepared.value.nextBytes);
+    const targetSettings = readFileSync(settingsPath);
+    const journalPath = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).not.toBe(0);
+    expect(recovered.stderr).toMatch(/hook|journal|recover/i);
+    expect(existsSync(journalPath)).toBe(true);
+    expect(readFileSync(settingsPath)).toEqual(targetSettings);
+    expect(run(f, ["check"]).exitCode).not.toBe(0);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+}, 240_000);
+
+test("recovery uses the journal's previous release after a torn update has already written the target pin", async () => {
+  const f = await fixture();
+  try {
+    const prior = installPriorTestRelease(f);
+    expect(run(f, ["init", "--host", "claude-code", "--host", "pi"], prior.binary).exitCode).toBe(0);
+    const settingsPath = join(f.project, ".claude", "settings.json");
+    const loaderPath = join(f.project, ".pi", "extensions", "bounded", "index.ts");
+    const pinPath = join(f.project, ".bounded", "version.json");
+    const oldSettings = readFileSync(settingsPath);
+    const oldLoader = readFileSync(loaderPath);
+    const oldPin = readFileSync(pinPath);
+    const generated = await import("../../hosts/claude-code/standalone-install.ts");
+    const prepared = await generated.prepareStandaloneClaudeHooks(f.project, realpathSync(f.binary),
+      { recognizedPriorExecutable: realpathSync(prior.binary) });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    const journal = updateJournalForCurrentProject(f) as RecoveryJournalFixture;
+    journal.source.version = prior.version;
+    journal.targetVersion = f.version;
+    const claude = journal.files.find((file) => file.path === ".claude/settings.json");
+    const pin = journal.files.find((file) => file.path === ".bounded/version.json");
+    if (claude === undefined || pin === undefined) throw new Error("journal lacks Claude settings or pin");
+    claude.after.content = Buffer.from(prepared.value.nextBytes).toString("base64");
+    pin.after.content = Buffer.from(`${JSON.stringify({ schema: "bounded-project-version/1", version: f.version })}\n`).toString("base64");
+    writeFileSync(settingsPath, prepared.value.nextBytes);
+    writeFileSync(pinPath, Buffer.from(pin.after.content, "base64"));
+    const journalPath = join(f.project, ".bounded", "update-journal.json");
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
+    const recovered = run(f, ["update"]);
+    expect(recovered.exitCode).not.toBe(0);
+    expect(readFileSync(settingsPath)).toEqual(oldSettings);
+    expect(readFileSync(loaderPath)).toEqual(oldLoader);
+    expect(readFileSync(pinPath)).toEqual(oldPin);
+    expect(existsSync(journalPath)).toBe(false);
+    expect(run(f, ["check"], prior.binary).exitCode).toBe(0);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
 
