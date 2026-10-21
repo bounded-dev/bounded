@@ -692,6 +692,8 @@ test("a published npm installation migrates to the archive executable without ch
     });
     expect(oldRuntime.exitCode).toBe(0);
     expect(oldRuntime.stdout.toString()).toContain("loaded");
+    const oldLogPath = join(f.project, ".bounded", "log.jsonl");
+    const earlierDecisions = existsSync(oldLogPath) ? readFileSync(oldLogPath, "utf8").split("\n").filter(Boolean).length : 0;
     const oldHook = Bun.spawnSync([node, join(modules, "bounded", "dist", "hosts", "claude-code", "hook.js")], {
       cwd: f.project, stdout: "pipe", stderr: "pipe",
       stdin: new TextEncoder().encode(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write",
@@ -703,8 +705,15 @@ test("a published npm installation migrates to the archive executable without ch
     const oldDecision = JSON.parse(oldHook.stdout.toString()) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
     expect(oldDecision.hookSpecificOutput?.permissionDecision).toBe("deny");
     expect(oldDecision.hookSpecificOutput?.permissionDecisionReason).toContain("bounded.config");
-    const oldLog = readFileSync(join(f.project, ".bounded", "log.jsonl"), "utf8");
-    expect(oldLog).toContain("npm-rollback-write");
+    const oldDecisions = readFileSync(oldLogPath, "utf8").split("\n").filter(Boolean);
+    expect(oldDecisions.length).toBe(earlierDecisions + 1);
+    const recorded = JSON.parse(oldDecisions.at(-1) ?? "{}") as { event?: string; tool?: string;
+      verdict?: { kind?: string; reason?: string; pack?: string } };
+    expect(recorded.event).toBe("tool-use");
+    expect(recorded.tool).toBe("write");
+    expect(recorded.verdict?.kind).toBe("refuse");
+    expect(recorded.verdict?.reason).toContain("bounded.config");
+    expect(recorded.verdict?.pack).toBe("bounded/project");
     if (existsSync(f.managerLog)) expect(readFileSync(f.managerLog, "utf8").trim().split("\n").every((name) => name === "node")).toBe(true);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 }, 240_000);
