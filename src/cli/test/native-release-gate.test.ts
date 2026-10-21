@@ -86,3 +86,22 @@ test("assembly verifies each archive attestation from the current run and leaves
   expect(workflow).not.toMatch(/gh release upload[^\n]*--clobber/);
   expect(workflow).toMatch(/assets.*digest|digest.*assets|release.*verify/i);
 });
+
+test("release instructions distinguish the native executable gate from npm compatibility publishing", () => {
+  const guide = readFileSync(resolve(REPO, "docs/releasing.md"), "utf8");
+  const nativeStart = guide.indexOf("## Native executable release");
+  const npmStart = guide.indexOf("## npm compatibility package");
+  expect(nativeStart).toBeGreaterThan(-1);
+  expect(npmStart).toBeGreaterThan(nativeStart);
+  const nativeGuide = guide.slice(nativeStart, npmStart);
+  expect(nativeGuide).toMatch(/release-targets\.json/);
+  expect(nativeGuide).toMatch(/four.*provisional|provisional.*four/i);
+  expect(nativeGuide).toMatch(/v\*|version tag/i);
+  expect(nativeGuide).toMatch(/main.*ancestor|ancestor.*main/i);
+  expect(nativeGuide).toMatch(/macOS.*sign.*notar|sign.*notar.*macOS/is);
+  expect(nativeGuide).toMatch(/Windows.*Linux|Linux.*Windows/is);
+  expect(nativeGuide).toMatch(/attest.*draft|draft.*attest/is);
+  expect(nativeGuide).toMatch(/maintainer.*publish|publish.*maintainer/is);
+  expect(nativeGuide).toMatch(/unsigned.*smoke|smoke.*unsigned/is);
+  expect(nativeGuide).toMatch(/tag protection.*external|external.*tag protection/is);
+});
