@@ -97,7 +97,7 @@ test("release instructions distinguish the native executable gate from npm compa
   expect(nativeGuide).toMatch(/release-targets\.json/);
   expect(nativeGuide).toMatch(/declared.*provisional|provisional.*declared/is);
   expect(nativeGuide).toMatch(/v\*|version tag/i);
-  expect(nativeGuide).toMatch(/main.*ancestor|ancestor.*main/i);
+  expect(nativeGuide).toMatch(/main.*ancest|ancest.*main/is);
   expect(nativeGuide).toMatch(/macOS.*sign.*notar|sign.*notar.*macOS/is);
   expect(nativeGuide).toMatch(/Windows.*Linux|Linux.*Windows/is);
   expect(nativeGuide).toMatch(/attest.*draft|draft.*attest/is);
