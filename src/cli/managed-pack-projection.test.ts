@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as projectionModule from "./managed-pack-installer.ts";
-import * as standaloneRuntimeModule from "../standalone-runtime.ts";
+import * as discoveryModule from "./standalone-pack-discovery.ts";
 import { PackageCatalog, type PackageCatalog as CataloguedPackage } from "bounded/domain";
 import { catalogue, manifest, packageArchive, packageEntries, sha512Integrity, type TarEntry } from "./managed-pack-artifact.test-support.ts";
 
@@ -848,7 +848,7 @@ describe("managed pack type-only projection and publication", () => {
     const included = PackageCatalog.parse(catalogue("bounded", "3.3.0"));
     expect(included.ok).toBe(true);
     if (!included.ok) return;
-    const render = (standaloneRuntimeModule as unknown as { readonly renderStandalonePackDiscovery:
+    const render = (discoveryModule as unknown as { readonly renderStandalonePackDiscovery:
       (includedCatalogue: CataloguedPackage, graph: RuntimeGraph, selectedPackId?: string) => Result<string> }).renderStandalonePackDiscovery;
     const listed = render(included.value, captured.value);
     expect(listed.ok).toBe(true);
@@ -865,15 +865,32 @@ describe("managed pack type-only projection and publication", () => {
     mkdirSync(join(projectRoot, ".bounded"));
     const captured = { recheckBoundary: async (): Promise<Result<void>> => ({ ok: true, value: undefined }) };
     writeFileSync(join(projectRoot, ".bounded", "update-journal.json"), "{}\n");
-    const verifyBoundary = (standaloneRuntimeModule as unknown as { readonly verifyStandalonePackDiscoveryBoundary:
+    const verifyBoundary = (discoveryModule as unknown as { readonly verifyStandalonePackDiscoveryBoundary:
       (root: string, graph: typeof captured) => Promise<Result<void>> }).verifyStandalonePackDiscoveryBoundary;
     const verified = await verifyBoundary(projectRoot, captured);
     expect(verified.ok).toBe(false);
     if (!verified.ok) expect(verified.error).toMatch(/update.*journal|recover/i);
   });
 
+  test("offline discovery refuses an update journal written during the final managed recheck", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "bounded-discovery-update-recheck-"));
+    roots.push(projectRoot);
+    mkdirSync(join(projectRoot, ".bounded"));
+    const journal = join(projectRoot, ".bounded", "update-journal.json");
+    const captured = { recheckBoundary: async (): Promise<Result<void>> => {
+      writeFileSync(journal, "{}\n");
+      return { ok: true, value: undefined };
+    } };
+    const verifyBoundary = (discoveryModule as unknown as { readonly verifyStandalonePackDiscoveryBoundary:
+      (root: string, graph: typeof captured) => Promise<Result<void>> }).verifyStandalonePackDiscoveryBoundary;
+    const verified = await verifyBoundary(projectRoot, captured);
+    expect(verified.ok).toBe(false);
+    if (!verified.ok) expect(verified.error).toMatch(/update.*journal|recover/i);
+    expect(existsSync(journal)).toBe(true);
+  });
+
   test("offline list refuses control characters in catalogue ids and summaries", () => {
-    const render = (standaloneRuntimeModule as unknown as { readonly renderStandalonePackDiscovery:
+    const render = (discoveryModule as unknown as { readonly renderStandalonePackDiscovery:
       (includedCatalogue: CataloguedPackage, graph: RuntimeGraph | undefined) => Result<string> }).renderStandalonePackDiscovery;
     for (const [id, summary] of [["bounded/refused-tools", "First row\nforged/row\tforeign@9.9.9"],
       ["bounded/first\tforeign@9.9.9\nforged/row", "Safe summary"]] as const) {
